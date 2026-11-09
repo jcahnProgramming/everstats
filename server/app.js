@@ -14,6 +14,7 @@ import { requireSameOrigin } from './core/sameOrigin.js';
 import { APP_VERSION } from './core/version.js';
 import { createPublicRouter } from './characters/routes.js';
 import { createGuildRouter } from './guilds/routes.js';
+import { createGuildFetchRouter } from './guilds/fetchRoutes.js';
 import { createTierRouter } from './tiers/routes.js';
 import { createBadgeRouter } from './badges/routes.js';
 import { createGuildManageRouter } from './guilds/manage.js';
@@ -94,6 +95,8 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   app.use('/api', createPublicRouter({ db, limits, networkOf }));
   // Guild pages, guild boards, the guild index and search (guilds/routes.js, 0.5.0).
   app.use('/api', createGuildRouter({ db, limits, networkOf }));
+  // 0.9.0: "Fetch all members" on guild pages (guilds/fetchRoutes.js).
+  app.use('/api', createGuildFetchRouter({ db, limits, networkOf }));
   app.use('/api', createTierRouter({ db }));
   // Badges (0.7.0): badge pages, partner marks, and the player's badge settings and toasts.
   app.use('/api', createBadgeRouter({ db, limits, networkOf }));

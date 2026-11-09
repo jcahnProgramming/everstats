@@ -6,7 +6,7 @@ import { RetryableError, fetchCharacter, fetchGuildRoster } from './fetch.js';
 import { fetchItemMedia } from './items.js';
 import { fetchCollections } from '../collections/fetch.js';
 import { fetchCatalogStep } from '../collections/catalog.js';
-import { PRIORITY, claim, finish, retryLater, sweepQueue } from './queue.js';
+import { PRIORITY, PRIORITY_VALUES, claim, finish, retryLater, sweepQueue } from './queue.js';
 import { countRequests } from './stats.js';
 
 /**
@@ -15,10 +15,31 @@ import { countRequests } from './stats.js';
  * BACKGROUND_SLOTS of them: one slot is always free for a person waiting on a lookup or sign-in, and their requests
  * jump the shared budget's queue (crawler/budget.js). Every Blizzard request goes through client.request().
  *
- * Paused (admin setting crawler.paused): background items wait; lookups, sign-ins and auto-fetch still run.
+ * 0.9.0: a guild fetch's members (PRIORITY.guild) hold at most GUILD_SLOTS slots, and together with the background
+ * items still at most BACKGROUND_SLOTS: a lookup always has a slot, and the daily refresh gets every slot that frees
+ * while no guild fetch is waiting for one. (Their requests are also capped at half the budget: crawler/budget.js.)
+ *
+ * Paused (admin setting crawler.paused): background items and guild fetches wait; lookups, sign-ins and auto-fetch
+ * still run.
  */
 export const CONCURRENCY = 4;
 export const BACKGROUND_SLOTS = 3;
+export const GUILD_SLOTS = 2;
+
+/** Which priorities may take a free slot, given what is running now. → claim()'s { maxPriority, skip }. */
+export function claimable({ inFlight, paused }) {
+  const list = [...inFlight];
+  const background = list.filter((x) => x.priority >= PRIORITY.daily).length;
+  const guild = list.filter((x) => x.priority === PRIORITY.guild).length;
+  const allowed = new Set([PRIORITY.lookup, PRIORITY.auto]);
+  if (!paused && guild < GUILD_SLOTS && guild + background < BACKGROUND_SLOTS) allowed.add(PRIORITY.guild);
+  if (!paused && guild + background < BACKGROUND_SLOTS) {
+    allowed.add(PRIORITY.daily);
+    allowed.add(PRIORITY.roster);
+  }
+  const maxPriority = Math.max(...allowed);
+  return { maxPriority, skip: PRIORITY_VALUES.filter((p) => p <= maxPriority && !allowed.has(p)) };
+}
 const IDLE_MS = 250;
 const STATUS_EVERY_MS = 5000;
 const SETTINGS_EVERY_MS = 5000;
@@ -175,11 +196,9 @@ export function createCrawler({ db, fetch = globalThis.fetch, now = Date.now, sl
           lastSweep = now();
         }
         await writeStatus();
-        const background = [...inFlight.values()].filter((x) => x.priority >= PRIORITY.daily).length;
         let item = null;
         if (inFlight.size < CONCURRENCY && (await ensureSource())) {
-          const maxPriority = settings.paused || background >= BACKGROUND_SLOTS ? PRIORITY.auto : PRIORITY.roster;
-          item = await claim(db, { maxPriority });
+          item = await claim(db, claimable({ inFlight: inFlight.values(), paused: settings.paused }));
         }
         if (item) runItem(item);
         else await sleep(IDLE_MS);

@@ -100,6 +100,18 @@ export const BLIZZARD = [
     sweep: async (q, cutoff) => n(await q.query("DELETE FROM crawl_queue WHERE enqueued_at < $1 AND state <> 'running' RETURNING 1", [cutoff])),
   },
   {
+    // 0.9.0: a guild fetch's work list (character ids and slugs from the roster Blizzard sent). Deleted when the fetch
+    // ends (guilds/fetchAll.js); this sweep only catches one left behind.
+    table: 'guild_fetch_members', holds: 'A guild fetch’s work list: roster members’ ids and slugs', fetched: 'listed_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM guild_fetch_members WHERE listed_at < $1 RETURNING 1', [cutoff])),
+  },
+  {
+    // 0.9.0: each "Fetch all members": state, times and counts read from Blizzard's roster (members, tracked, under 10).
+    // Only the last one per guild matters (its cooldown is hours), so the whole row goes with the window.
+    table: 'guild_fetches', holds: 'Guild fetches: when, state, and counts from the roster', fetched: 'requested_at',
+    sweep: async (q, cutoff) => n(await q.query("DELETE FROM guild_fetches WHERE requested_at < $1 AND state NOT IN ('queued', 'running') RETURNING 1", [cutoff])),
+  },
+  {
     // 0.5.0. Derived from members' values; rebuilt at least every 6 hours (stats/guildTotals.js), so a row this old
     // belongs to a guild nobody rebuilds any more.
     table: 'guild_totals', holds: 'Guild totals and averages per statistic (derived from members’ values and gains)', fetched: 'computed_at',
@@ -328,4 +340,6 @@ export const OLDEST = [
   ['account_character_checks', 'SELECT min(checked_at) AS t FROM account_character_checks'],
   ['discovery_runs', 'SELECT min(requested_at) AS t FROM discovery_runs'],
   ['crawl_queue', 'SELECT min(enqueued_at) AS t FROM crawl_queue'],
+  ['guild_fetches', 'SELECT min(requested_at) AS t FROM guild_fetches'],
+  ['guild_fetch_members', 'SELECT min(listed_at) AS t FROM guild_fetch_members'],
 ];

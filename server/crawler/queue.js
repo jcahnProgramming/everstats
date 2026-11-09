@@ -2,14 +2,22 @@
  * The crawl queue (crawl_queue). Web and worker both enqueue; only the worker claims and runs items.
  *
  *   PRIORITY.lookup 1   a person waiting: a character search, a sign-in
- *   PRIORITY.auto   2   characters found on a Battle.net account at sign-in
- *   PRIORITY.daily  3   the daily refresh of every tracked character
- *   PRIORITY.roster 4   guild-roster expansion
+ *   PRIORITY.guild  2   0.9.0: members of a guild someone asked to fetch whole ("Fetch all members", guilds/fetchAll.js).
+ *                       Always behind a lookup; never more than GUILD_SLOTS crawler slots (crawler/service.js) or
+ *                       BUDGET_SHARES of the request budget (crawler/budget.js), so the daily refresh keeps moving.
+ *   PRIORITY.auto   3   characters found on a Battle.net account at sign-in
+ *   PRIORITY.daily  4   the daily refresh of every tracked character
+ *   PRIORITY.roster 5   guild-roster expansion
+ *
+ * Code uses the NAMES only: 0.9.0 renumbered them (migration 021 moved queued rows along).
  *
  * One pending item per (kind, key): enqueueing it again raises its priority (and 'full' beats 'check'), never adds a
  * second. Finished items stay an hour (so a waiting lookup can read its outcome), then sweepQueue deletes them.
  */
-export const PRIORITY = Object.freeze({ lookup: 1, auto: 2, daily: 3, roster: 4 });
+export const PRIORITY = Object.freeze({ lookup: 1, guild: 2, auto: 3, daily: 4, roster: 5 });
+export const PRIORITY_VALUES = Object.freeze(Object.values(PRIORITY).sort((a, b) => a - b));
+/** The most of the request budget a priority may use (crawler/budget.js): a guild fetch never takes more than half. */
+export const BUDGET_SHARES = Object.freeze({ [PRIORITY.guild]: 0.5 });
 export const FINISHED_KEEP_MS = 60 * 60 * 1000;
 export const STALE_RUNNING_MS = 5 * 60 * 1000;
 
@@ -47,14 +55,15 @@ export async function enqueueMany(q, list) {
   return rows.length;
 }
 
-/** Claims the most urgent due item with priority ≤ maxPriority, or null. */
-export async function claim(q, { maxPriority = 4 } = {}) {
+/** Claims the most urgent due item with priority ≤ maxPriority and not one of `skip`, or null. */
+export async function claim(q, { maxPriority = PRIORITY.roster, skip = [] } = {}) {
   return q.one(
     `UPDATE crawl_queue SET state = 'running', started_at = now(), attempts = attempts + 1
       WHERE id = (SELECT id FROM crawl_queue WHERE state = 'queued' AND not_before <= now() AND priority <= $1
+                     AND NOT (priority = ANY($2::smallint[]))
                    ORDER BY priority, not_before, id LIMIT 1 FOR UPDATE SKIP LOCKED)
       RETURNING *`,
-    [maxPriority],
+    [maxPriority, skip],
   );
 }
 
@@ -96,7 +105,7 @@ export async function waitFor(q, id, { timeoutMs = 20_000, pollMs = 150, now = D
 /** Queue depth by priority, for the admin page. */
 export async function queueDepth(q) {
   const rows = await q.query("SELECT priority, state, count(*)::int AS n FROM crawl_queue WHERE state IN ('queued', 'running') GROUP BY priority, state LIMIT 20");
-  const out = { 1: { queued: 0, running: 0 }, 2: { queued: 0, running: 0 }, 3: { queued: 0, running: 0 }, 4: { queued: 0, running: 0 } };
-  for (const r of rows) out[r.priority][r.state] = r.n;
+  const out = Object.fromEntries(PRIORITY_VALUES.map((p) => [p, { queued: 0, running: 0 }]));
+  for (const r of rows) if (out[r.priority]) out[r.priority][r.state] = r.n;
   return out;
 }

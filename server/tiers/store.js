@@ -276,7 +276,8 @@ export async function dueReason(db, { now = Date.now } = {}) {
   if (crossed) return { reasons: ['a ruleset crossed the minimum'] };
   // After the daily refresh: nothing of it left in the queue, and characters fetched since the last grading.
   if (age >= AFTER_REFRESH_MIN_MS) {
-    const busy = await db.one("SELECT 1 AS x FROM crawl_queue WHERE state IN ('queued', 'running') AND priority = 3 LIMIT 1");
+    const { PRIORITY } = await import('../crawler/queue.js');
+    const busy = await db.one("SELECT 1 AS x FROM crawl_queue WHERE state IN ('queued', 'running') AND priority = $1 LIMIT 1", [PRIORITY.daily]);
     const fetched = await db.one('SELECT 1 AS x FROM characters WHERE stats_fetched_at > $1 LIMIT 1', [last.finished_at]);
     if (!busy && fetched) return { reasons: ['after the daily refresh'] };
   }

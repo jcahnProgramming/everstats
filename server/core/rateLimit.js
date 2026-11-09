@@ -100,6 +100,11 @@ export function createLimits({ now = Date.now } = {}) {
     // cards.maxConcurrent at once and refuses a full queue (cards/render.js).
     cardRendersByNetwork: createLimiter({ limit: 40, windowMs: FIFTEEN_MINUTES, now }),
     cardRendersByAccount: createLimiter({ limit: 60, windowMs: FIFTEEN_MINUTES, now }),
+    // 0.9.0: "Fetch all members" (guilds/fetchAll.js). Reading the roster is a look-up (the `lookups` limit above, per
+    // network); starting a fetch counts here: 10 per network AND, signed in, 10 per account per hour. Signed-out
+    // visitors may start one too. On top: one live fetch per guild, a cooldown per guild, a site-wide cap.
+    guildFetchesByNetwork: createLimiter({ limit: 10, windowMs: 4 * FIFTEEN_MINUTES, now }),
+    guildFetchesByAccount: createLimiter({ limit: 10, windowMs: 4 * FIFTEEN_MINUTES, now }),
   };
 }
 

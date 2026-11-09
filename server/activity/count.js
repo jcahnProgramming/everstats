@@ -17,6 +17,8 @@ export const ACTIVITY_LABELS = Object.freeze({
   'search.page': 'Search page',
   'guild.view': 'Guild page views',
   'guild.lookup': 'Guild pages that asked Blizzard',
+  'guild.fetch': 'Guild fetches started',
+  'guild.fetch.members': 'Members queued by guild fetches',
 });
 export const ACTIVITY_KINDS = Object.freeze({
   'character.search': 'Character searches from the search box or the home page (the character page they opened)',
@@ -26,6 +28,8 @@ export const ACTIVITY_KINDS = Object.freeze({
   'search.page': 'Name searches on the search page (characters and guilds)',
   'guild.view': 'Guild page views',
   'guild.lookup': 'Guild pages that asked Blizzard (a guild Everstats hadn’t fetched yet)',
+  'guild.fetch': '“Fetch all members” pressed and started on a guild page (0.9.0; counted from that release)',
+  'guild.fetch.members': 'Untracked level 10+ members those guild fetches queued for the crawler (0.9.0)',
 });
 
 /** A network the look-up limiter is refusing right now: treated as automated, not counted. */

@@ -14,6 +14,7 @@ import { PlayersSection, ReservedSection } from './PlayersSection.jsx';
 import { RetentionSection } from './RetentionSection.jsx';
 import { ActivitySection } from './ActivitySection.jsx';
 import { CardsSection } from './CardsSection.jsx';
+import { PRIORITY, PRIORITY_VALUES } from '../../../server/crawler/queue.js';
 
 /**
  * The admin area (design/v1/pages/admin). Not linked from anywhere. Without an admin session, /admin sends the browser
@@ -322,7 +323,14 @@ function IntegerSetting({ setting: s, onSaved }) {
   );
 }
 
-const PRIORITY_NAMES = { 1: 'Someone waiting (lookups, sign-ins)', 2: 'Auto-fetch after sign-in', 3: 'Daily refresh', 4: 'Guild rosters' };
+// The crawl priorities by name (server/crawler/queue.js; 0.9.0 added guild fetches between lookups and auto-fetch).
+const PRIORITY_NAMES = {
+  [PRIORITY.lookup]: 'Someone waiting (lookups, sign-ins)',
+  [PRIORITY.guild]: 'Guild fetches (Fetch all members)',
+  [PRIORITY.auto]: 'Auto-fetch after sign-in',
+  [PRIORITY.daily]: 'Daily refresh',
+  [PRIORITY.roster]: 'Guild rosters',
+};
 
 function CrawlerSection({ crawler, settings, onSaved, onRefresh }) {
   const worker = crawler.workers[0];
@@ -359,8 +367,8 @@ function CrawlerSection({ crawler, settings, onSaved, onRefresh }) {
             <table className="tbl">
               <thead><tr><th scope="col">Queue</th><th scope="col" className="r">Waiting</th><th scope="col" className="r">Running</th></tr></thead>
               <tbody>
-                {[1, 2, 3, 4].map((p) => (
-                  <tr key={p}><td>{p} · {PRIORITY_NAMES[p]}</td><td className="r">{formatNumber(crawler.queue[p].queued)}</td><td className="r">{formatNumber(crawler.queue[p].running)}</td></tr>
+                {PRIORITY_VALUES.map((p) => (
+                  <tr key={p}><td>{p} · {PRIORITY_NAMES[p]}</td><td className="r">{formatNumber(crawler.queue[p]?.queued ?? 0)}</td><td className="r">{formatNumber(crawler.queue[p]?.running ?? 0)}</td></tr>
                 ))}
               </tbody>
             </table>

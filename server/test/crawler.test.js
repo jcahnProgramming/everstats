@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { startApp } from './helpers.js';
+import { PRIORITY } from '../crawler/queue.js';
 
 // A fake Blizzard + Battle.net, shaped like the responses discovery runs 1 and 2 stored. Every name here is a test
 // fixture, never shipped data. Requests are counted per path so the tests can measure what each flow costs.
@@ -122,12 +123,12 @@ test('the daily check is one request when the character has not logged in since,
   const { fetchCharacter } = await import('../crawler/fetch.js');
   const ctx = { db: t.db, client: crawler.client };
   let mark = calls.length;
-  assert.equal(await fetchCharacter(ctx, { key: 'alpha-fixture', priority: 3, mode: 'check' }), 'unchanged');
+  assert.equal(await fetchCharacter(ctx, { key: 'alpha-fixture', priority: PRIORITY.daily, mode: 'check' }), 'unchanged');
   assert.equal(countSince(mark), 1);
   world.characters.get('alpha-fixture').login += 60_000;
   world.characters.get('alpha-fixture').stats = STATS(4, 6, 950);
   mark = calls.length;
-  assert.equal(await fetchCharacter(ctx, { key: 'alpha-fixture', priority: 3, mode: 'check' }), 'fetched');
+  assert.equal(await fetchCharacter(ctx, { key: 'alpha-fixture', priority: PRIORITY.daily, mode: 'check' }), 'fetched');
   assert.equal(countSince(mark), 5);
   const row = await t.db.one('SELECT last_checked_at, last_fetched_at FROM characters WHERE id = 101');
   assert.ok(row.last_checked_at && row.last_fetched_at);
@@ -213,7 +214,7 @@ test('weekly boards say "collecting" until a whole period of snapshots exists, t
   world.characters.get('beta-fixture').stats = STATS(0, 9, 175);
   world.characters.get('beta-fixture').login += 1;
   const { fetchCharacter } = await import('../crawler/fetch.js');
-  await fetchCharacter({ db: t.db, client: crawler.client }, { key: 'beta-fixture', priority: 3, mode: 'check' });
+  await fetchCharacter({ db: t.db, client: crawler.client }, { key: 'beta-fixture', priority: PRIORITY.daily, mode: 'check' });
   const open = (await t.client().get('/api/leaderboards/2/107?period=week')).json;
   assert.equal(open.collecting, false);
   // Beta gained 75 since its first snapshot this week; Alpha 50 (its 900 → 950 refresh was this week too).
@@ -366,9 +367,9 @@ test('the budget serves a waiting person before queued background requests, and 
   const timers = [];
   const budget = createBudget({ perSecond: 1, now: () => clock, setTimer: (fn, ms) => timers.push({ fn, at: clock + ms }) });
   const order = [];
-  budget.take(4).then(() => order.push('first background'));
-  for (let i = 0; i < 3; i++) budget.take(4).then(() => order.push(`background ${i}`));
-  budget.take(1).then(() => order.push('lookup'));
+  budget.take(PRIORITY.roster).then(() => order.push('first background'));
+  for (let i = 0; i < 3; i++) budget.take(PRIORITY.roster).then(() => order.push(`background ${i}`));
+  budget.take(PRIORITY.lookup).then(() => order.push('lookup'));
   for (let i = 0; i < 4; i++) {
     await new Promise((r) => setImmediate(r));
     const tm = timers.shift();

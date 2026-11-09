@@ -1577,6 +1577,61 @@ export const migrations = [
     },
   },
   {
+    // 0.9.0: "Fetch all members" on guild pages (guilds/fetchAll.js). A new crawl priority between a person waiting and
+    // auto-fetch: lookup 1 · guild 2 · auto 3 · daily 4 · roster 5. Queued items move along with their names.
+    //   guild_fetches        one per press: the roster read (step 1), then queued / running / done, with counts only.
+    //   guild_fetch_members  the work list: each untracked level-10+ member's id and slug (from the roster Blizzard just
+    //                        sent; guild_roster keeps no names), fed to the crawler a batch at a time and deleted when
+    //                        the fetch ends. Both are Blizzard-derived and swept with the window (retention/registry.js).
+    id: '021_guild_fetch',
+    async up(q) {
+      await q.query(`
+        ALTER TABLE crawl_queue DROP CONSTRAINT IF EXISTS crawl_queue_priority_check;
+        UPDATE crawl_queue SET priority = priority + 1 WHERE priority >= 2;
+        ALTER TABLE crawl_queue ADD CONSTRAINT crawl_queue_priority_check CHECK (priority BETWEEN 1 AND 5);
+
+        CREATE TABLE guild_fetches (
+          id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          guild_id        bigint,
+          slug            text NOT NULL CHECK (length(slug) BETWEEN 1 AND 120),
+          state           text NOT NULL CHECK (state IN ('roster', 'ready', 'queued', 'running', 'done', 'failed', 'expired')),
+          requested_at    timestamptz NOT NULL DEFAULT now(),
+          roster_at       timestamptz,
+          queued_at       timestamptz,
+          started_at      timestamptz,
+          finished_at     timestamptz,
+          roster_members  integer,
+          tracked_before  integer,
+          to_fetch        integer,
+          under_ten       integer,
+          fetched         integer NOT NULL DEFAULT 0,
+          not_found       integer NOT NULL DEFAULT 0,
+          failed          integer NOT NULL DEFAULT 0,
+          added           integer,
+          problem         text CHECK (length(problem) <= 200)
+        );
+        CREATE UNIQUE INDEX guild_fetches_live ON guild_fetches (slug) WHERE state IN ('roster', 'ready', 'queued', 'running');
+        CREATE INDEX guild_fetches_guild_time ON guild_fetches (guild_id, requested_at);
+        CREATE INDEX guild_fetches_state ON guild_fetches (state, queued_at) WHERE state IN ('roster', 'ready', 'queued', 'running');
+        CREATE INDEX guild_fetches_requested ON guild_fetches (requested_at);
+
+        CREATE TABLE guild_fetch_members (
+          fetch_id      bigint NOT NULL REFERENCES guild_fetches (id) ON DELETE CASCADE,
+          character_id  bigint NOT NULL,
+          slug          text NOT NULL CHECK (length(slug) BETWEEN 1 AND 200),
+          state         text NOT NULL DEFAULT 'waiting' CHECK (state IN ('waiting', 'queued', 'done')),
+          crawl_id      bigint,
+          outcome       text CHECK (length(outcome) <= 200),
+          listed_at     timestamptz NOT NULL DEFAULT now(),
+          done_at       timestamptz,
+          PRIMARY KEY (fetch_id, character_id)
+        );
+        CREATE INDEX guild_fetch_members_state ON guild_fetch_members (fetch_id, state);
+        CREATE INDEX guild_fetch_members_listed ON guild_fetch_members (listed_at);
+      `);
+    },
+  },
+  {
     // 0.9.0: Collections (server/collections/) and opt-in gold (server/collections/gold.js). Shapes follow the 0.8.3
     // endpoint probe (run #4's stored responses). Every table here is classified in retention/registry.js.
     //   statistics.derived     the registry key of a statistic Everstats COUNTS from Blizzard's collections (mounts

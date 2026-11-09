@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { startApp } from './helpers.js';
+import { PRIORITY } from '../crawler/queue.js';
 
 // A fake Blizzard shaped like the 0.8.3 probe's stored responses (run #4). Every name and number here is a test
 // fixture, never shipped data. Requests are counted per path so the tests can measure what each flow costs.
@@ -146,9 +147,9 @@ const ctx = () => ({ db: t.db, client });
 const since = (mark, re) => calls.slice(mark).filter((p) => re.test(p)).length;
 async function fetchChar(slug) {
   const { fetchCharacter } = await import('../crawler/fetch.js');
-  return fetchCharacter(ctx(), { key: slug, priority: 1, mode: 'full' });
+  return fetchCharacter(ctx(), { key: slug, priority: PRIORITY.lookup, mode: 'full' });
 }
-async function fetchColl(slug, priority = 3) {
+async function fetchColl(slug, priority = PRIORITY.daily) {
   const { fetchCollections } = await import('../collections/fetch.js');
   return fetchCollections(ctx(), { key: slug, priority, attempts: 1 });
 }
@@ -172,7 +173,7 @@ test('a collections refresh is 13 requests (14 for a hunter), stores parsed list
   await fetchChar('alpha-coll');
   await fetchChar('hunt-coll');
   // A full fetch queues collections behind it (daily priority for a lookup's fetch).
-  assert.ok(await t.db.one("SELECT 1 AS x FROM crawl_queue WHERE kind = 'collections' AND key = 'alpha-coll' AND priority = 3"));
+  assert.ok(await t.db.one("SELECT 1 AS x FROM crawl_queue WHERE kind = 'collections' AND key = 'alpha-coll' AND priority = $1", [PRIORITY.daily]));
   let mark = calls.length;
   assert.match(await fetchColl('alpha-coll'), /13 of 13 returned/);
   assert.equal(since(mark, COLLECTION_RE), 13);
@@ -309,7 +310,7 @@ test('opening the tab on stale data queues a lookup-priority refresh; fresh data
   await t.db.query("UPDATE characters SET collections_fetched_at = now() - interval '2 days' WHERE id = 7001");
   const stale = (await t.client({ ip: '198.51.100.41' }).get('/api/characters/alpha-coll/collections')).json;
   assert.equal(stale.refreshing, true);
-  assert.ok(await t.db.one("SELECT 1 AS x FROM crawl_queue WHERE kind = 'collections' AND key = 'alpha-coll' AND priority = 1"));
+  assert.ok(await t.db.one("SELECT 1 AS x FROM crawl_queue WHERE kind = 'collections' AND key = 'alpha-coll' AND priority = $1", [PRIORITY.lookup]));
 });
 
 test('collection counts are listed in Discovery with a "not graded" suggestion, and count toward no tier', async () => {
@@ -340,7 +341,7 @@ test('gold: read with the owner\'s token at sign-in; position, bind position and
   await bnetSignIn(owner, 'goldie');
   assert.equal(since(mark, /protected-character/), 2);
   // Collections were queued at sign-in priority.
-  assert.equal((await t.db.one("SELECT count(*)::int AS n FROM crawl_queue WHERE kind = 'collections' AND priority = 2")).n, 2);
+  assert.equal((await t.db.one("SELECT count(*)::int AS n FROM crawl_queue WHERE kind = 'collections' AND priority = $1", [PRIORITY.auto])).n, 2);
   const g = await t.db.one('SELECT money, gold_gained, gold_lost, item_value_gained FROM character_gold WHERE character_id = 7101');
   assert.deepEqual({ ...g }, { money: 34046, gold_gained: 167982, gold_lost: 133936, item_value_gained: 139827 });
 

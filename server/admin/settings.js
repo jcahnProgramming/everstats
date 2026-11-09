@@ -157,7 +157,7 @@ export const SETTINGS = [
     key: 'crawler.paused',
     section: 'crawler',
     label: 'Pause the background crawl',
-    help: 'Stops the daily refresh and roster expansion. Lookups, sign-ins and their auto-fetch still run, because a person is waiting on them.',
+    help: 'Stops the daily refresh, roster expansion and “Fetch all members” guild fetches (they wait and resume). Lookups, sign-ins and their auto-fetch still run, because a person is waiting on them.',
     type: 'boolean',
     default: false,
   },
@@ -168,6 +168,27 @@ export const SETTINGS = [
     help: 'Guild profiles and rosters are read once a day either way (guild pages need them). On: also start tracking every roster member of level 10 and up.',
     type: 'boolean',
     default: true,
+  },
+  {
+    // 0.9.0: "Fetch all members" on guild pages (guilds/fetchAll.js).
+    key: 'guilds.fetchConcurrent',
+    section: 'crawler',
+    label: 'Guild fetches that run at once, site-wide',
+    help: 'How many “Fetch all members” guild fetches the crawler works on at the same time. The rest wait their turn and their pages say how many guilds are ahead. Either way a guild fetch never uses more than half the request budget.',
+    type: 'integer',
+    min: 1,
+    max: 10,
+    default: 2,
+  },
+  {
+    key: 'guilds.fetchCooldownHours',
+    section: 'crawler',
+    label: 'Hours before a guild can be fetched whole again',
+    help: 'After a “Fetch all members” finishes, the button stays unavailable for that guild this long and says when it opens again. Members are still refreshed daily either way.',
+    type: 'integer',
+    min: 1,
+    max: 168,
+    default: 6,
   },
   {
     // Blizzard's 30-day rule (retention/policy.js). Above 30 only with a written-permission note, which is logged.
