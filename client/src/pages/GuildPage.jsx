@@ -14,6 +14,7 @@ import { GuildLinksArea, ManageGuild } from './GuildManage.jsx';
 import { GuildBadgeArea, GuildBadgeToasts, VerifiedMark } from '../guildBadges/GuildBadges.jsx';
 import { ShareButton } from '../share/ShareButtons.jsx';
 import { SignInNudge } from '../chrome/SignInNudge.jsx';
+import { GuildFetch } from './GuildFetch.jsx';
 
 /**
  * A guild (design/v1/pages/guild), 0.5.0. GET /api/guilds/:slug answers from what Everstats stored; a guild it has
@@ -169,6 +170,10 @@ function GuildSheet({ data, onReload }) {
           <span>Everstats knows this guild from {c.tracked === 1 ? 'one member’s' : 'its members’'} profile{c.tracked === 1 ? '' : 's'}. Its roster is read once a day; the member counts fill in when it is.</span>
         </EmptyState>
       )}
+
+      {/* 0.9.0: pull every member in now (reads the roster first and says what it will cost). */}
+      <GuildFetch slug={g.slug} onDone={onReload} />
+
 
       {/* 0.7.0: the guild's own Links area (only when something is set) and, for its Guild Master and officers only,
           the Manage guild panel. */}

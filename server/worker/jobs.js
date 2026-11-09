@@ -236,6 +236,30 @@ export function guildTotalsJob() {
 }
 
 /**
+ * 0.9.0: "Fetch all members" (guilds/fetchAll.js). Every worker tick: start queued guild fetches up to the site-wide cap
+ * (guilds.fetchConcurrent), hand each running fetch's next members to the crawler a batch at a time, and finish the ones
+ * whose members are all done (guild totals, badges and a tier grading follow). Only database work; quick.
+ */
+export function guildFetchJob() {
+  let last = null;
+  return {
+    id: 'guild-fetch',
+    label: 'Guild fetches (Fetch all members)',
+    everyMs: 10 * 1000, // i.e. every tick
+    async run({ db }) {
+      const { runGuildFetches } = await import('../guilds/fetchAll.js');
+      try {
+        last = await runGuildFetches(db);
+      } catch (err) {
+        console.error(`[guild-fetch] failed: ${err.code ?? err.name}`);
+        last = 'Failed this pass (logged)';
+      }
+      return { summary: last };
+    },
+  };
+}
+
+/**
  * 0.6.0: the full tier grading (tiers/store.js). Every 15 seconds, checks whether one is due: a decision or tier
  * setting changed and has been quiet for 30 s (so a burst of decisions makes one grading), the daily refresh has
  * drained, a ruleset crossed the minimum, or the last one is 6 hours old. Runs in the background; reads stored values
@@ -351,4 +375,4 @@ export function guildBadgesJob() {
   };
 }
 
-export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob(), tiersJob(), badgesJob(), guildBadgesJob()]);
+export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob(), guildFetchJob(), tiersJob(), badgesJob(), guildBadgesJob()]);

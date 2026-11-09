@@ -131,7 +131,7 @@ async function gradeQuietly(db, characterId) {
   }
 }
 
-const sourceOf = (item) => (item.priority === PRIORITY.roster ? 'guild' : item.priority === PRIORITY.auto ? 'account' : 'lookup');
+const sourceOf = (item) => (item.priority === PRIORITY.roster || item.priority === PRIORITY.guild ? 'guild' : item.priority === PRIORITY.auto ? 'account' : 'lookup');
 
 /** Gear and attributes are secondary: a failure there keeps the old ones rather than failing the whole fetch. */
 const optional = (r) => (r.status === 200 && r.json ? r.json : null);
@@ -171,6 +171,7 @@ export async function fetchGuildRoster({ db, client }, item) {
   const pj = okOr(prof, 'guild profile');
   if (!pj) {
     await db.query("UPDATE guilds SET profile_state = 'not_found', roster_checked_at = now() WHERE slug = $1", [slug]);
+    await noteFetchAll(db, { key: slug, members: null, problem: 'Blizzard serves no guild at this address.' });
     return 'not_found';
   }
   const gp = parseGuildProfile(pj);
@@ -181,10 +182,13 @@ export async function fetchGuildRoster({ db, client }, item) {
   const json = okOr(r, 'guild roster');
   if (!json) {
     await db.query('UPDATE guilds SET roster_checked_at = now() WHERE id = $1', [gp.id]);
+    await noteFetchAll(db, { key: slug, guild: gp, members: null, problem: 'Blizzard sent no roster for this guild.' });
     return 'profile only: no roster';
   }
   const members = parseRoster(json);
   await db.tx((q) => storeRoster(q, gp.id, members));
+  // 0.9.0: a "Fetch all members" waiting on this roster gets its counts and its work list (guilds/fetchAll.js).
+  await noteFetchAll(db, { key: slug, guild: gp, members });
   // 0.7.0: who controls the guild's Everstats page follows the roster (a handover is logged), and the rank-0
   // character's owner gets Guild Master. Neither can fail the roster.
   try {
@@ -200,6 +204,16 @@ export async function fetchGuildRoster({ db, client }, item) {
   const fresh = eligible.filter((m) => !known.has(m.id));
   await enqueueMany(db, fresh.map((m) => ({ kind: 'character', key: m.slug, priority: PRIORITY.roster })));
   return `roster: ${members.length} members, ${fresh.length} new of level ${MIN_TRACKED_LEVEL}+`;
+}
+
+/** A guild fetch's step 1 never fails the roster it waits on. */
+async function noteFetchAll(db, args) {
+  try {
+    const { noteRoster } = await import('../guilds/fetchAll.js');
+    await db.tx((q) => noteRoster(q, args));
+  } catch (err) {
+    console.error(`[guild-fetch] roster note failed: ${err.code ?? err.name}`);
+  }
 }
 
 /** The ruleset index and each ruleset it links to (dynamic namespace). Rulesets are never typed in. */

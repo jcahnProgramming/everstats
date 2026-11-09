@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { startApp } from './helpers.js';
+import { PRIORITY } from '../crawler/queue.js';
 
 // A fake Blizzard, shaped like the guild responses discovery runs 1 and 2 stored (guild profile: id, name, slug,
 // faction, ruleset, member_count, created_timestamp; roster: members[].character{ id, name, surname, slug, level },
@@ -104,10 +105,10 @@ test('a guild costs two requests a day: its profile and its roster; ranks are nu
   addCharacter('jo-fixture', { id: 2002, level: 40, guild: 'small-guild', deaths: 40, killed: 5000 });
 
   const { fetchCharacter, fetchGuildRoster } = await import('../crawler/fetch.js');
-  for (const slug of [...Object.keys(deaths), 'ivy-fixture', 'jo-fixture']) assert.equal(await fetchCharacter(ctx(), { key: slug, priority: 1, mode: 'full' }), 'fetched');
+  for (const slug of [...Object.keys(deaths), 'ivy-fixture', 'jo-fixture']) assert.equal(await fetchCharacter(ctx(), { key: slug, priority: PRIORITY.lookup, mode: 'full' }), 'fetched');
 
   const mark = calls.length;
-  const outcome = await fetchGuildRoster(ctx(), { key: 'big-guild', priority: 4 });
+  const outcome = await fetchGuildRoster(ctx(), { key: 'big-guild', priority: PRIORITY.roster });
   assert.match(outcome, /^roster: 8 members/);
   assert.equal(countSince(mark, /\/data\/wow\/guild\//), 2);
   const g = await t.db.one('SELECT name, member_count, created_at_blizzard, roster_members, profile_state FROM guilds WHERE id = 900');
@@ -118,7 +119,7 @@ test('a guild costs two requests a day: its profile and its roster; ranks are nu
   const cols = (await t.db.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'guild_roster'")).map((r) => r.column_name);
   assert.ok(!cols.includes('name') && !cols.includes('slug'), 'roster rows never hold a name');
   assert.equal((await t.db.one('SELECT rank FROM guild_roster WHERE character_id = 1001')).rank, 0);
-  await fetchGuildRoster(ctx(), { key: 'small-guild', priority: 4 });
+  await fetchGuildRoster(ctx(), { key: 'small-guild', priority: PRIORITY.roster });
   // The level-30 member nobody fetched yet was queued from the roster; the level-5 one wasn't.
   const queued = (await t.db.query("SELECT key FROM crawl_queue WHERE kind = 'character' AND state = 'queued'")).map((r) => r.key);
   assert.ok(queued.includes('hal-fixture'));
@@ -198,14 +199,14 @@ test('a member who moves takes their numbers to the new guild', async () => {
   const { fetchCharacter } = await import('../crawler/fetch.js');
   const { rebuildDueGuilds } = await import('../stats/guildTotals.js');
   world.characters.get('ed-fixture').guild = 'small-guild';
-  await fetchCharacter(ctx(), { key: 'ed-fixture', priority: 1, mode: 'full' });
+  await fetchCharacter(ctx(), { key: 'ed-fixture', priority: PRIORITY.lookup, mode: 'full' });
   await rebuildDueGuilds(t.db);
   const big = await t.db.one("SELECT total, members FROM guild_totals WHERE guild_id = 900 AND statistic_id = 60 AND period = 'overall'");
   const small = await t.db.one("SELECT total, members FROM guild_totals WHERE guild_id = 901 AND statistic_id = 60 AND period = 'overall'");
   assert.deepEqual([big.total, big.members], [27, 5]);
   assert.deepEqual([small.total, small.members], [92, 3]);
   world.characters.get('ed-fixture').guild = 'big-guild';
-  await fetchCharacter(ctx(), { key: 'ed-fixture', priority: 1, mode: 'full' });
+  await fetchCharacter(ctx(), { key: 'ed-fixture', priority: PRIORITY.lookup, mode: 'full' });
   await rebuildDueGuilds(t.db);
 });
 
@@ -214,7 +215,7 @@ test('a renamed guild: its old address redirects by id', async () => {
   const old = world.guilds.get('small-guild');
   world.guilds.delete('small-guild');
   world.guilds.set('tiny-guild', { ...old, slug: 'tiny-guild', name: 'Tiny Guild' });
-  await fetchGuildRoster(ctx(), { key: 'tiny-guild', priority: 4 });
+  await fetchGuildRoster(ctx(), { key: 'tiny-guild', priority: PRIORITY.roster });
   const r = (await t.client({ ip: '198.51.100.22' }).get('/api/guilds/small-guild')).json;
   assert.deepEqual(r, { status: 'moved', slug: 'tiny-guild' });
 });
