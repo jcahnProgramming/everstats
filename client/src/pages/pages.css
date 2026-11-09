@@ -1,36 +1,34 @@
-/* Page layouts. Colours from tokens only. */
-.hero { display: flex; gap: var(--space-5); align-items: center; padding: var(--space-5) 0 var(--space-2); }
-.hero-copy { display: grid; gap: var(--space-2); max-width: 60ch; }
-.hero-copy h1 { font-size: var(--text-3xl); }
-.eyebrow { color: var(--accent-text); font-size: var(--text-sm); }
-.eyebrow a { color: inherit; }
+/* Page layouts from design/v1/pages/<page>/index.html, where the mockups set things inline (the CSP here forbids
+   style="" attributes). Only var(--es-…) values. */
 
-.search-fields { display: grid; gap: var(--space-3); grid-template-columns: 1fr 1fr auto; align-items: end; }
+/* ---------------------------------------------------------------- grid column widths (the mockups' --col) */
+.grid-auto.col-xs { --col: var(--es-size-col-min-xs); }
+.grid-auto.col-sm { --col: var(--es-size-col-min-sm); }
+.grid-auto.col-md { --col: var(--es-size-col-min-md); }
+.grid-auto.col-lg { --col: var(--es-size-col-min-lg); }
+.grid-auto.col-xl { --col: var(--es-size-col-min-xl); }
+.grid-auto.col-2xl { --col: var(--es-size-col-min-2xl); }
+.grid-auto.col-120 { --col: var(--es-space-120); }
+.grid-auto.gap-12 { gap: var(--es-space-12); }
+.grid-auto.gap-20 { gap: var(--es-space-20); }
 
-.char-name { font-size: var(--text-3xl); overflow-wrap: anywhere; }
-.char-top { display: grid; gap: var(--space-4); grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
-.hero-render { min-height: 280px; }
-.chart-frame { min-height: 200px; }
+/* A page's title block. */
+.page-head { display: flex; flex-direction: column; gap: var(--es-space-10); }
 
-.table-wrap { overflow-x: auto; border-radius: var(--radius-md); border: var(--border-w) solid var(--border); }
-.board { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-.board th { text-align: left; padding: var(--space-2) var(--space-3); background: var(--surface-2); color: var(--text-2); font-weight: 600; white-space: nowrap; border-bottom: var(--border-w) solid var(--border-strong); }
-.board td { padding: var(--space-3); border-bottom: var(--border-w) solid var(--border); }
-.board-empty { text-align: center; color: var(--text-3); }
+/* ---------------------------------------------------------------- home */
+.home-hero { gap: var(--es-space-48); padding-top: var(--es-space-88); padding-bottom: var(--es-space-72); align-items: center; }
+.home-search { padding: var(--es-space-22); }
+.home-go { flex: 1 1 var(--es-space-120); }
+.home-emblem { display: grid; place-items: center; position: relative; min-height: var(--es-size-emblem-hero); }
+.home-emblem .emblem { width: var(--es-size-emblem-hero); max-width: 100%; }
+.home-tier-card { position: absolute; right: 4%; bottom: 8%; padding: var(--es-space-10) var(--es-space-14); }
+.home-pillars { padding-bottom: var(--es-space-72); }
+.pillar { align-items: flex-start; flex-wrap: nowrap; }
+.pillar-numeral { font-size: var(--es-fs-30); color: var(--es-accent); line-height: var(--es-lh-none); }
+.home-featured { padding-bottom: var(--es-space-96); }
 
-.release-title { font-size: var(--text-lg); }
-.release-items { margin: 0; padding-left: var(--space-5); display: grid; gap: var(--space-2); color: var(--text-2); }
-
-.signin-options { display: grid; gap: var(--space-3); max-width: 420px; }
-.signin-options .btn { width: 100%; justify-content: flex-start; }
-.narrow { max-width: 560px; }
-
-@media (max-width: 720px) {
-  .hero { flex-direction: column; align-items: flex-start; gap: var(--space-3); }
-  .hero-copy h1 { font-size: var(--text-2xl); }
-  .search-fields { grid-template-columns: 1fr; }
-  .search-go { width: 100%; }
-  .char-top { grid-template-columns: 1fr; }
-  .char-name { font-size: var(--text-2xl); }
-  .hero-render { min-height: 200px; }
+@media (max-width: 719px) {
+  .home-hero { padding-top: var(--es-space-32); padding-bottom: var(--es-space-40); gap: var(--es-space-24); }
+  .home-pillars { padding-bottom: var(--es-space-40); }
+  .home-featured { padding-bottom: var(--es-space-48); }
 }
