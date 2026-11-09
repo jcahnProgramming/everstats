@@ -1,0 +1,14 @@
+# Manage guild → Badges
+
+## Regions
+Side nav (Guild profile & links · Officers · Badges). Sections: Shown on the guild page (drag, Show, Pin, progress) · Unlocked, hidden · Not yet (standing not held, closed windows).
+
+## Notes
+GM and officers only. See `../../components/manage-picker.md`. Lost state: `../../states/lost`.
+
+## Responsive
+Phone (≤719px): header stacks; pills wrap; Next unlocks become one column; Manage rows go two-line; tables scroll in their panels.
+
+Mockup `index.html` (`?theme=alliance|horde`), built on v1 (top bar, guild sheet, roster, toasts, modal, `.mapbg`) and v2-badges (popover container, player inline badges in the header and roster). Fictional data only: “The Placeholder Company”, “Order of Example”, “Unclaimed Example Guild”, “Example Guild NN”, repeated-digit numbers, `[Date]`.
+
+Screenshots: `screenshots/` — desktop 1440px and phone 390px × Forever / Alliance / Horde.

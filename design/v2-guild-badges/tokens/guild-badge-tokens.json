@@ -1,0 +1,437 @@
+{
+  "$description": "Everstats guild badge tokens \u2014 additive to v1 and v2-badges. CSS: --es-gbadge-<key>, sizes --es-<key>.",
+  "themes": {
+    "forever": {
+      "color": {
+        "gbadge-rim": {
+          "$type": "color",
+          "$value": "#04060D",
+          "$description": ""
+        },
+        "gbadge-rod": {
+          "$type": "color",
+          "$value": "#2A2118",
+          "$description": "Hanging rod (crossbar)."
+        },
+        "gbadge-rod-knob": {
+          "$type": "color",
+          "$value": "#C9B48A",
+          "$description": ""
+        },
+        "gbadge-ink": {
+          "$type": "color",
+          "$value": "#F7F1E3",
+          "$description": ""
+        },
+        "gbadge-cloth-roster": {
+          "$type": "color",
+          "$value": "#22345A",
+          "$description": ""
+        },
+        "gbadge-cloth-deeds": {
+          "$type": "color",
+          "$value": "#4A2238",
+          "$description": ""
+        },
+        "gbadge-cloth-standing": {
+          "$type": "color",
+          "$value": "#1E4038",
+          "$description": ""
+        },
+        "gbadge-cloth-heritage": {
+          "$type": "color",
+          "$value": "#433219",
+          "$description": ""
+        },
+        "gbadge-cloth-recognition": {
+          "$type": "color",
+          "$value": "#2F2763",
+          "$description": ""
+        },
+        "gbadge-cloth-forever": {
+          "$type": "color",
+          "$value": "#16255E",
+          "$description": "Level V cloth (twilight blue) for every family."
+        },
+        "gbadge-metal-1": {
+          "$type": "color",
+          "$value": "#8E959F",
+          "$description": ""
+        },
+        "gbadge-metal-2": {
+          "$type": "color",
+          "$value": "#C4874D",
+          "$description": ""
+        },
+        "gbadge-metal-3": {
+          "$type": "color",
+          "$value": "#D8DEE8",
+          "$description": ""
+        },
+        "gbadge-metal-4": {
+          "$type": "color",
+          "$value": "#E0B046",
+          "$description": ""
+        },
+        "gbadge-metal-5": {
+          "$type": "color",
+          "$value": "#F3DB9C",
+          "$description": "Level V \u201cForever\u201d metal \u2014 the Forever theme\u2019s accent-2 in every theme, so the top level always carries Forever\u2019s gold-and-white."
+        },
+        "gbadge-metal-5-glow": {
+          "$type": "color",
+          "$value": "rgba(243,219,156,0.55)",
+          "$description": ""
+        },
+        "gbadge-metal-fixed": {
+          "$type": "color",
+          "$value": "#CDB98E",
+          "$description": ""
+        },
+        "gbadge-held": {
+          "$type": "color",
+          "$value": "#5ED39B",
+          "$description": "Kept-while-held marker."
+        },
+        "gbadge-held-ink": {
+          "$type": "color",
+          "$value": "#0C2A1E",
+          "$description": ""
+        },
+        "gbadge-lost": {
+          "$type": "color",
+          "$value": "#8F9BC2",
+          "$description": ""
+        },
+        "gbadge-locked-cloth": {
+          "$type": "color",
+          "$value": "#232B45",
+          "$description": ""
+        },
+        "gbadge-locked-metal": {
+          "$type": "color",
+          "$value": "#4A5578",
+          "$description": ""
+        },
+        "gbadge-locked-ink": {
+          "$type": "color",
+          "$value": "#7380A3",
+          "$description": ""
+        },
+        "gbadge-progress": {
+          "$type": "color",
+          "$value": "#E7C068",
+          "$description": "Progress bar fill toward next level."
+        },
+        "gbadge-ribbon": {
+          "$type": "color",
+          "$value": "#F3DB9C",
+          "$description": ""
+        },
+        "gbadge-ribbon-ink": {
+          "$type": "color",
+          "$value": "#1B1505",
+          "$description": ""
+        }
+      }
+    },
+    "alliance": {
+      "color": {
+        "gbadge-rim": {
+          "$type": "color",
+          "$value": "#04060D",
+          "$description": ""
+        },
+        "gbadge-rod": {
+          "$type": "color",
+          "$value": "#2A2118",
+          "$description": "Hanging rod (crossbar)."
+        },
+        "gbadge-rod-knob": {
+          "$type": "color",
+          "$value": "#C9B48A",
+          "$description": ""
+        },
+        "gbadge-ink": {
+          "$type": "color",
+          "$value": "#F7F1E3",
+          "$description": ""
+        },
+        "gbadge-cloth-roster": {
+          "$type": "color",
+          "$value": "#22345A",
+          "$description": ""
+        },
+        "gbadge-cloth-deeds": {
+          "$type": "color",
+          "$value": "#4A2238",
+          "$description": ""
+        },
+        "gbadge-cloth-standing": {
+          "$type": "color",
+          "$value": "#1E4038",
+          "$description": ""
+        },
+        "gbadge-cloth-heritage": {
+          "$type": "color",
+          "$value": "#433219",
+          "$description": ""
+        },
+        "gbadge-cloth-recognition": {
+          "$type": "color",
+          "$value": "#2F2763",
+          "$description": ""
+        },
+        "gbadge-cloth-forever": {
+          "$type": "color",
+          "$value": "#16255E",
+          "$description": "Level V cloth (twilight blue) for every family."
+        },
+        "gbadge-metal-1": {
+          "$type": "color",
+          "$value": "#8E959F",
+          "$description": ""
+        },
+        "gbadge-metal-2": {
+          "$type": "color",
+          "$value": "#C4874D",
+          "$description": ""
+        },
+        "gbadge-metal-3": {
+          "$type": "color",
+          "$value": "#D8DEE8",
+          "$description": ""
+        },
+        "gbadge-metal-4": {
+          "$type": "color",
+          "$value": "#E0B046",
+          "$description": ""
+        },
+        "gbadge-metal-5": {
+          "$type": "color",
+          "$value": "#F3DB9C",
+          "$description": "Level V \u201cForever\u201d metal \u2014 the Forever theme\u2019s accent-2 in every theme, so the top level always carries Forever\u2019s gold-and-white."
+        },
+        "gbadge-metal-5-glow": {
+          "$type": "color",
+          "$value": "rgba(243,219,156,0.55)",
+          "$description": ""
+        },
+        "gbadge-metal-fixed": {
+          "$type": "color",
+          "$value": "#CDB98E",
+          "$description": ""
+        },
+        "gbadge-held": {
+          "$type": "color",
+          "$value": "#5ED39B",
+          "$description": "Kept-while-held marker."
+        },
+        "gbadge-held-ink": {
+          "$type": "color",
+          "$value": "#0C2A1E",
+          "$description": ""
+        },
+        "gbadge-lost": {
+          "$type": "color",
+          "$value": "#A6B4D6",
+          "$description": ""
+        },
+        "gbadge-locked-cloth": {
+          "$type": "color",
+          "$value": "#142A5E",
+          "$description": ""
+        },
+        "gbadge-locked-metal": {
+          "$type": "color",
+          "$value": "#3D5A99",
+          "$description": ""
+        },
+        "gbadge-locked-ink": {
+          "$type": "color",
+          "$value": "#8495C4",
+          "$description": ""
+        },
+        "gbadge-progress": {
+          "$type": "color",
+          "$value": "#D8AC48",
+          "$description": "Progress bar fill toward next level."
+        },
+        "gbadge-ribbon": {
+          "$type": "color",
+          "$value": "#F0D58C",
+          "$description": ""
+        },
+        "gbadge-ribbon-ink": {
+          "$type": "color",
+          "$value": "#1B1505",
+          "$description": ""
+        }
+      }
+    },
+    "horde": {
+      "color": {
+        "gbadge-rim": {
+          "$type": "color",
+          "$value": "#04060D",
+          "$description": ""
+        },
+        "gbadge-rod": {
+          "$type": "color",
+          "$value": "#2A2118",
+          "$description": "Hanging rod (crossbar)."
+        },
+        "gbadge-rod-knob": {
+          "$type": "color",
+          "$value": "#C9B48A",
+          "$description": ""
+        },
+        "gbadge-ink": {
+          "$type": "color",
+          "$value": "#F7F1E3",
+          "$description": ""
+        },
+        "gbadge-cloth-roster": {
+          "$type": "color",
+          "$value": "#22345A",
+          "$description": ""
+        },
+        "gbadge-cloth-deeds": {
+          "$type": "color",
+          "$value": "#4A2238",
+          "$description": ""
+        },
+        "gbadge-cloth-standing": {
+          "$type": "color",
+          "$value": "#1E4038",
+          "$description": ""
+        },
+        "gbadge-cloth-heritage": {
+          "$type": "color",
+          "$value": "#433219",
+          "$description": ""
+        },
+        "gbadge-cloth-recognition": {
+          "$type": "color",
+          "$value": "#2F2763",
+          "$description": ""
+        },
+        "gbadge-cloth-forever": {
+          "$type": "color",
+          "$value": "#16255E",
+          "$description": "Level V cloth (twilight blue) for every family."
+        },
+        "gbadge-metal-1": {
+          "$type": "color",
+          "$value": "#8E959F",
+          "$description": ""
+        },
+        "gbadge-metal-2": {
+          "$type": "color",
+          "$value": "#C4874D",
+          "$description": ""
+        },
+        "gbadge-metal-3": {
+          "$type": "color",
+          "$value": "#D8DEE8",
+          "$description": ""
+        },
+        "gbadge-metal-4": {
+          "$type": "color",
+          "$value": "#E0B046",
+          "$description": ""
+        },
+        "gbadge-metal-5": {
+          "$type": "color",
+          "$value": "#F3DB9C",
+          "$description": "Level V \u201cForever\u201d metal \u2014 the Forever theme\u2019s accent-2 in every theme, so the top level always carries Forever\u2019s gold-and-white."
+        },
+        "gbadge-metal-5-glow": {
+          "$type": "color",
+          "$value": "rgba(243,219,156,0.55)",
+          "$description": ""
+        },
+        "gbadge-metal-fixed": {
+          "$type": "color",
+          "$value": "#CDB98E",
+          "$description": ""
+        },
+        "gbadge-held": {
+          "$type": "color",
+          "$value": "#6CCB8A",
+          "$description": "Kept-while-held marker."
+        },
+        "gbadge-held-ink": {
+          "$type": "color",
+          "$value": "#0C2A1E",
+          "$description": ""
+        },
+        "gbadge-lost": {
+          "$type": "color",
+          "$value": "#A08D86",
+          "$description": ""
+        },
+        "gbadge-locked-cloth": {
+          "$type": "color",
+          "$value": "#2B1E1F",
+          "$description": ""
+        },
+        "gbadge-locked-metal": {
+          "$type": "color",
+          "$value": "#5C4240",
+          "$description": ""
+        },
+        "gbadge-locked-ink": {
+          "$type": "color",
+          "$value": "#9A8580",
+          "$description": ""
+        },
+        "gbadge-progress": {
+          "$type": "color",
+          "$value": "#D39650",
+          "$description": "Progress bar fill toward next level."
+        },
+        "gbadge-ribbon": {
+          "$type": "color",
+          "$value": "#E8B57A",
+          "$description": ""
+        },
+        "gbadge-ribbon-ink": {
+          "$type": "color",
+          "$value": "#1A0E05",
+          "$description": ""
+        }
+      }
+    }
+  },
+  "shared": {
+    "size-gbadge-pill": {
+      "$type": "dimension",
+      "$value": "36px"
+    },
+    "size-gbadge-pill-sm": {
+      "$type": "dimension",
+      "$value": "26px"
+    },
+    "size-gbadge-pill-icon": {
+      "$type": "dimension",
+      "$value": "28px"
+    },
+    "size-gbadge-pill-icon-sm": {
+      "$type": "dimension",
+      "$value": "18px"
+    },
+    "size-gbadge-unlock-card": {
+      "$type": "dimension",
+      "$value": "300px"
+    },
+    "gbadge-row-max": {
+      "$type": "number",
+      "$value": "6"
+    },
+    "gbadge-ribbon-days": {
+      "$type": "number",
+      "$value": "7"
+    }
+  }
+}
