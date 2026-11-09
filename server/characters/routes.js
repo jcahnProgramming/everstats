@@ -135,6 +135,11 @@ export function createPublicRouter({ db, limits, networkOf }) {
     if (!who?.account) {
       return res.status(404).json({ error: 'No such player.', code: who?.placeholder ? 'placeholder' : 'no_user' });
     }
+    // 0.8.2: a banned account has no public profile while the ban lasts. The same neutral answer for everyone; it never
+    // says why. (Its characters stay on their own pages and the boards, as Blizzard data.)
+    if ((await db.one('SELECT everstats_banned($1) AS b', [who.account])).b) {
+      return res.status(404).json({ error: 'This profile isn’t available.', code: 'unavailable' });
+    }
     const a = await db.one(
       'SELECT id, created_at, username, display_name, beta_member, beta_since, featured_character_id, profile_bio, profile_show_pins FROM accounts WHERE id = $1',
       [who.account],

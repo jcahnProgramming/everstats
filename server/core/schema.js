@@ -1452,4 +1452,114 @@ export const migrations = [
       );
     },
   },
+  {
+    // 0.8.2: moderation (server/moderation/). All of it is Everstats' own data.
+    //   accounts.role         'player' | 'moderator': the PERMISSION (the Everstats Moderator badge stays cosmetic). Inert
+    //                         while the admin setting moderation.moderators is off.
+    //   account_bans          one row per ban: temporary (ends_at) or permanent (no end). Lifting is a state with a
+    //                         reason (lifted_*), never a delete; a temporary ban simply stops counting at ends_at.
+    //   ban_identities        the sign-in identities (provider + subject) and passkey credential ids the account had
+    //                         when the ban started, so they stay refused even if they were somehow moved later.
+    //   moderation_actions    the log: every warning, forced rename, field reset, ban, unban, role change, identity
+    //                         reveal and report decision, with who (admin / moderator / system), why and what changed.
+    //                         notice = the player is shown it once and acknowledges it (acknowledged_at). Ids only, no
+    //                         foreign key: like badge_events, the log keeps the bare account id after a deletion.
+    //   reports               "Report" on profiles and guild descriptions. No reporter is stored, only whether they
+    //                         were signed in: who reported whom can't leak because it isn't kept. snapshot = the
+    //                         reported field as it was (the player's own text, our data), as evidence.
+    //   sessions.stage        'banned': a sign-in to a banned account. It can read its ban notice, appeal and sign out.
+    //   feedback_threads      type 'appeal' (only from the ban notice), linked to the ban.
+    id: '019_moderation',
+    async up(q) {
+      await q.query(`
+        ALTER TABLE accounts ADD COLUMN role text NOT NULL DEFAULT 'player' CHECK (role IN ('player', 'moderator'));
+        ALTER TABLE accounts ADD COLUMN role_since timestamptz;
+
+        ALTER TABLE sessions DROP CONSTRAINT IF EXISTS sessions_stage_check;
+        ALTER TABLE sessions ADD CONSTRAINT sessions_stage_check CHECK (stage IN ('second_factor', 'full', 'banned'));
+
+        CREATE TABLE account_bans (
+          id                bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          account_id        bigint NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+          kind              text NOT NULL CHECK (kind IN ('temporary', 'permanent')),
+          starts_at         timestamptz NOT NULL DEFAULT now(),
+          ends_at           timestamptz,
+          reason            text NOT NULL CHECK (char_length(reason) BETWEEN 1 AND 500),
+          message           text CHECK (char_length(message) <= 1000),
+          actor             text NOT NULL CHECK (actor IN ('admin', 'moderator')),
+          actor_account_id  bigint,
+          lifted_at         timestamptz,
+          lifted_reason     text CHECK (char_length(lifted_reason) <= 500),
+          lifted_actor      text CHECK (lifted_actor IN ('admin', 'moderator')),
+          lifted_by         bigint,
+          CHECK ((kind = 'permanent') = (ends_at IS NULL))
+        );
+        CREATE INDEX account_bans_account_time ON account_bans (account_id, starts_at);
+        CREATE INDEX account_bans_live ON account_bans (account_id) WHERE lifted_at IS NULL;
+
+        CREATE TABLE ban_identities (
+          ban_id         bigint NOT NULL REFERENCES account_bans (id) ON DELETE CASCADE,
+          kind           text NOT NULL CHECK (kind IN ('provider', 'passkey')),
+          provider       text,
+          subject        text,
+          credential_id  text,
+          CHECK ((kind = 'provider' AND provider IS NOT NULL AND subject IS NOT NULL) OR (kind = 'passkey' AND credential_id IS NOT NULL))
+        );
+        CREATE INDEX ban_identities_ban ON ban_identities (ban_id);
+        CREATE INDEX ban_identities_provider ON ban_identities (provider, subject) WHERE kind = 'provider';
+        CREATE INDEX ban_identities_passkey ON ban_identities (credential_id) WHERE kind = 'passkey';
+
+        -- Is this account banned right now? (Used by every query that hides a banned account's public presence.)
+        CREATE FUNCTION everstats_banned(acct bigint) RETURNS boolean LANGUAGE sql STABLE AS $fn$
+          SELECT EXISTS (SELECT 1 FROM account_bans b WHERE b.account_id = acct AND b.lifted_at IS NULL AND (b.ends_at IS NULL OR b.ends_at > now()))
+        $fn$;
+
+        CREATE TABLE moderation_actions (
+          id                bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          at                timestamptz NOT NULL DEFAULT now(),
+          account_id        bigint,
+          guild_id          bigint,
+          type              text NOT NULL CHECK (type IN ('warning', 'username_reset', 'field_reset', 'guild_reset', 'ban', 'unban',
+                              'role_granted', 'role_removed', 'identities_revealed', 'reports_dismissed', 'reports_actioned')),
+          actor             text NOT NULL CHECK (actor IN ('admin', 'moderator', 'system')),
+          actor_account_id  bigint,
+          reason            text CHECK (char_length(reason) <= 500),
+          message           text CHECK (char_length(message) <= 1000),
+          detail            jsonb NOT NULL DEFAULT '{}',
+          notice            boolean NOT NULL DEFAULT false,
+          acknowledged_at   timestamptz
+        );
+        CREATE INDEX moderation_actions_account_time ON moderation_actions (account_id, at);
+        CREATE INDEX moderation_actions_guild_time ON moderation_actions (guild_id, at) WHERE guild_id IS NOT NULL;
+        CREATE INDEX moderation_actions_time ON moderation_actions (at);
+        CREATE INDEX moderation_actions_unseen ON moderation_actions (account_id) WHERE notice AND acknowledged_at IS NULL;
+
+        CREATE TABLE reports (
+          id                  bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          reported_at         timestamptz NOT NULL DEFAULT now(),
+          target_kind         text NOT NULL CHECK (target_kind IN ('account', 'guild')),
+          target_account_id   bigint,
+          target_guild_id     bigint,
+          what                text NOT NULL CHECK (what IN ('username', 'display_name', 'bio', 'social', 'badges', 'guild_description', 'other')),
+          platform            text CHECK (platform ~ '^[a-z][a-z0-9_]{0,30}$'),
+          note                text CHECK (char_length(note) <= 500),
+          snapshot            jsonb NOT NULL DEFAULT '{}',
+          reporter_signed_in  boolean NOT NULL,
+          state               text NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'actioned', 'dismissed')),
+          resolved_at         timestamptz,
+          resolved_actor      text CHECK (resolved_actor IN ('admin', 'moderator')),
+          resolved_by         bigint,
+          CHECK ((target_kind = 'account') = (target_account_id IS NOT NULL)),
+          CHECK ((target_kind = 'guild') = (target_guild_id IS NOT NULL))
+        );
+        CREATE INDEX reports_state_time ON reports (state, reported_at);
+        CREATE INDEX reports_account_time ON reports (target_account_id, reported_at) WHERE target_account_id IS NOT NULL;
+        CREATE INDEX reports_guild_time ON reports (target_guild_id, reported_at) WHERE target_guild_id IS NOT NULL;
+
+        ALTER TABLE feedback_threads DROP CONSTRAINT IF EXISTS feedback_threads_type_check;
+        ALTER TABLE feedback_threads ADD CONSTRAINT feedback_threads_type_check CHECK (type IN ('bug', 'idea', 'question', 'partnership', 'other', 'appeal'));
+        ALTER TABLE feedback_threads ADD COLUMN ban_id bigint REFERENCES account_bans (id) ON DELETE SET NULL;
+      `);
+    },
+  },
 ];

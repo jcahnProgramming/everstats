@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { WebAuthnAbortService } from '@simplewebauthn/browser';
 import { api } from '../api.js';
 import { authError } from '../authMessages.js';
@@ -55,6 +55,8 @@ export function SignInPage() {
   const [busy, setBusy] = useState(null);
   const next = params.get('next') || '/';
 
+  // 0.8.2: a banned sign-in has only its notice.
+  if (session.stage === 'banned') return <Navigate to="/banned" replace />;
   if (session.signedIn) {
     return (
       <AuthCard>
@@ -207,9 +209,9 @@ export function SecondFactorPage() {
     setBusy(true);
     setProblem(null);
     try {
-      await api('/api/auth/second-factor', { method: 'POST', body: { code } });
+      const r = await api('/api/auth/second-factor', { method: 'POST', body: { code } });
       await session.refresh();
-      navigate(target);
+      navigate(r.next ?? target);
     } catch (err) {
       setProblem(err.message);
       setBusy(false);

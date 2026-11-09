@@ -89,6 +89,8 @@ export function createLimits({ now = Date.now } = {}) {
     writes: createLimiter({ limit: 120, windowMs: FIFTEEN_MINUTES, now }),
     // 0.7.0: "Report this link" on guild pages (anyone may report): 10 per 15 minutes.
     reports: createLimiter({ limit: 10, windowMs: FIFTEEN_MINUTES, now }),
+    // 0.8.2: profile and guild-description reports also count per signed-in account: 20 per hour.
+    reportsByAccount: createLimiter({ limit: 20, windowMs: 4 * FIFTEEN_MINUTES, now }),
     // 0.7.1: feedback (new messages and replies in a thread): 5 per network per 15 minutes AND, signed in, 10 per account
     // per hour. Both are checked; a refused message is never stored.
     feedbackByNetwork: createLimiter({ limit: 5, windowMs: FIFTEEN_MINUTES, now }),

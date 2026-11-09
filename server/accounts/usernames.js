@@ -130,7 +130,7 @@ export async function resolveProfileName(db, raw) {
   if (acct) return acct.username_claimed ? { account: acct.id } : { placeholder: true };
   const hold = await db.one(
     `SELECT h.reason, a.username, a.username_claimed FROM username_holds h JOIN accounts a ON a.id = h.account_id
-      WHERE h.name = $1 AND h.reason IN ('renamed', 'merged') AND h.held_until > now()`,
+      WHERE h.name = $1 AND h.reason IN ('renamed', 'merged') AND h.held_until > now() AND NOT everstats_banned(a.id)`,
     [name],
   );
   if (hold?.username_claimed) return { redirect: hold.username };

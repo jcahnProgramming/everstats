@@ -19,6 +19,7 @@ import { createBadgeRouter } from './badges/routes.js';
 import { createGuildManageRouter } from './guilds/manage.js';
 import { createGuildBadgeRouter } from './guildBadges/routes.js';
 import { createFeedbackRouter } from './feedback/routes.js';
+import { createModerationPlayerRouter } from './moderation/player.js';
 import { createCardApiRouter, createCardImageRouter } from './cards/routes.js';
 import { createCardRenderer } from './cards/render.js';
 import { spaWithPreviews } from './cards/meta.js';
@@ -100,6 +101,8 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   // 0.7.1: guild badges (detail pages, emblems, Manage → Badges, GM/officer toasts) and feedback with replies.
   app.use('/api', createGuildBadgeRouter({ db, limits, networkOf }));
   app.use('/api', createFeedbackRouter({ db, limits, networkOf }));
+  // 0.8.2: the ban notice and appeal, moderation notices (warnings), and "Report" on profiles and guild descriptions.
+  app.use('/api', createModerationPlayerRouter({ db, limits, networkOf }));
   // 0.8.0: share cards (the maker's state, "Save as my default").
   app.use('/api', createCardApiRouter({ db, limits, networkOf }));
 
@@ -121,7 +124,9 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   // Serve the built client (production / Docker). In dev, Vite serves it instead.
   if (existsSync(config.clientDist)) {
     app.use('/assets', express.static(join(config.clientDist, 'assets'), { immutable: true, maxAge: '365d', fallthrough: false }));
-    app.use(express.static(config.clientDist, { index: false }));
+    // 0.8.2: files outside /assets have no content hash in their name (licence texts, index.html if asked for by name),
+    // so they are revalidated on every use: no-cache (an ETag answer is cheap). Hashed /assets stay immutable for a year.
+    app.use(express.static(config.clientDist, { index: false, setHeaders: (res) => res.set('Cache-Control', 'no-cache') }));
     // 0.8.0: every page gets its link-preview tags (cards/meta.js); pages with a card get its image.
     app.get('/{*splat}', spaWithPreviews(db));
   }

@@ -151,7 +151,7 @@ export async function inlineBadges(db, accountIds) {
   const rows = await db.query(
     `SELECT a.account_id, ${DEF_COLUMNS}, a.pinned, a.featured, a.position
        FROM badge_awards a JOIN badge_definitions d ON d.id = a.badge_id
-      WHERE a.account_id = ANY($1::bigint[]) AND a.state = 'held' AND a.shown LIMIT 20000`,
+      WHERE a.account_id = ANY($1::bigint[]) AND a.state = 'held' AND a.shown AND NOT everstats_banned(a.account_id) LIMIT 20000`,
     [ids],
   );
   const by = new Map();

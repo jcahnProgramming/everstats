@@ -8,6 +8,8 @@ import { RenderFrame } from '../components/Stats.jsx';
 import { TierBadge, TierBrief } from '../components/Tier.jsx';
 import { formatNumber } from '../format.js';
 import { BadgeRow } from '../badges/Badges.jsx';
+import { ReportButton } from '../moderation/Moderation.jsx';
+import { useSession } from '../session.jsx';
 
 /**
  * A player's public profile: /u/{username} (GET /api/users/:username). Anyone can view it.
@@ -47,6 +49,7 @@ function initials(name) {
 
 export function ProfilePage() {
   const { username } = useParams();
+  const session = useSession();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   useEffect(() => {
@@ -63,6 +66,17 @@ export function ProfilePage() {
   if (error) {
     if (error.status === 404) {
       const placeholder = error.code === 'placeholder';
+      // 0.8.2: a banned account's profile. Neutral on purpose: it never says why.
+      if (error.code === 'unavailable') {
+        return (
+          <div className="wrap page-pad stack gap-24 narrow-wrap">
+            <h1 className="h1">Profile unavailable</h1>
+            <EmptyState kind="nocoverage" title="This profile isn’t available">
+              <span>Characters still have their own pages and stay on the leaderboards.</span>
+            </EmptyState>
+          </div>
+        );
+      }
       return (
         <div className="wrap page-pad stack gap-24 narrow-wrap">
           <h1 className="h1">{placeholder ? 'No profile yet' : 'No such player'}</h1>
@@ -99,6 +113,10 @@ export function ProfilePage() {
               </div>
             )}
             {about?.links?.length > 0 && <SocialLinks links={about.links} />}
+            {/* 0.8.2: anyone can report a profile, except its owner. */}
+            {!(session.signedIn && session.user?.claimed && session.user.username === p.username) && (
+              <div className="row profile-report"><ReportButton username={p.username} socials={about?.links ?? []} label="Report this profile" /></div>
+            )}
           </div>
         </div>
       </section>

@@ -63,6 +63,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Suggestion rules | `server/discovery/suggest.js` | per-statistic suggestions (category, bad, leaderboard), each with its reasoning |
 | Share cards | `server/cards/catalog.js` | card types (layouts, show toggles, template), formats, themes, accents; `cleanOptions` is the only way options get in |
 | "Why sign in?" benefits | `server/signin/benefits.js` | id, title, text (ALL the wording, one place), `live(ctx)`: a benefit shows only while its feature is live |
+| Moderation permissions | `server/moderation/permissions.js` PERMISSIONS | permission → admin / moderator yes or no; every moderation route asks `can(actor, …)` |
 
 - Statistics, categories and rulesets come from Blizzard's API (discovery pass), stored as data, never typed in
   from memory. A new statistic in a game patch must be data, not a deploy.
@@ -359,6 +360,48 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   deploy (`activity_counting_since`); earlier is "unknown", never 0. The "last checked" marker moves only on "Mark as checked".
 - There is no account dropdown menu: the account button opens Settings (or Your feedback when a reply is unread).
 
+## Moderation (0.8.2: `server/moderation/`, `client/src/admin/ModerationPages.jsx`, `client/src/moderation/`)
+
+- **Admin → Accounts** (`/admin/accounts`, admin only): every player account, paged (cursor), searchable by username, former
+  username, display name or id, with filters. No export. BattleTags / Discord names only after "Reveal" on one account
+  (logged as `identities_revealed`). An account's page (`/admin/accounts/:id`) has the username tools, the Moderation
+  section and the full history. **Admin → Reports** (`/admin/reports`): profile, guild-description and guild-link reports,
+  grouped by target; open / actioned / dismissed.
+- **Actions** (`moderation/actions.js`): warn, force a username change (the existing reclaim; hold or release the old
+  name), reset a field (display name, bio, one social handle, a managed guild's description / links / invite), temporary
+  ban (1/3/7/30 days or a custom end), permanent ban, lift a ban. Each needs a reason (the player sees it), may carry a
+  message, is one `moderation_actions` row (who: admin / a moderator, when, why, what changed). Player-facing ones are
+  notices shown once on the next signed-in page load and acknowledged (`moderation/notices.js`, said plainly, never who).
+- **Bans** (`moderation/bans.js`, `account_bans`): live = not lifted and not past `ends_at` (a temporary ban lifts by
+  time; nothing has to run). SQL `everstats_banned(id)` hides the public presence: profile 404 "This profile isn't
+  available", "Claimed by" (character pages, guild rosters), inline badges, badge holder lists, share-card defaults and
+  link-preview versions, guild management (`guildRole`; a banned GM's officers keep editing). **Never delete anything for
+  a ban; characters stay as Blizzard data; hidden choices stay.** A ban ends every session; a sign-in to a banned account
+  gets session stage `banned` (2 h): `/banned` (notice + appeal) and sign out only. Appeals are feedback type `appeal`
+  (`feedback_threads.ban_id`), never from the public form; replies show on `/banned`.
+- **Ban evasion:** at ban start the account's provider identities and passkey credential ids are copied to
+  `ban_identities`. While live, an identity/passkey that is the banned account's OR in that copy: signs in only to the
+  banned notice (2FA code still asked first), never creates an account, never links (`banned_identity`), and merges refuse
+  either side touching a ban (`merge_banned`, checked inside `mergeAccounts`). A brand-new Discord/Battle.net login never
+  linked to the banned account is a new account: Everstats has no way to tie it to the old one, by design.
+- **Moderators:** `accounts.role = 'moderator'` is the permission; the Everstats Moderator badge stays cosmetic. Inert
+  unless the admin setting `moderation.moderators` is on (default OFF); the role needs a claimed name, 2FA or a passkey,
+  no live ban; only the admin grants it. Moderators reach ONLY `/api/admin/moderation/*` (its own gate, mounted before the
+  admin gate): reports, a reported account's panel, warn, rename, reset, temp-ban ≤ 7 days, lift a temporary ban, dismiss.
+  Never: permanent ban, lifting one, reveal, roles/badges, the accounts list, or acting on themselves / another moderator.
+- **Reports** (`reports`): anyone; per network 10/15 min (shared with link reports) AND 20/hour per account; honeypot
+  `website`; note ≤ 500 plain text, never linkified. **No reporter is stored** (only signed in or not), so who reported
+  whom can't leak. `snapshot` keeps the reported text as it was.
+
+## "Everstats was updated" (0.8.2: `client/src/chrome/UpdateBar.jsx`, `chrome/updates.js`)
+
+- The client compares its bundle version with `/api/health`'s on route changes (≤ once a minute), on focus /
+  visibility, and every 5 minutes. Different → a bar with Refresh; the next route change reloads, unless something is
+  being edited: `useEditing(dirty)` (card maker, feedback, appeal, report dialog, moderation forms), typing in any field
+  since the last route change (`data-edit-guard="off"` opts out: the top search), or focus in a field.
+- Caching: the HTML shell is `no-cache` (spaWithPreviews, and express.static's own `index.html`/licence files since 0.8.2);
+  `/assets` are content-hashed, `immutable`, 1 year; `/api` is `no-store`.
+
 ## The beta (`server/beta.js`, `chrome/BetaBanner.jsx`, `/beta`)
 
 - A window (`beta_windows`), opened by migration 009 and closed/reopened only from the admin page. While open: the header
@@ -445,11 +488,15 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
     (0.7.1). Reason: feedback is kept until the owner deletes it (the privacy page says so); `admin_events` logs it.
   - **Deleting an account** (Settings, `DELETE /api/account`) deletes the account row and everything that cascades from
     it (sign-in links, passkeys, 2FA, recovery codes, sessions, flows, pins, events, character checks; 0.7.0: badge
-    awards and guild officer roles; 0.7.1: feedback threads and their replies, guild badge toast marks; 0.8.0: the share-card defaults it saved; 0.8.1: its creator verification and verified handles; `badge_events` and `guild_events` keep the bare account id). Reason: the
+    awards and guild officer roles; 0.7.1: feedback threads and their replies, guild badge toast marks; 0.8.0: the share-card defaults it saved; 0.8.1: its creator verification and verified handles; 0.8.2: its bans and their
+    copied identities (`moderation_actions` and `reports` keep the bare account id); `badge_events` and `guild_events` keep the bare account id). Reason: the
     person asked. Its characters stay (public data); ownership is cleared, a hidden one stays hidden.
   - **A verified creator handle that changes** deletes its `creator_handles` row, and **revoking Verified Content
     Creator** deletes them all (0.8.1). Reason: the mark belongs to the handle the admin checked, not to whatever is typed
     later; `badge_events` logs every change. Restarting a revoked verification replaces its code (the old one is void).
+  - **Moderation field resets** (0.8.2) clear a display name, bio, social handle, or a guild page's description, invite or
+    links (links are marked removed, not deleted). Reason: the admin or a moderator acted on abuse; `moderation_actions`
+    keeps what the field said (`detail.was`) and why.
   - **Username holds expire** (`username_holds.held_until`): the row stays as history; an expired hold simply stops
     counting. Not a deletion, listed here because a held name becomes claimable again by design.
   - **Discovery Battle.net tokens** (`discovery_grants`) are deleted when they expire (hourly sweep), when the admin

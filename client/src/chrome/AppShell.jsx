@@ -13,6 +13,8 @@ import { createScrollMemory, focusMainHeading, restoreScroll, scrollDecision } f
 import { TierBadge } from '../components/Tier.jsx';
 import { BadgeToastWatcher, InlineBadge } from '../badges/Badges.jsx';
 import { feedbackHref } from '../feedback/FeedbackPages.jsx';
+import { UpdateBar } from './UpdateBar.jsx';
+import { BannedStrip, NoticeGate } from '../moderation/Moderation.jsx';
 
 /**
  * The frame of every page (design v1, navigation option A "Ledger Bar", design/v1/components/nav.md):
@@ -39,7 +41,11 @@ export function AppShell() {
         <a className="skip-link" href="#main">Skip to content</a>
         <ScrollManager />
         <TopBar />
+        {/* 0.8.2: the "Everstats was updated" bar, a banned sign-in's strip, and moderation notices (shown once). */}
+        <UpdateBar />
+        <BannedStrip />
         <BetaBanner />
+        <NoticeGate />
         <UsernamePrompt />
         <BadgeToastWatcher />
         <main id="main" className="app-main" key={pathname}>
@@ -216,6 +222,9 @@ function AccountButton({ className = '', block = false }) {
     if (!u?.badge) return link;
     return <span className={`who-wrap${block ? ' block' : ''}`}>{link}<InlineBadge badge={u.badge} /></span>;
   }
+  if (session.stage === 'banned') {
+    return <NavLink to="/banned" className={`btn ${size} ${className}`}><Icon name="lock" size="sm" />Account banned</NavLink>;
+  }
   if (session.stage === 'second_factor') {
     return <NavLink to="/sign-in/2fa" className={`btn ${size} ${className}`}>Finish sign-in</NavLink>;
   }
@@ -326,7 +335,7 @@ function TopSearch({ full = false, autoFocus = false, shortcut = false }) {
   const listId = full ? 'sheet-search-list' : 'top-search-list';
   const any = found && (found.guilds.length > 0 || found.characters.length > 0);
   return (
-    <div ref={box} className={`top-search-box${full ? ' full' : ''}`}>
+    <div ref={box} className={`top-search-box${full ? ' full' : ''}`} data-edit-guard="off">
       <form role="search" className={`search ${full ? 'full' : ''} top-search`} onSubmit={submit} noValidate>
         <Icon name="search" size="sm" />
         <input

@@ -6,6 +6,7 @@ import { Button, Field, Modal } from '../components/Controls.jsx';
 import { useToasts } from '../components/Toasts.jsx';
 import { formatDate } from '../format.js';
 import { useSession } from '../session.jsx';
+import { ReportButton } from '../moderation/Moderation.jsx';
 
 /**
  * Guild page management (0.7.0), built from v1 parts only (panel, field, buttons, tags, note, modal).
@@ -28,7 +29,13 @@ export function GuildLinksArea({ links, slug }) {
   return (
     <section className="panel pad-20 guild-links" aria-labelledby="links-h">
       <h2 className="eyebrow" id="links-h">Links</h2>
-      {links.description && <p className="t2 guild-desc">{links.description}</p>}
+      {links.description && (
+        <div className="stack gap-4">
+          <p className="t2 guild-desc">{links.description}</p>
+          {/* 0.8.2: anyone can report the description (links have their own "Report this link"). */}
+          <span className="self-start"><ReportButton guild={slug} label="Report the description" /></span>
+        </div>
+      )}
       {all.length > 0 && (
         <ul className="plain guild-links-list">
           {all.map((l) => (

@@ -1,6 +1,22 @@
 {
   "releases": [
     {
+      "version": "0.8.2",
+      "date": "2026-11-09",
+      "title": "Reporting profiles, fair bans with appeals, and an update bar",
+      "sections": {
+        "New": [
+          "Report a profile. Every player profile has a “Report this profile” button: choose what’s wrong (the username, the display name, the bio, one of their social handles, badge misuse, or something else) and add a note if you like. A guild page’s description can be reported the same way, next to the “Report this link” buttons its links already had. You don’t need to be signed in. Everstats doesn’t keep who sent a report, so the person you report can never find out it was you.",
+          "Moderation, said plainly. If Everstats has to act on your account, you’re told what happened and why the next time you open Everstats signed in, and you confirm you’ve read it: a warning, a username that had to be changed (you choose a new one, and it doesn’t use up a rename), or a bio, display name or social handle that was removed.",
+          "Bans, and how to appeal one. A ban can last a set time (it ends by itself) or be permanent. While it lasts, signing in shows only the ban notice: why, until when, and a form to appeal. Your appeal goes straight to Everstats, and any answer appears on that same page. During a ban your profile, bio, social links and badges aren’t shown, and nobody sees you as the player who claimed your characters. Nothing is deleted: your characters stay on their pages and the leaderboards as Blizzard’s data, your hidden characters stay hidden, and everything comes back as it was when the ban ends or is lifted.",
+          "“Everstats was updated”. When a new version of Everstats goes live while you have it open, a small bar says so, with a Refresh button. Otherwise the next page you open loads the new version by itself, unless you’re in the middle of typing something (a feedback message, a share card you’re designing): then only the bar shows, so nothing you’re writing is lost."
+        ],
+        "Improved": [
+          "Badge pills give every badge the same room. Whatever a badge’s frame (a star seal, a coin, a banner, a diamond), its icon now sits the same distance inside the pill’s rounded end, on profiles, in All badges, in Settings and in guild badge pills, at every size."
+        ]
+      }
+    },
+    {
       "version": "0.8.1",
       "date": "2026-11-09",
       "title": "Better share cards, drag-and-drop ordering and Verified Content Creators",

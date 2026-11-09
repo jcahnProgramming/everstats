@@ -23,7 +23,9 @@ export const DEFAULT_KINDS = Object.freeze(['character', 'tier', 'guild']);
 
 export async function savedDefault(db, kind, subjectId) {
   if (!DEFAULT_KINDS.includes(kind) || subjectId === null || subjectId === undefined) return null;
-  const row = await db.one('SELECT options, saved_at FROM share_card_defaults WHERE kind = $1 AND subject_id = $2', [kind, subjectId]);
+  // 0.8.2: a default saved by a banned account isn't used while the ban lasts (the generic card instead). It isn't deleted:
+  // lifting the ban brings it back.
+  const row = await db.one('SELECT options, saved_at FROM share_card_defaults WHERE kind = $1 AND subject_id = $2 AND NOT everstats_banned(saved_by)', [kind, subjectId]);
   return row ? { options: cleanOptions(kind, row.options), savedAt: row.saved_at } : null;
 }
 

@@ -20,6 +20,7 @@ import { checkDisplayName, reservedSet } from '../accounts/names.js';
 import { availability, changeUsername, holdName } from '../accounts/usernames.js';
 import { inlineBadges } from '../badges/store.js';
 import { CREATOR_PLATFORMS, creatorState, handlesChanged, shownHandle } from '../badges/creators.js';
+import { activeBan, banNotice } from '../moderation/bans.js';
 
 /** The three themes. Logged-out visitors always get Forever; a signed-in account's choice is stored on it. */
 export const THEMES = ['forever', 'alliance', 'horde'];
@@ -147,6 +148,18 @@ export function createAccountRouter({ db, limits, networkOf }) {
     const providers = await providerStatus(db);
     const beta = await betaState(db);
     if (!req.session) return res.json({ signedIn: false, stage: null, theme: 'forever', providers, beta });
+    // 0.8.2: a banned sign-in sees only its ban notice and the appeal form. A full session whose account was banned
+    // since (a sign-in racing the ban) becomes a banned one. A banned session whose ban has ended is signed out.
+    const ban = req.session.stage === 'second_factor' ? null : await activeBan(db, req.session.accountId);
+    if (req.session.stage === 'banned' || ban) {
+      if (!ban) {
+        await db.query('DELETE FROM sessions WHERE id_hash = $1', [req.session.idHash]);
+        clearCookie(res, COOKIE.session);
+        return res.json({ signedIn: false, stage: null, theme: 'forever', providers, beta, banEnded: true });
+      }
+      if (req.session.stage !== 'banned') await db.query("UPDATE sessions SET stage = 'banned' WHERE id_hash = $1", [req.session.idHash]);
+      return res.json({ signedIn: false, stage: 'banned', theme: 'forever', providers, beta, ban: banNotice(ban) });
+    }
     if (req.session.stage !== 'full') return res.json({ signedIn: false, stage: req.session.stage, theme: 'forever', providers, beta });
     const account = await db.one('SELECT theme, username, username_claimed, display_name FROM accounts WHERE id = $1', [req.session.accountId]);
     const dismissed = (await db.one('SELECT username_prompt_dismissed AS d FROM sessions WHERE id_hash = $1', [req.session.idHash]))?.d ?? false;
@@ -155,9 +168,12 @@ export function createAccountRouter({ db, limits, networkOf }) {
     const toasts = (await db.one('SELECT count(*)::int AS n FROM badge_awards WHERE account_id = $1 AND toast IS NOT NULL', [req.session.accountId])).n;
     // 0.7.1: threads Everstats replied to that the player hasn't opened yet (the unread dot on the account button).
     const feedbackUnread = (await db.one('SELECT count(*)::int AS n FROM feedback_threads WHERE account_id = $1 AND player_unread', [req.session.accountId])).n;
+    // 0.8.2: warnings and other moderation notes the player hasn't acknowledged (shown once, moderation/player.js).
+    const notices = (await db.one('SELECT count(*)::int AS n FROM moderation_actions WHERE account_id = $1 AND notice AND acknowledged_at IS NULL', [req.session.accountId])).n;
     return res.json({
       badgeToasts: toasts,
       feedbackUnread,
+      notices,
       signedIn: true, stage: 'full', theme: account?.theme ?? 'forever', providers, beta,
       user: {
         username: account.username,

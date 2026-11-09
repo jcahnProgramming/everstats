@@ -9,13 +9,19 @@ import { clearCookie, COOKIE, readCookie, setCookie } from './cookies.js';
  *   stage 'second_factor'  signed in with Battle.net / Discord on an account with 2FA on, code not yet given. It can
  *                          only answer the 2FA prompt or sign out; everything else treats it as signed out.
  *   stage 'full'           signed in.
+ *   stage 'banned'         0.8.2: signed in to an account with a live ban (moderation/bans.js). It can read its ban
+ *                          notice, send an appeal and sign out; everything else treats it as signed out.
  */
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const SECOND_FACTOR_TTL_MS = 10 * 60 * 1000;
+/** Long enough to read the ban notice and write an appeal. */
+export const BANNED_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
+const TTL = { full: SESSION_TTL_MS, second_factor: SECOND_FACTOR_TTL_MS, banned: BANNED_SESSION_TTL_MS };
 
 export async function startSession(q, res, accountId, { stage, method }) {
   const token = newToken();
-  const ttl = stage === 'full' ? SESSION_TTL_MS : SECOND_FACTOR_TTL_MS;
+  const ttl = TTL[stage];
+  if (!ttl) throw new Error(`unknown session stage ${stage}`);
   await q.query(
     `INSERT INTO sessions (id_hash, account_id, stage, method, expires_at) VALUES ($1, $2, $3, $4, now() + ($5 || ' milliseconds')::interval)`,
     [sha256Hex(token), accountId, stage, method, String(ttl)],

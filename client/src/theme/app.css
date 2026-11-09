@@ -449,3 +449,52 @@ li.verified-mark .mono { text-transform: none; letter-spacing: 0; color: var(--e
 .render-crest { font-size: var(--es-fs-48); font-weight: var(--es-weight-bold); color: var(--es-text); letter-spacing: var(--es-tracking-display); }
 .render-paused-note { max-width: 32ch; text-align: center; color: var(--es-text-2); }
 .mk-main .render-paused-note, .render-paused-note:has(svg) { display: inline-flex; gap: var(--es-space-6); align-items: center; max-width: none; text-align: left; }
+
+/* ==========================================================================================================
+   0.8.2 badge pills: ONE inner box for the icon, whatever its frame shape. A pill's left end is a half circle; the icon's
+   box is a square. Set 2-4px from the edge, a frame that fills its box's corners (star seal, banner) touched the curve,
+   while a coin (round) didn't. Every pill now insets its icon box so the box's corners sit ~3px inside the curve, so
+   every shape gets the same room (radius r = half the pill's inner height; inset = r - sqrt(r^2 - (art/2)^2) + 3px):
+   Measured in the browser on every frame's outline, strokes included (the rule: the art comes no nearer the curve
+   than it does the top and bottom edges):
+     player pill      44px icon, r 24  → 12px      Settings featured pill  32px icon, r 21 → 8px
+     guild pill       28px icon, r 17  → 12px      small guild pill        18px icon, r 12 → 9px
+   Vertical: the icon is a centred flex item. The guild standards' art sits low in its box (the export's viewBox starts
+   at -5), so a guild pill's icon is lifted by 3.4% of its height: equal space above and below at both sizes.
+   ========================================================================================================== */
+.bdg-pill { padding: var(--es-space-2) var(--es-space-14) var(--es-space-2) var(--es-space-12); }
+.bdg-pill > .bdg, .feat-pill > .bdg, .gpill > .gbdg { align-self: center; flex: none; }
+.feat-pill { padding-left: var(--es-space-8); }
+.gpill { padding-left: var(--es-space-12); }
+.gpill.sm { padding-left: var(--es-space-9); }
+.gpill > .gbdg { transform: translateY(-3.4%); }
+
+/* ==========================================================================================================
+   0.8.2: the "Everstats was updated" bar, the banned strip, Report, and the admin's moderation pages.
+   ========================================================================================================== */
+.update-bar { background: var(--es-raised); border-bottom: var(--es-border-1) solid var(--es-line-strong); color: var(--es-text); font-size: var(--es-fs-13-5); }
+.update-bar .in { display: flex; align-items: center; gap: var(--es-space-10); padding-top: var(--es-space-6); padding-bottom: var(--es-space-6); }
+.update-bar .ico { color: var(--es-accent); flex: none; }
+.ban-strip .ico { color: var(--es-danger); }
+.ban-notice { border-color: color-mix(in oklab, var(--es-danger) 45%, var(--es-line)); }
+.report-btn { color: var(--es-text-2); }
+.profile-report { justify-content: flex-start; }
+.yes { color: var(--es-success); font-weight: var(--es-weight-semibold); }
+.block-line { display: block; }
+.tag-tight { margin-left: var(--es-space-6); padding: var(--es-space-1) var(--es-space-6); font-size: var(--es-fs-11); }
+.accounts-tbl td, .accounts-tbl th { white-space: nowrap; }
+.accounts-tbl td:first-child { white-space: normal; min-width: var(--es-space-120); }
+.kv-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--es-space-6) var(--es-space-16); margin: 0; }
+.kv-grid dt { color: var(--es-muted); }
+.kv-grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.field-choice { display: flex; flex-direction: column; align-items: flex-start; gap: var(--es-space-2); text-align: left; height: auto; min-height: var(--es-size-control); padding-top: var(--es-space-8); padding-bottom: var(--es-space-8); white-space: normal; }
+.field-value { overflow-wrap: anywhere; white-space: pre-wrap; font-weight: var(--es-weight-regular); }
+.inline-pre { margin: 0; display: inline; }
+.mod-history > li { padding-bottom: var(--es-space-8); border-bottom: var(--es-border-1) solid var(--es-line); }
+.mod-history > li:last-child { border-bottom: 0; }
+.signin-yn { display: grid; grid-template-columns: max-content max-content; gap: 0 var(--es-space-8); margin: 0; }
+.signin-yn dt { color: var(--es-muted); }
+.signin-yn dd { margin: 0; }
+/* 0.8.2: a locked featured badge (staff, partner) shows a lock where the others have a grip; the lock takes the grip's
+   slot width, so every icon in the list starts at the same place. */
+.feat-pill .sort-lock { flex: none; display: inline-flex; justify-content: center; width: var(--es-space-24); }

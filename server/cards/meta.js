@@ -26,7 +26,7 @@ const SITE = { title: 'Everstats', description: 'WoW Forever character statistic
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 async function version(db, kind, id) {
-  const saved = id ? await db.one('SELECT saved_at FROM share_card_defaults WHERE kind = $1 AND subject_id = $2', [kind, id]) : null;
+  const saved = id ? await db.one('SELECT saved_at FROM share_card_defaults WHERE kind = $1 AND subject_id = $2 AND NOT everstats_banned(saved_by)', [kind, id]) : null;
   const day = new Date().toISOString().slice(0, 10);
   return createHash('sha256').update(`${day}|${saved?.saved_at?.toISOString?.() ?? ''}|layout ${LAYOUT_VERSION}`).digest('base64url').slice(0, 10);
 }

@@ -57,7 +57,7 @@ export function createBadgeRouter({ db, limits, networkOf }) {
     if (def.award === 'automatic') {
       const rows = await db.query(
         `SELECT ac.username, a.earned_at FROM badge_awards a JOIN accounts ac ON ac.id = a.account_id
-          WHERE a.badge_id = $1 AND a.state = 'held' AND a.shown AND ac.username_claimed ORDER BY a.earned_at, ac.username LIMIT $2`,
+          WHERE a.badge_id = $1 AND a.state = 'held' AND a.shown AND ac.username_claimed AND NOT everstats_banned(ac.id) ORDER BY a.earned_at, ac.username LIMIT $2`,
         [def.id, HOLDERS_SHOWN + 1],
       );
       holders = { list: rows.slice(0, HOLDERS_SHOWN).map((x) => ({ username: x.username, earnedAt: x.earned_at })), more: rows.length > HOLDERS_SHOWN };

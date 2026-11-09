@@ -11,6 +11,7 @@ import { checkSecondFactor, totpState } from './totp.js';
 import { finishGrant } from '../discovery/grant.js';
 import { importAccountCharacters } from '../crawler/account.js';
 import { SOURCES } from '../sources/registry.js';
+import { accountTouchesBan, activeBan, identityBan, passkeyBan } from '../moderation/bans.js';
 
 /**
  * Sign-in, under /api/auth, plus the OAuth callbacks under /auth (createCallbackRouter).
@@ -27,6 +28,9 @@ import { SOURCES } from '../sources/registry.js';
  *   - 0.4.0: a sign-in, link or 'characters' round trip with a provider that a data source reads characters with
  *     (sources/registry.js userProvider) reads the account's character list with the token, once, then drops the token
  *     (crawler/account.js). A failure there never fails the sign-in: the dashboard says "couldn't check".
+ *   - 0.8.2, bans (moderation/bans.js): an identity or passkey attached to a live ban never creates an account, never
+ *     links, never takes part in a merge, and signs in only to a 'banned' session (the ban notice and the appeal form).
+ *     With 2FA on, the code is still asked first. Nothing else about these flows changed.
  */
 const INTENTS = ['sign_in', 'link', 'merge', 'characters'];
 const readsCharacters = (providerId) => SOURCES.some((x) => x.userProvider === providerId);
@@ -102,11 +106,22 @@ export function createAuthRouter({ db, limits, networkOf, fetch = globalThis.fet
     if (counter === null) throw new HttpError(401, "That passkey isn't registered with Everstats, or didn't verify.", 'passkey_failed');
 
     await db.query('UPDATE passkeys SET sign_count = $2, last_used_at = now() WHERE id = $1', [row.id, counter]);
+    const ban = await passkeyBan(db, row.credential_id);
     if (flow.data.intent === 'merge') {
       if (req.session?.stage !== 'full' || req.session.accountId !== flow.accountId) throw new HttpError(401, 'Sign in first.', 'signed_out');
       if (row.account_id === flow.accountId) throw new HttpError(400, "That passkey belongs to the account you're signed in to.", 'same_account');
+      if (ban || (await accountTouchesBan(db, row.account_id))) throw new HttpError(403, 'That account is banned, so it can’t be merged.', 'merge_banned');
       await startFlow(db, res, 'merge', { accountId: flow.accountId, data: { target: row.account_id, via: 'passkey', needsCode: false } });
       return res.json({ next: '/settings/merge' });
+    }
+    // A passkey sign-in skips 2FA (as before). Banned: the session can only show the notice and the appeal form; it
+    // belongs to the banned account (a passkey copied into a ban signs in to the account that was banned).
+    if (ban) {
+      await db.tx(async (q) => {
+        await startSession(q, res, ban.account_id, { stage: 'banned', method: 'passkey' });
+        await logAccountEvent(q, ban.account_id, 'signed_in_banned', { method: 'passkey' });
+      });
+      return res.json({ next: '/banned' });
     }
     await db.tx(async (q) => {
       await startSession(q, res, row.account_id, { stage: 'full', method: 'passkey' });
@@ -121,12 +136,13 @@ export function createAuthRouter({ db, limits, networkOf, fetch = globalThis.fet
     const { accountId, method } = req.session;
     const used = await secondFactorAttempt({ db, limits, networkOf, req, accountId, code: req.body?.code });
     if (!used) throw new HttpError(401, "That code isn't right. Check your authenticator app's clock, or use a recovery code.", 'wrong_code');
+    const banned = Boolean(await activeBan(db, accountId));
     await db.tx(async (q) => {
       await q.query('DELETE FROM sessions WHERE id_hash = $1', [req.session.idHash]);
-      await startSession(q, res, accountId, { stage: 'full', method });
+      await startSession(q, res, accountId, { stage: banned ? 'banned' : 'full', method });
       await logAccountEvent(q, accountId, 'second_factor_passed', { with: used });
     });
-    res.json({ ok: true, usedRecoveryCode: used === 'recovery_code' });
+    res.json({ ok: true, usedRecoveryCode: used === 'recovery_code', ...(banned ? { next: '/banned' } : {}) });
   }));
 
   r.post('/sign-out', route(async (req, res) => {
@@ -172,6 +188,8 @@ export function createCallbackRouter({ db, fetch = globalThis.fetch }) {
     }
 
     const existing = await db.one('SELECT id, account_id FROM account_identities WHERE provider = $1 AND subject = $2', [provider.id, identity.subject]);
+    // 0.8.2: is this identity attached to a live ban (its own account's, or copied into a ban)?
+    const ban = intent === 'characters' ? null : await identityBan(db, provider.id, identity.subject);
     // Reads the account's characters with this token (once), if this provider can; then the token goes out of scope.
     const bringCharacters = async (accountId) => {
       if (!readsCharacters(provider.id)) return null;
@@ -193,6 +211,7 @@ export function createCallbackRouter({ db, fetch = globalThis.fetch }) {
     if (intent === 'link') {
       if (req.session?.stage !== 'full' || req.session.accountId !== flow.accountId) return back('sign_in', 'expired');
       if (existing && existing.account_id === flow.accountId) return res.redirect(303, `/settings?linked=${provider.id}`);
+      if (ban) return back('link', 'banned_identity');
       if (existing) return back('link', 'linked_elsewhere');
       await db.tx(async (q) => {
         await q.query('INSERT INTO account_identities (account_id, provider, subject, display_name, last_used_at) VALUES ($1, $2, $3, $4, now())', [flow.accountId, provider.id, identity.subject, identity.displayName]);
@@ -206,9 +225,21 @@ export function createCallbackRouter({ db, fetch = globalThis.fetch }) {
       if (req.session?.stage !== 'full' || req.session.accountId !== flow.accountId) return back('sign_in', 'expired');
       if (!existing) return back('merge', 'merge_no_account');
       if (existing.account_id === flow.accountId) return back('merge', 'same_account');
+      if (ban || (await accountTouchesBan(db, existing.account_id))) return back('merge', 'merge_banned');
       const needsCode = (await totpState(db, existing.account_id)).state === 'enabled';
       await startFlow(db, res, 'merge', { accountId: flow.accountId, data: { target: existing.account_id, via: provider.id, needsCode } });
       return res.redirect(303, '/settings/merge');
+    }
+
+    // 0.8.2: banned. Never creates an account; signs in to the banned account's notice (after its 2FA code, if on).
+    if (ban) {
+      const bannedId = Number(ban.account_id);
+      const twoFactor = (await totpState(db, bannedId)).state === 'enabled';
+      await db.tx(async (q) => {
+        await startSession(q, res, bannedId, { stage: twoFactor ? 'second_factor' : 'banned', method: provider.id });
+        await logAccountEvent(q, bannedId, 'signed_in_banned', { method: provider.id });
+      });
+      return res.redirect(303, twoFactor ? `/sign-in/2fa?next=${encodeURIComponent('/banned')}` : '/banned');
     }
 
     // Sign in, or create an account for an identity nobody has linked.

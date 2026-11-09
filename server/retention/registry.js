@@ -264,6 +264,11 @@ export const OURS = {
   feedback_messages: 'Feedback messages and Everstats’ replies, plain text (0.7.1)',
   feedback_notes: 'The admin’s private notes on feedback (0.7.1)',
   activity_counts: 'Admin Activity: a count of each kind of event per hour, nothing about who (0.7.1)',
+  // 0.8.2: moderation. All ours: what the admin or a moderator did and why, and what players reported.
+  account_bans: 'Bans: temporary or permanent, the reason, the message to the player, and how each was lifted (0.8.2)',
+  ban_identities: 'The sign-in identities and passkey ids a banned account had when its ban started (ban evasion) (0.8.2)',
+  moderation_actions: 'Moderation log: warnings, forced renames, field resets, bans, unbans, role changes, reveals, report decisions (0.8.2)',
+  reports: 'Player reports about profiles and guild descriptions: what, an optional note, the reported text as it was; no reporter (0.8.2)',
 };
 
 /** Oldest "last fetched from Blizzard" per category still stored (for the admin page). */

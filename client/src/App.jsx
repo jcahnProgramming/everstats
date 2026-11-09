@@ -7,6 +7,8 @@ import { GuildLinksAdminPage } from './admin/GuildLinksAdminPage.jsx';
 import { BadgePage } from './pages/BadgePage.jsx';
 import { GuildBadgesAdminPage } from './admin/GuildBadgesAdminPage.jsx';
 import { FeedbackAdminPage } from './admin/FeedbackAdminPage.jsx';
+import { AccountAdminPage, AccountsAdminPage, ReportsAdminPage } from './admin/ModerationPages.jsx';
+import { BannedPage } from './moderation/Moderation.jsx';
 import { GuildBadgePage, GuildBadgesIndexPage } from './guildBadges/GuildBadgePages.jsx';
 import { ManageBadgesPage } from './guildBadges/ManageBadgesPage.jsx';
 import { FeedbackPage, YourFeedbackPage } from './feedback/FeedbackPages.jsx';
@@ -79,6 +81,10 @@ export function App() {
             <Route path="admin/guild-links" element={<GuildLinksAdminPage />} />
             <Route path="admin/guild-badges" element={<GuildBadgesAdminPage />} />
             <Route path="admin/feedback" element={<FeedbackAdminPage />} />
+            <Route path="admin/accounts" element={<AccountsAdminPage />} />
+            <Route path="admin/accounts/:id" element={<AccountAdminPage />} />
+            <Route path="admin/reports" element={<ReportsAdminPage />} />
+            <Route path="banned" element={<BannedPage />} />
             <Route path="admin/sign-in" element={<AdminSignInPage />} />
             <Route path="admin/enroll" element={<AdminEnrollPage />} />
             <Route path="*" element={<NotFoundPage />} />

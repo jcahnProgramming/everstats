@@ -152,6 +152,12 @@ export async function mergeAccounts(q, sourceId, targetId) {
   if (sourceId === targetId) throw new HttpError(400, "That's the account you're signed in to.", 'same_account');
   const both = await q.query('SELECT id FROM accounts WHERE id = ANY($1) FOR UPDATE', [[sourceId, targetId]]);
   if (both.length !== 2) throw new HttpError(409, 'One of the two accounts no longer exists.', 'gone');
+  // 0.8.2: a merge never moves a banned account's identities, passkeys or anything else out, nor a clean account into a
+  // banned one (moderation/bans.js). Checked here, inside the transaction, whatever started the merge.
+  const { accountTouchesBan } = await import('../moderation/bans.js');
+  if ((await accountTouchesBan(q, sourceId)) || (await accountTouchesBan(q, targetId))) {
+    throw new HttpError(403, 'One of these accounts is banned, so they can’t be merged.', 'merge_banned');
+  }
   for (const step of MERGE_STEPS) await step.run(q, sourceId, targetId);
   await logAccountEvent(q, targetId, 'account.merged_in', { from: sourceId, steps: MERGE_STEPS.map((s) => s.id) });
   await q.query('DELETE FROM accounts WHERE id = $1', [sourceId]);

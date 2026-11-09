@@ -45,7 +45,7 @@ export async function characterView(db, row, { mine = false } = {}) {
   const guild = row.guild_id !== null ? await db.one('SELECT name, slug FROM guilds WHERE id = $1', [row.guild_id]) : null;
   // "Claimed by @username": only for a character that isn't hidden, and only once its owner has a real username.
   const owner = row.owner_account_id !== null && !row.hidden
-    ? await db.one('SELECT username FROM accounts WHERE id = $1 AND username_claimed', [row.owner_account_id])
+    ? await db.one('SELECT username FROM accounts WHERE id = $1 AND username_claimed AND NOT everstats_banned(id)', [row.owner_account_id])
     : null;
   const renderHidden = await renderHiddenFor(db, row.id);
   const switched = await renderSwitch(db);

@@ -371,7 +371,8 @@ export async function guildView(db, g) {
   const head = await headOf(db, g);
   const members = g.ruleset_id === null ? [] : await db.query(
     `SELECT c.id, c.slug, c.name, c.surname, c.level, c.class, c.race, c.last_login_at, c.stats_fetched_at, gr.rank,
-            CASE WHEN a.username_claimed THEN a.username END AS claimed_by, CASE WHEN a.username_claimed THEN a.id END AS claimed_account
+            CASE WHEN a.username_claimed AND NOT everstats_banned(a.id) THEN a.username END AS claimed_by,
+            CASE WHEN a.username_claimed AND NOT everstats_banned(a.id) THEN a.id END AS claimed_account
        FROM characters c LEFT JOIN guild_roster gr ON gr.guild_id = c.guild_id AND gr.character_id = c.id
        LEFT JOIN accounts a ON a.id = c.owner_account_id
       WHERE ${TRACKED_MEMBER} ORDER BY gr.rank NULLS LAST, c.level DESC NULLS LAST, c.name LIMIT $3`,

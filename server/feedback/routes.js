@@ -19,6 +19,8 @@ import { HttpError, route } from '../core/errors.js';
  * profanity-filtered, on purpose: people should be able to vent. Logs never contain a message.
  */
 export const TYPES = Object.freeze(['bug', 'idea', 'question', 'partnership', 'other']);
+/** 0.8.2: 'appeal' threads come only from the ban notice (moderation/player.js); the public form can't send one. */
+export const ADMIN_TYPES = Object.freeze([...TYPES, 'appeal']);
 export const MIN_LEN = 10;
 export const MAX_LEN = 4000;
 
@@ -153,7 +155,7 @@ export function createAdminFeedbackRouter({ db, writes }) {
 
   r.get('/feedback', route(async (req, res) => {
     const state = STATES.includes(req.query.state) ? req.query.state : 'unread';
-    const type = TYPES.includes(req.query.type) ? req.query.type : null;
+    const type = ADMIN_TYPES.includes(req.query.type) ? req.query.type : null;
     const rows = await db.query(
       `SELECT t.*, a.username, a.username_claimed,
               (SELECT body FROM feedback_messages m WHERE m.thread_id = t.id ORDER BY created_at, id LIMIT 1) AS first_body,
@@ -164,7 +166,7 @@ export function createAdminFeedbackRouter({ db, writes }) {
     );
     const counts = await db.query('SELECT state, count(*)::int AS n FROM feedback_threads GROUP BY state LIMIT 10');
     res.json({
-      state, type, types: TYPES,
+      state, type, types: ADMIN_TYPES,
       counts: Object.fromEntries(STATES.map((s) => [s, counts.find((c) => c.state === s)?.n ?? 0])),
       threads: rows.map((t) => ({
         id: t.id, type: t.type, page: t.page, discord: t.discord, state: t.state, createdAt: t.created_at, updatedAt: t.updated_at,
@@ -185,7 +187,7 @@ export function createAdminFeedbackRouter({ db, writes }) {
     const notes = await db.query('SELECT id, body, created_at FROM feedback_notes WHERE thread_id = $1 ORDER BY created_at, id LIMIT 500', [t.id]);
     return {
       id: t.id, type: t.type, page: t.page, discord: t.discord, state: t.state, createdAt: t.created_at, updatedAt: t.updated_at,
-      playerUnread: t.player_unread, sender: sender(t),
+      playerUnread: t.player_unread, sender: sender(t), banId: t.ban_id === null || t.ban_id === undefined ? null : Number(t.ban_id),
       messages: messages.map((m) => ({ id: m.id, author: m.author, body: m.body, at: m.created_at })),
       notes: notes.map((n) => ({ id: n.id, body: n.body, at: n.created_at })),
     };

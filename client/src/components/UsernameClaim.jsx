@@ -120,7 +120,8 @@ export function UsernamePrompt() {
   const [open, setOpen] = useState(true);
   // Never over the admin area: the admin isn't a player, even when the same browser also has a player session.
   const inAdmin = pathname === '/admin' || pathname.startsWith('/admin/');
-  if (inAdmin || !session.signedIn || !session.user?.promptUsername || !open) return null;
+  // 0.8.2: a moderation notice (a forced username change says why) comes first; the prompt follows once it's read.
+  if (inAdmin || !session.signedIn || !session.user?.promptUsername || !open || session.notices > 0) return null;
   const later = async () => {
     setOpen(false);
     await api('/api/account/username/prompt-dismiss', { method: 'POST', body: {} }).catch(() => {});

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Button, Field, Modal } from '../components/Controls.jsx';
@@ -13,15 +14,13 @@ import { formatDateTime } from '../format.js';
 export function PlayersSection() {
   const [q, setQ] = useState('');
   const [list, setList] = useState(null);
-  const [player, setPlayer] = useState(null);
   const search = async (e) => {
     e?.preventDefault();
     setList((await api(`/api/admin/players?q=${encodeURIComponent(q)}`)).players);
   };
-  const open = async (id) => setPlayer((await api(`/api/admin/players/${id}`)).player);
   return (
     <section className="panel pad-20 stack gap-16" aria-labelledby="players-h">
-      <h2 className="h2 h2-panel" id="players-h">Players</h2>
+      <div className="row gap-8 wrap-row"><h2 className="h2 h2-panel flex-fill" id="players-h">Players</h2><Link className="btn sm" to="/admin/accounts">All accounts</Link></div>
       <form className="row gap-8 align-end" onSubmit={search}>
         <Field label="Username, former username or account id" className="flex-fill" value={q} onChange={(e) => setQ(e.target.value)} />
         <Button type="submit" className="gold">Find</Button>
@@ -29,19 +28,19 @@ export function PlayersSection() {
       {list && (list.length === 0 ? <span className="muted small">Nobody matches.</span> : (
         <div className="listbox">
           {list.map((p) => (
-            <button key={p.id} type="button" className="listrow linkrow" onClick={() => open(p.id)}>
+            <Link key={p.id} className="listrow linkrow" to={`/admin/accounts/${p.id}`}>
               <span className="mono">{p.claimed ? `@${p.username}` : `${p.username} (placeholder)`}</span>
               <span className="muted xsmall flex-fill">#{p.id}{p.displayName ? ` · ${p.displayName}` : ''}</span>
-            </button>
+            </Link>
           ))}
         </div>
       ))}
-      {player && <PlayerDetail player={player} onChange={setPlayer} />}
     </section>
   );
 }
 
-function PlayerDetail({ player: p, onChange }) {
+/** The username tools for one account (admin only): allowance, grant, reclaim, history, holds. On /admin/accounts/:id. */
+export function PlayerDetail({ player: p, onChange }) {
   const toast = useToasts();
   const [allowance, setAllowance] = useState(String(p.renamesLeft));
   const [grant, setGrant] = useState('');

@@ -21,6 +21,7 @@ import { createAdminGuildLinksRouter } from '../guilds/manage.js';
 import { createAdminGuildBadgeRouter } from '../guildBadges/admin.js';
 import { createAdminFeedbackRouter } from '../feedback/routes.js';
 import { createAdminActivityRouter } from '../activity/admin.js';
+import { createModerationRouter } from '../moderation/routes.js';
 
 /**
  * The admin area, under /api/admin. The admin is NOT an account: one person, passkeys only (admin_passkeys),
@@ -94,6 +95,11 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
     res.json({ ok: true });
   }));
 
+  // 0.8.2: moderation (Accounts, an account's Moderation section, Reports). It has its own gate, BEFORE the admin-only
+  // one: the admin, or a player with the moderator role while moderators are switched on (moderation/permissions.js).
+  // Anyone else gets the same plain 404. Nothing else under /api/admin is reachable by a moderator.
+  r.use('/', createModerationRouter({ db, writes }));
+
   // ---- Everything below needs an admin session, and 404s without one ----
   r.use(route(async (req, res, next) => {
     if (!(await isAdmin(db, req))) throw notFound();
@@ -115,6 +121,8 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
       retention: await retentionStatus(db),
       // 0.8.1: verified creator handles that changed and the admin hasn't checked yet (badges/creators.js)
       creatorAlerts: (await db.one('SELECT count(*)::int AS n FROM creator_verifications WHERE handle_alert_at IS NOT NULL')).n,
+      // 0.8.2: open reports (profiles, guild descriptions, guild links) for the Reports button
+      openReports: (await db.one("SELECT (SELECT count(*)::int FROM reports WHERE state = 'open') + (SELECT count(*)::int FROM guild_link_reports WHERE state = 'open') AS n")).n,
     });
   }));
 

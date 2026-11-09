@@ -8,6 +8,7 @@ import { ServiceUnavailable } from '../components/States.jsx';
 import { formatDateTime } from '../format.js';
 import { startProvider } from '../pages/SignInPages.jsx';
 import { useSession } from '../session.jsx';
+import { useEditing } from '../chrome/updates.js';
 
 /**
  * Feedback and contact (0.7.1), built from v1 parts (panel, field, radio buttons, note). Plain text only: messages are
@@ -76,6 +77,8 @@ export function FeedbackPage() {
   const [problem, setProblem] = useState(null);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(null);
+  // 0.8.2: a message being written holds back the "Everstats was updated" reload.
+  useEditing(!sent && form.message.trim().length > 0);
 
   // The draft is kept in this browser as it's typed, so a sign-in round trip (or a closed tab) doesn't lose it.
   useEffect(() => {

@@ -8,6 +8,7 @@ import { EmptyState } from '../components/EmptyState.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
 import { useToasts } from '../components/Toasts.jsx';
 import { formatDateTime, formatNumber } from '../format.js';
+import { useEditing } from '../chrome/updates.js';
 
 /**
  * The card maker (0.8.0, design/v3-share-cards: components/card-maker.md, pages/maker-*, states/*). One page for all four
@@ -118,6 +119,9 @@ function Maker({ type, state, back, period, onPeriod, onSaved }) {
   });
   const set = (patch) => setOpts((o) => ({ ...o, ...patch }));
   const setShow = (k, v) => setOpts((o) => ({ ...o, show: { ...o.show, [k]: v } }));
+  // 0.8.2: choices that differ from what the maker opened with hold back the "Everstats was updated" reload.
+  const [opened] = useState(() => JSON.stringify(opts));
+  useEditing(JSON.stringify(opts) !== opened);
   const fmt = state.formats.find((f) => f.id === opts.format);
   const url = `/card.png?${state.query}&o=${encodeOptions(opts)}`;
 

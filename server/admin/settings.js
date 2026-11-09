@@ -208,6 +208,16 @@ export const SETTINGS = [
     type: 'window',
     default: null,
   },
+  {
+    // 0.8.2: the moderator role (moderation/permissions.js). Off: nobody can be given the role, and an account that has
+    // it is an ordinary player everywhere (no Reports queue, no actions). Owner's decision: off until they turn it on.
+    key: 'moderation.moderators',
+    section: 'moderation',
+    label: 'Moderators',
+    help: 'On: you can give the moderator role to a player account that has 2FA or a passkey, and those accounts can use the Reports queue and the actions a moderator is allowed. Off: nobody can be given the role, and accounts that have it can’t use it.',
+    type: 'boolean',
+    default: false,
+  },
 ];
 
 const byKey = new Map(SETTINGS.map((s) => [s.key, s]));

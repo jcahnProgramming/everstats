@@ -9,6 +9,8 @@ export const AUTH_ERRORS = {
   linked_elsewhere: 'That login already belongs to a different Everstats account. To combine them, sign in to this account and use "Merge into another account" below.',
   merge_no_account: "No Everstats account uses that login, so there's nothing to merge into. (Nothing was created.)",
   same_account: "That's the account you're signed in to already.",
+  banned_identity: 'That login belongs to a banned Everstats account, so it can’t be linked to another one while the ban lasts.',
+  merge_banned: 'One of these accounts is banned, so they can’t be merged while the ban lasts.',
   characters_other_account: "That Battle.net login isn't the one linked to this Everstats account, so its characters weren't read. Sign in to Battle.net as the linked account and try again.",
 };
 

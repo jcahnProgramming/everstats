@@ -60,6 +60,8 @@ export function AdminPage() {
         <h1 className="h1 admin-title">Admin</h1>
         <span className="tag gold">Owner only</span>
         <span className="spacer" />
+        <Link className="btn sm" to="/admin/accounts"><Icon name="user" size="sm" />Accounts</Link>
+        <Link className="btn sm" to="/admin/reports"><Icon name="warning" size="sm" />Reports{state.openReports > 0 ? ` · ${state.openReports}` : ''}</Link>
         <Link className="btn sm" to="/admin/feedback"><Icon name="provider-chat" size="sm" />Feedback</Link>
         <Link className="btn sm" to="/admin/badges"><Icon name="check" size="sm" />Badges</Link>
         <Link className="btn sm" to="/admin/guild-badges"><Icon name="guild" size="sm" />Guild badges</Link>

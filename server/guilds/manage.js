@@ -78,11 +78,17 @@ export async function syncGuildsOwnedBy(db, accountId) {
   for (const id of new Set([...rows, ...recorded].map((r) => Number(r.guild_id)))) await db.tx((q) => syncGuildMaster(q, id));
 }
 
-/** 'gm' | 'officer' | null for this account on this guild, right now. */
-export async function guildRole(db, guildId, accountId) {
+/**
+ * 'gm' | 'officer' | null for this account on this guild, right now.
+ * 0.8.2: a BANNED account has no role (its guild pages keep working, with no editing by it). A banned Guild Master
+ * leaves the page to the officers already added, who keep editing; nobody can add officers until the ban ends.
+ * { ignoreBan: true } is for moderation, to list the guilds a banned account manages so their text can be reset.
+ */
+export async function guildRole(db, guildId, accountId, { ignoreBan = false } = {}) {
   if (!accountId) return null;
   const gm = await currentGuildMaster(db, guildId);
   if (!gm?.accountId) return null; // no Guild Master on Everstats: nobody edits
+  if (!ignoreBan && (await db.one('SELECT everstats_banned($1) AS b', [accountId])).b) return null;
   if (gm.accountId === Number(accountId)) return 'gm';
   const ed = await db.one('SELECT 1 AS x FROM guild_editors WHERE guild_id = $1 AND account_id = $2 AND removed_at IS NULL', [guildId, accountId]);
   if (!ed) return null;
