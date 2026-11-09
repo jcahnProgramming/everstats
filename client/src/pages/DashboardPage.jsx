@@ -71,7 +71,7 @@ export function DashboardPage() {
   return (
     <div className="wrap page-pad stack gap-28">
       <div className="row gap-12">
-        <h1 className="h1 grow">Your characters</h1>
+        <h1 className="h1 grow">{session.user?.claimed ? `Welcome back, ${session.user.displayName}` : 'Your characters'}</h1>
         {linkedReader && (
           <button type="button" className="btn sm" onClick={() => startProvider(linkedReader.id, 'characters', '/').catch((err) => toast.err("Couldn't start", err.message))}>
             <Icon name="refresh" size="sm" />Refresh my characters
@@ -168,7 +168,7 @@ function Featured({ data, onPick }) {
             <span className="eyebrow ellipsis">{p.name}</span>
             <span className="big">{p.text ? <span className="small muted">{p.text} · </span> : null}{formatNumber(p.value)}</span>
             <span className="row gap-8 small">
-              {p.rank !== null ? <span className="t2"><b className="strong-text">#{formatNumber(p.rank)}</b> of {formatNumber(p.population)}</span> : <span className="muted">not ranked</span>}
+              {p.rank !== null ? <span className="t2"><b className="strong-text">#{formatNumber(p.rank)}</b> of {formatNumber(p.withAny)} with any</span> : <span className="muted">Not ranked</span>}
               <span className={p.move > 0 ? 'up' : p.move < 0 ? 'down' : 'muted'} title={p.move === null ? 'Movement shows once there is a week of rank history' : `Since ${formatDate(p.since)}`}>
                 {p.move === null ? '—' : p.move > 0 ? `▲ ${p.move}` : p.move < 0 ? `▼ ${-p.move}` : '± 0'}
               </span>

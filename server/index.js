@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { createApp, sweepExpired } from './app.js';
 import { config } from './core/config.js';
 import { createDb } from './core/db.js';
-import { describeTrust } from './core/network.js';
+import { describeTrust, trustedProxyCheck } from './core/network.js';
 import { prepareDatabase } from './core/prepare.js';
 import { APP_VERSION } from './core/version.js';
 import { requireRootKey } from './credentials/crypto.js';
@@ -21,6 +21,10 @@ const app = createApp({ db });
 const httpServer = app.listen(config.port, config.listenHost, () => {
   console.log(`[web] Everstats ${APP_VERSION} listening on ${config.listenHost}:${config.port} for ${config.publicOrigin}`);
   console.log(`[web] Rate limits per network: ${describeTrust()}`);
+  const trust = trustedProxyCheck();
+  if (trust.state === 'outside') {
+    console.warn(`[web] WARNING: TRUSTED_PROXIES is set, but none of it is inside this container's network (${trust.networks.join(', ') || 'none found'}). CF-Connecting-IP will be ignored and every tunnel visitor shares one rate-limit bucket. Set it to the network's gateway (docker-compose.yml, EVERSTATS_SUBNET_PREFIX).`);
+  }
 });
 
 const sweep = () => sweepExpired(db).catch((err) => console.error(`[web] sweeping expired sessions failed: ${err.code ?? err.name}`));

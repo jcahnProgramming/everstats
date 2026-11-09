@@ -3,6 +3,7 @@ import { SourceError } from '../sources/blizzard.js';
 import { openSource as defaultOpenSource } from '../sources/registry.js';
 import { createBackoff, createBudget } from './budget.js';
 import { RetryableError, fetchCharacter, fetchGuildRoster } from './fetch.js';
+import { fetchItemMedia } from './items.js';
 import { PRIORITY, claim, finish, retryLater, sweepQueue } from './queue.js';
 import { countRequests } from './stats.js';
 
@@ -98,7 +99,8 @@ export function createCrawler({ db, fetch = globalThis.fetch, now = Date.now, sl
     inFlight.set(item.id, { priority: item.priority, kind: item.kind, key: item.key, startedAt: new Date(now()).toISOString() });
     try {
       const ctx = { db, client, now };
-      const outcome = item.kind === 'guild' ? await fetchGuildRoster(ctx, item) : await fetchCharacter(ctx, item);
+      const handler = { guild: fetchGuildRoster, items: fetchItemMedia, character: fetchCharacter }[item.kind] ?? fetchCharacter;
+      const outcome = await handler(ctx, item);
       await finish(db, item.id, 'done', outcome);
     } catch (err) {
       const why = err instanceof RetryableError ? err.message : `${err?.name ?? 'Error'}${err?.code ? ` (${err.code})` : ''}`;

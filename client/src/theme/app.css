@@ -2,7 +2,7 @@
    colours live in tokens.css. Each block says why the design's own rules weren't enough. */
 
 /* ---------------------------------------------------------------- base */
-html { scroll-padding-top: calc(var(--es-size-topbar) + var(--es-space-16)); -webkit-text-size-adjust: 100%; }
+html { scroll-padding-top: calc(var(--es-sticky-top, var(--es-size-topbar)) + var(--es-space-16)); -webkit-text-size-adjust: 100%; }
 /* The design applies .es to its mockup <body>; here it is the shell's root, so the body itself needs the ground. */
 body { background-color: var(--es-bg); color: var(--es-text); }
 /* "Every number uses Inter with tabular, lining figures" (design/v1/tokens/typography.md): set once for everything. */

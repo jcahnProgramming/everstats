@@ -8,10 +8,10 @@ import { periodStart } from './periods.js';
  *   week     what was GAINED since the character's first snapshot this week (stat_gains)
  *   month    the same for the calendar month
  *
- * A character Blizzard lists no value for has zero, and zero is never stored as a ranked row: the boards list the
- * characters above zero, and everyone at zero shares the next rank ("tied at #n"). Ties share a rank: a character's
- * rank is 1 + the number of visible characters with a strictly higher value. Hidden characters are on no board and
- * count toward no population.
+ * A character Blizzard lists no value for has zero. 0.4.1: ZERO IS NEVER RANKED, anywhere ("#2 of 116" for zero
+ * kills read like an achievement). A board lists the characters above zero, and "of N" counts only them: "#1 of 3
+ * with any" means three people have actually done it. Ties share a rank: a character's rank is 1 + the number of
+ * visible characters with a strictly higher value. Hidden characters are on no board and count toward nothing.
  *
  * Every count repeats the partial index predicate (value > 0, NOT hidden) so the planner can use the index: without
  * it, a rank count was a sequential scan (measured 0.7 s per page at 10,000 characters, scripts/measure-boards.js).
@@ -60,11 +60,9 @@ export async function statCounts(db, { statisticId, rulesetId, period = 'overall
   return { population: await populationOf(db, rulesetId, period, { now }), nonzero: row.nonzero, max: row.max, min: row.min };
 }
 
-/** "Everyone's tied": every tracked character on the board has the same value (all zero, or all the same number). */
-export function everyoneTied(population, c) {
-  if (population < 1) return false;
-  if (!c || c.nonzero === 0) return true;
-  return c.nonzero === population && c.min === c.max;
+/** "Everyone's tied": two or more characters have any, and all of them have the same value. Zeros don't count. */
+export function everyoneTied(c) {
+  return Boolean(c) && c.nonzero >= 2 && c.min === c.max;
 }
 
 const encodeCursor = (v, id) => Buffer.from(JSON.stringify([v, id])).toString('base64url');
@@ -136,13 +134,16 @@ export async function characterRanks(db, characterId, rulesetId) {
   return new Map(rows.map((r) => [r.statistic_id, { value: r.value, text: r.text, updatedAt: r.blizzard_updated_at, fetchedAt: r.fetched_at, rank: r.rank }]));
 }
 
-/** A character's rank on one board ({ value, rank, population }), for pins and "your characters on this board". */
+/**
+ * A character's rank on one board, for pins and "your characters on this board":
+ *   { value, rank (null at zero: not ranked), withAny (characters above zero), population (tracked) }
+ */
 export async function rankOn(db, { characterId, statisticId, rulesetId, period = 'overall', now = Date.now }) {
   const s = SOURCES[period];
   const base = params(period, now, statisticId, characterId);
   const row = await db.one(`SELECT ${s.col} AS value FROM ${s.table} WHERE statistic_id = $1 AND character_id = $2 ${s.where}`, base);
   const value = row?.value ?? 0;
   const counts = await statCounts(db, { statisticId, rulesetId, period, now });
-  const rank = value > 0 ? (await ranksFor(db, { statisticId, rulesetId, period, values: [value], now })).get(value) : counts.nonzero + 1;
-  return { value, rank, population: counts.population };
+  const rank = value > 0 ? (await ranksFor(db, { statisticId, rulesetId, period, values: [value], now })).get(value) : null;
+  return { value, rank, withAny: counts.nonzero, population: counts.population };
 }

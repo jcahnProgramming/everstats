@@ -5,6 +5,7 @@ import { parseCharacterSearch } from '../search.js';
 import { useSession } from '../session.jsx';
 import { ToastProvider } from '../components/Toasts.jsx';
 import { BetaBanner, BetaBadge } from './BetaBanner.jsx';
+import { UsernamePrompt } from '../components/UsernameClaim.jsx';
 import { BrandMark } from './BrandMark.jsx';
 import { Icon } from './Icon.jsx';
 import { createScrollMemory, focusMainHeading, restoreScroll, scrollDecision } from './scrollMemory.js';
@@ -30,6 +31,7 @@ export function AppShell() {
         <ScrollManager />
         <TopBar />
         <BetaBanner />
+        <UsernamePrompt />
         <main id="main" className="app-main" key={pathname}>
           <Outlet />
         </main>
@@ -69,9 +71,25 @@ function TopBar() {
 
   const toggle = (which) => setSheet((s) => (s === which ? null : which));
 
+  // The sticky bar's real height, as --es-sticky-top on <html>: anything else that sticks (the Settings section nav)
+  // sits just under it, and anchor jumps land below it (scroll-padding-top). Set through the CSSOM: the CSP forbids
+  // style="" attributes, not this. The beta banner isn't sticky, so it scrolls away and isn't counted.
+  const sticky = useRef(null);
+  useEffect(() => {
+    const el = sticky.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => {
+      document.documentElement.style.setProperty('--es-sticky-top', `${Math.round(el.getBoundingClientRect().height)}px`);
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+    };
+  }, []);
+
   // The sheet is a sibling of .topbar, not inside it: the design hides .topbar .search on phones.
   return (
-    <div className="topbar-sticky">
+    <div className="topbar-sticky" ref={sticky}>
       <header className="topbar">
         <div className="wrap in">
         <Link to="/" className="brand" aria-label="Everstats, home">
@@ -141,17 +159,26 @@ function NavLinks({ block = false }) {
  *   loading            an invisible placeholder of the same size, so the bar doesn't jump when the session arrives
  *   signed out         "Sign in"
  *   waiting for 2FA    "Finish sign-in" → the code page (a half-signed-in session can do nothing else)
- *   signed in          user icon + "Account" → Settings
+ *   signed in          the display name with @username under it → Settings; before a username is claimed,
+ *                      "Choose a username" (a placeholder is never shown as if it were a chosen name)
+ *   admin area         on /admin pages the bar says "Admin": the admin is not a player and has no username
  */
 function AccountButton({ className = '', block = false }) {
   const session = useSession();
+  const { pathname } = useLocation();
   const size = block ? 'block left' : 'sm';
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+    return <span className={`tag gold ${className} admin-label`}>Admin</span>;
+  }
   if (session.loading) return <span className={`btn ${size} ghost ${className} is-placeholder`} aria-hidden="true">Sign in</span>;
   if (session.signedIn) {
+    const u = session.user;
     return (
-      <NavLink to="/settings" className={`btn ${size} ghost ${className}`}>
+      <NavLink to="/settings" className={`btn ${size} ghost ${className} who-btn`} aria-label={u?.claimed ? `${u.displayName}, @${u.username}: settings` : 'Choose a username: settings'}>
         <Icon name="user" size="sm" />
-        <span>Account</span>
+        {u?.claimed ? (
+          <span className="who-names"><span className="who-display ellipsis">{u.displayName}</span><span className="who-handle ellipsis">@{u.username}</span></span>
+        ) : <span>Choose a username</span>}
       </NavLink>
     );
   }

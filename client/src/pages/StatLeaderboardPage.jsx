@@ -103,7 +103,7 @@ export function StatLeaderboardPage() {
       <div className="split">
         <section className="panel clip stack main" aria-labelledby="board-h">
           <div className="row board-head">
-            <h2 className="h3" id="board-h">{data.collecting ? 'Collecting data' : `${formatNumber(data.population)} tracked on ${data.ruleset.name}`}</h2>
+            <h2 className="h3" id="board-h">{data.collecting ? 'Collecting data' : `${formatNumber(data.nonzero)} with any · ${formatNumber(data.population)} tracked on ${data.ruleset.name}`}</h2>
             <span className="tag">{data.ruleset.name}</span>
           </div>
           <div className="pad-16 stack gap-14">
@@ -116,16 +116,20 @@ export function StatLeaderboardPage() {
               <EmptyState kind="nodata" title="Nobody tracked on this ruleset yet">
                 <span>The board fills in as characters on {data.ruleset.name} are looked up or sign in.</span>
               </EmptyState>
+            ) : data.nonzero === 0 ? (
+              <EmptyState kind="nodata" title={period === 'overall' ? 'Nobody tracked has any yet' : `Nobody has gained any this ${period}`}>
+                <span>All {formatNumber(data.population)} tracked characters on {data.ruleset.name} are at 0, and a zero isn't ranked. The board fills in as soon as someone {period === 'overall' ? 'has one' : 'gains one'}.</span>
+              </EmptyState>
             ) : data.tied ? (
-              <EmptyState kind="tied" title={`All ${formatNumber(data.population)} tracked characters are at ${formatNumber(data.tiedValue)}`}>
+              <EmptyState kind="tied" title={`All ${formatNumber(data.nonzero)} with any are at ${formatNumber(data.tiedValue)}`}>
                 <span>Ranking them would be a meaningless order, so there isn't one. The board ranks as soon as someone {period === 'overall' ? 'gets a different value' : 'gains something'}.</span>
               </EmptyState>
             ) : (
               <>
                 <RankedTable valueLabel={valueLabel} rows={rows.map((r) => ({ ...r, slug: r.slug ?? `${r.name}-${r.surname}`.toLowerCase(), detail: [r.level ? `Level ${r.level}` : null, r.race, r.class].filter(Boolean).join(' · '), value: r.value, valueText: r.text }))} showTier={false} showMove={false} />
                 {more.next && <button type="button" className="btn ghost self-start" disabled={more.busy} onClick={loadMore}>{more.busy ? 'Loading…' : 'Show more'}</button>}
-                {data.zeroRank <= data.population && (
-                  <p className="muted small">{formatNumber(data.population - data.nonzero)} more tracked character{data.population - data.nonzero === 1 ? ' is' : 's are'} at 0{period === 'overall' ? '' : ' gained'}, tied at #{formatNumber(data.zeroRank)}.</p>
+                {data.atZero > 0 && (
+                  <p className="muted small">{formatNumber(data.atZero)} more tracked character{data.atZero === 1 ? ' is' : 's are'} at 0{period === 'overall' ? '' : ' gained'}: not ranked.</p>
                 )}
               </>
             )}
@@ -144,7 +148,7 @@ export function StatLeaderboardPage() {
               {data.mine.map((m) => (
                 <div key={m.slug} className="kv">
                   <Link to={`/c/${encodeURIComponent(m.slug)}`}>{m.name} <span className="surname">{m.surname}</span></Link>
-                  <span className="t2">{m.hidden ? 'hidden' : <><b className="strong-text">#{formatNumber(m.rank)}</b> · {formatNumber(m.value)}</>}</span>
+                  <span className="t2">{m.hidden ? 'hidden' : m.rank === null ? 'Not ranked (0)' : <><b className="strong-text">#{formatNumber(m.rank)}</b> of {formatNumber(m.withAny)} · {formatNumber(m.value)}</>}</span>
                 </div>
               ))}
             </section>

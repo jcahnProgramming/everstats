@@ -17,6 +17,8 @@ import { rankOn } from '../stats/boards.js';
 import { loadCatalog } from '../stats/catalog.js';
 import { utcDay } from '../stats/periods.js';
 import { MAX_PINS, pinsOf, setPins } from '../stats/pins.js';
+import { checkDisplayName, reservedSet } from '../accounts/names.js';
+import { availability, changeUsername, holdName } from '../accounts/usernames.js';
 
 /** The three themes. Logged-out visitors always get Forever; a signed-in account's choice is stored on it. */
 export const THEMES = ['forever', 'alliance', 'horde'];
@@ -24,7 +26,7 @@ export const THEMES = ['forever', 'alliance', 'horde'];
 const MAX_PASSKEYS = 20;
 
 async function accountView(db, accountId) {
-  const account = await db.one('SELECT id, created_at, theme, beta_member, beta_since FROM accounts WHERE id = $1', [accountId]);
+  const account = await db.one('SELECT id, created_at, theme, beta_member, beta_since, username, username_claimed, display_name, rename_allowance FROM accounts WHERE id = $1', [accountId]);
   if (!account) throw new HttpError(401, 'Sign in first.', 'signed_out');
   const identities = await db.query(
     'SELECT id, provider, display_name, linked_at, last_used_at FROM account_identities WHERE account_id = $1 ORDER BY linked_at LIMIT 20',
@@ -39,6 +41,12 @@ async function accountView(db, accountId) {
     id: account.id,
     createdAt: account.created_at,
     theme: account.theme,
+    // The username is the account's identity and URL; until it is claimed it's a placeholder, shown only to its owner.
+    username: account.username,
+    usernameClaimed: account.username_claimed,
+    displayName: account.display_name ?? (account.username_claimed ? account.username : null),
+    displayNameSet: account.display_name !== null,
+    renamesLeft: account.rename_allowance,
     identities: identities.map((i) => ({
       id: i.id,
       provider: i.provider,
@@ -115,8 +123,18 @@ export function createAccountRouter({ db, limits, networkOf }) {
     const beta = await betaState(db);
     if (!req.session) return res.json({ signedIn: false, stage: null, theme: 'forever', providers, beta });
     if (req.session.stage !== 'full') return res.json({ signedIn: false, stage: req.session.stage, theme: 'forever', providers, beta });
-    const account = await db.one('SELECT theme FROM accounts WHERE id = $1', [req.session.accountId]);
-    return res.json({ signedIn: true, stage: 'full', theme: account?.theme ?? 'forever', providers, beta });
+    const account = await db.one('SELECT theme, username, username_claimed, display_name FROM accounts WHERE id = $1', [req.session.accountId]);
+    const dismissed = (await db.one('SELECT username_prompt_dismissed AS d FROM sessions WHERE id_hash = $1', [req.session.idHash]))?.d ?? false;
+    return res.json({
+      signedIn: true, stage: 'full', theme: account?.theme ?? 'forever', providers, beta,
+      user: {
+        username: account.username,
+        claimed: account.username_claimed,
+        displayName: account.display_name ?? (account.username_claimed ? account.username : null),
+        // Every sign-in until a name is claimed; "Not now" lasts for this sign-in only.
+        promptUsername: !account.username_claimed && !dismissed,
+      },
+    });
   }));
 
   r.use('/account', requireAccount);
@@ -145,6 +163,47 @@ export function createAccountRouter({ db, limits, networkOf }) {
     res.json({ account: await accountView(db, req.session.accountId) });
   }));
 
+  // ---- Username and display name ----
+  // Availability while typing. Signed in only, and limited per network AND per account (rateLimit.js), so it can't be
+  // used to walk the namespace or the reserved list; a reserved name says only "That name is reserved".
+  r.get('/account/username/check', route(async (req, res) => {
+    const net = limits.usernameChecksByNetwork.take(networkOf(req));
+    const acct = net && limits.usernameChecksByAccount.take(`account:${req.session.accountId}`);
+    if (!net || !acct) {
+      limits.usernameChecksByNetwork.refund(net);
+      throw new HttpError(429, 'You’ve checked a lot of names. Wait a few minutes and try again.', 'rate_limited');
+    }
+    const name = typeof req.query.name === 'string' ? req.query.name.slice(0, 40) : '';
+    const a = await availability(db, name, req.session.accountId, await reservedSet(db));
+    res.json(a.ok ? { ok: true, name: a.name } : { ok: false, reason: a.reason, message: a.message });
+  }));
+
+  r.put('/account/username', writes, route(async (req, res) => {
+    await changeUsername(db, req.session.accountId, req.body?.username, await reservedSet(db));
+    res.json({ account: await accountView(db, req.session.accountId) });
+  }));
+
+  r.put('/account/display-name', writes, route(async (req, res) => {
+    const acct = await db.one('SELECT username_claimed FROM accounts WHERE id = $1', [req.session.accountId]);
+    if (!acct.username_claimed) throw new HttpError(409, 'Claim a username first: your display name starts as your username.', 'not_claimed');
+    let value = null;
+    if (req.body?.displayName !== null) {
+      const d = checkDisplayName(req.body?.displayName, await reservedSet(db, { forDisplay: true }));
+      if (!d.ok) throw new HttpError(400, d.message, d.reason);
+      value = d.value;
+    }
+    await db.tx(async (q) => {
+      await q.query('UPDATE accounts SET display_name = $2 WHERE id = $1', [req.session.accountId, value]);
+      await logAccountEvent(q, req.session.accountId, 'display_name.changed', {});
+    });
+    res.json({ account: await accountView(db, req.session.accountId) });
+  }));
+
+  r.post('/account/username/prompt-dismiss', route(async (req, res) => {
+    await db.query('UPDATE sessions SET username_prompt_dismissed = true WHERE id_hash = $1', [req.session.idHash]);
+    res.json({ ok: true });
+  }));
+
   // ---- The signed-in dashboard: featured character, pinned statistics, every owned character's state ----
   r.get('/dashboard', requireAccount, route(async (req, res) => {
     const accountId = req.session.accountId;
@@ -171,7 +230,7 @@ export function createAccountRouter({ db, limits, networkOf }) {
           : null;
         pins.push({
           id, name: s.name, category: s.category, grading: s.grading, value: cs?.value ?? 0, text: cs?.text ?? null,
-          rank: rk?.rank ?? null, population: rk?.population ?? null,
+          rank: rk?.rank ?? null, withAny: rk?.withAny ?? null,
           // Positive = moved up the board. null until a week of rank history exists (shown as "—").
           move: then && rk ? then.rank - rk.rank : null, since: then?.day ?? null,
         });
@@ -236,6 +295,10 @@ export function createAccountRouter({ db, limits, networkOf }) {
       }
     }
     await db.tx(async (q) => {
+      // A claimed username is held for 30 days after the account is deleted, so nobody can step into its profile
+      // address straight away (it redirects nowhere).
+      const named = await q.one('SELECT username FROM accounts WHERE id = $1 AND username_claimed', [accountId]);
+      if (named) await holdName(q, named.username, null, 'renamed');
       await q.query('UPDATE characters SET owner_account_id = NULL, owned_since = NULL WHERE owner_account_id = $1', [accountId]);
       await q.query('DELETE FROM accounts WHERE id = $1', [accountId]);
       await q.query("INSERT INTO admin_events (type, detail) VALUES ('account.deleted', $1::jsonb)", [JSON.stringify({ account: accountId })]);

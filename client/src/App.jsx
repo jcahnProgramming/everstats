@@ -11,6 +11,7 @@ import { HomePage } from './pages/HomePage.jsx';
 import { LeaderboardsPage } from './pages/LeaderboardsPage.jsx';
 import { NotFoundPage } from './pages/NotFoundPage.jsx';
 import { PrivacyPage } from './pages/PrivacyPage.jsx';
+import { ProfilePage } from './pages/ProfilePage.jsx';
 import { SecondFactorPage, SignInPage } from './pages/SignInPages.jsx';
 import { StatLeaderboardPage } from './pages/StatLeaderboardPage.jsx';
 import { SessionProvider } from './session.jsx';
@@ -38,6 +39,7 @@ export function App() {
             <Route path="changelog" element={<ChangelogPage />} />
             <Route path="beta" element={<BetaPage />} />
             <Route path="privacy" element={<PrivacyPage />} />
+            <Route path="u/:username" element={<ProfilePage />} />
             <Route path="admin" element={<AdminPage />} />
             <Route path="admin/discovery" element={<DiscoveryPage />} />
             <Route path="admin/sign-in" element={<AdminSignInPage />} />

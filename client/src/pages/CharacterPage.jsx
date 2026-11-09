@@ -5,7 +5,8 @@ import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { EmptyState, Fresh, Provenance } from '../components/EmptyState.jsx';
 import { CharacterLoading, CharacterNotFound, ServiceUnavailable } from '../components/States.jsx';
-import { GearSlot, RankPill, RenderFrame } from '../components/Stats.jsx';
+import { RankPill, RenderFrame } from '../components/Stats.jsx';
+import { GearSheet } from '../components/GearSheet.jsx';
 import { TierLegend } from '../components/Tier.jsx';
 import { useToasts } from '../components/Toasts.jsx';
 import { formatDateTime, formatNumber, timeAgo } from '../format.js';
@@ -108,7 +109,6 @@ const NOTICES = {
 function CharacterSheet({ data, onReload }) {
   const c = data.character;
   const stats = data.statistics;
-  const half = Math.ceil((c.equipment?.length ?? 0) / 2);
   const line = [c.level !== null ? `Level ${c.level}` : null, c.race, c.class].filter(Boolean).join(' · ');
   const statCount = stats.categories.reduce((n, cat) => n + cat.statistics.length, 0);
   return (
@@ -125,6 +125,7 @@ function CharacterSheet({ data, onReload }) {
               {c.mine && <span className="tag you">Yours</span>}
             </div>
             <h1 className="h-display char-name">{c.name} <span className="surname">{c.surname}</span></h1>
+            {c.claimedBy && <span className="small t2">Claimed by <Link className="mono" to={`/u/${c.claimedBy.username}`}>@{c.claimedBy.username}</Link></span>}
             <span className="t2 char-line">{line}{c.guild ? <> · <span className="guild-inline">&lt;{c.guild.name}&gt;</span></> : null}</span>
             <div className="row gap-14 small">
               <span className="t2">Last seen in game: <b className="strong-text">{c.lastLoginAt ? timeAgo(c.lastLoginAt) : 'not reported'}</b></span>
@@ -141,10 +142,12 @@ function CharacterSheet({ data, onReload }) {
             <span className="tier lg blank" role="img" aria-label="No tier yet: tiers are the next build"><b aria-hidden="true" /></span>
           </div>
         </div>
-        <div className="grid-auto col-base gap-20 sheet-body">
-          <Gear items={(c.equipment ?? []).slice(0, half)} label="Equipment" />
-          <RenderFrame src={c.media.state === 'ok' ? c.media.render : null} alt={`${c.name} ${c.surname}, as Blizzard renders them`} pending={c.media.state !== 'ok'} />
-          <Gear items={(c.equipment ?? []).slice(half)} side="right" label={c.equipment ? '' : null} />
+        <div className="stack gap-20 sheet-body">
+          <GearSheet
+            equipment={c.equipment}
+            render={<RenderFrame src={c.media.state === 'ok' ? c.media.render : null} alt={`${c.name} ${c.surname}, as Blizzard renders them`} pending={c.media.state !== 'ok'} />}
+          />
+          {!c.equipment?.length && <span className="muted xsmall">No equipment on the last fetch.</span>}
           <div className="well stack core-stats">
             <span className="eyebrow">Core stats</span>
             {c.attributes?.length ? c.attributes.map((a) => (
@@ -172,23 +175,6 @@ function CharacterSheet({ data, onReload }) {
         <TierLegend />
       </section>
     </>
-  );
-}
-
-function Gear({ items, side = 'left', label }) {
-  if (!items.length) {
-    return (
-      <div className="gear">
-        {label !== null && <span className="eyebrow">{label}</span>}
-        {label === 'Equipment' && <span className="muted xsmall">No equipment on the last fetch.</span>}
-      </div>
-    );
-  }
-  return (
-    <div className="gear">
-      <span className={`eyebrow${side === 'right' ? ' right-text' : ''}`}>{label || ' '}</span>
-      {items.map((it) => <GearSlot key={`${it.slot}-${it.name}`} slot={it.slotName || it.slot} item={it} side={side} />)}
-    </div>
   );
 }
 
@@ -223,9 +209,9 @@ function Statistics({ stats, character: c, count }) {
         <h2 className="h1 stats-title" id="stats-h">Statistics</h2>
         <span className="muted">{formatNumber(count)} statistics · {stats.categories.length} categories</span>
         <span className="spacer" />
-        {stats.ranked && <span className="t2 small">Ranked against <b className="strong-text">{formatNumber(stats.population)}</b> tracked on {rulesetName}</span>}
+        {stats.ranked && <span className="t2 small"><b className="strong-text">{formatNumber(stats.population)}</b> tracked on {rulesetName}</span>}
       </div>
-      <p className="t2 small">Blizzard lists only what a character has done, so anything missing here is a zero. Beta: boards fill up as players join, so a rank today is out of everyone tracked so far.</p>
+      <p className="t2 small">Blizzard lists only what a character has done, so anything missing here is a zero, and a zero isn't ranked. “#1 of 3 with any” means three tracked characters have done it at all. Beta: boards fill up as players join.</p>
       <div className="grid-auto col-2xl gap-18 align-start-grid">
         {stats.categories.map((cat) => {
           const all = open.has(cat.key);
@@ -253,8 +239,7 @@ function Statistics({ stats, character: c, count }) {
                   </span>
                   <span className="v">{s.text && <span className="named muted">{s.text} · </span>}{formatNumber(s.value)}</span>
                   {!stats.ranked ? <span className="rankpill pending">hidden: not ranked</span>
-                    : s.tied ? <Link className="rankpill pending" to={`/leaderboards/${c.ruleset.id}/${s.id}`}>everyone tied</Link>
-                      : <RankPill rank={s.rank} of={stats.population} to={`/leaderboards/${c.ruleset.id}/${s.id}`} />}
+                    : <RankPill rank={s.rank} of={s.withAny} to={`/leaderboards/${c.ruleset.id}/${s.id}`} />}
                   <Fresh at={c.statsFetchedAt} />
                 </div>
               ))}

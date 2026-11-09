@@ -11,6 +11,7 @@ import { categoryKey, loadCatalog } from '../stats/catalog.js';
 import { nextPeriodStart, periodOpen, periodStart } from '../stats/periods.js';
 import { parseSlug } from '../stats/slug.js';
 import { characterStatistics, characterView } from './view.js';
+import { resolveProfileName } from '../accounts/usernames.js';
 
 /**
  * The public, read-mostly API: character lookups, leaderboards, the statistics catalog, coverage and the beta.
@@ -90,6 +91,49 @@ export function createPublicRouter({ db, limits, networkOf }) {
         label: c.label, key: categoryKey(c.label), farmable: c.farmable, graded: c.graded,
         statistics: c.statisticIds.map((id) => ({ id, name: statistics.get(id).name, grading: statistics.get(id).grading })),
       })),
+    });
+  }));
+
+  // Icons that landed after the page loaded (the page asks again while any is pending). Up to 30 item ids.
+  r.get('/items/media', route(async (req, res) => {
+    const ids = String(req.query.ids ?? '').split(',').map(Number).filter(Number.isSafeInteger).slice(0, 30);
+    const rows = ids.length ? await db.query('SELECT item_id, state, icon_url FROM item_media WHERE item_id = ANY($1::bigint[])', [ids]) : [];
+    res.json({ items: rows.map((r) => ({ itemId: r.item_id, iconState: r.state, icon: r.state === 'ok' ? r.icon_url : null })) });
+  }));
+
+  // ---- Public profiles: /u/{username}. Anyone can view one; a placeholder name has none, hidden characters never
+  // appear. The page is a list of SECTIONS, so later ones (badges, pinned stats) are added without restructuring.
+  r.get('/users/:username', route(async (req, res) => {
+    const who = await resolveProfileName(db, req.params.username);
+    if (who?.redirect) return res.json({ status: 'moved', username: who.redirect });
+    if (!who?.account) {
+      return res.status(404).json({ error: 'No such player.', code: who?.placeholder ? 'placeholder' : 'no_user' });
+    }
+    const a = await db.one('SELECT id, username, display_name, beta_member, beta_since, featured_character_id FROM accounts WHERE id = $1', [who.account]);
+    const chars = await db.query(
+      `SELECT c.id, c.slug, c.name, c.surname, c.level, c.race, c.class, c.faction, c.media, c.media_state, c.last_fetched_at, r.id AS ruleset_id, r.name AS ruleset_name
+         FROM characters c LEFT JOIN rulesets r ON r.id = c.ruleset_id
+        WHERE c.owner_account_id = $1 AND NOT c.hidden AND c.profile_state = 'ok' AND c.stats_fetched_at IS NOT NULL
+        ORDER BY c.level DESC NULLS LAST, c.id LIMIT 50`,
+      [a.id],
+    );
+    const view = (c) => ({
+      slug: c.slug, name: c.name, surname: c.surname, level: c.level, race: c.race, class: c.class, faction: c.faction,
+      ruleset: c.ruleset_id !== null ? { id: c.ruleset_id, name: c.ruleset_name } : null,
+      render: c.media_state === 'ok' ? c.media?.['main-raw'] ?? null : null, fetchedAt: c.last_fetched_at,
+    });
+    const featured = chars.find((c) => c.id === a.featured_character_id) ?? chars[0] ?? null;
+    res.json({
+      status: 'ok',
+      profile: {
+        username: a.username,
+        displayName: a.display_name ?? a.username,
+        beta: a.beta_member ? { since: a.beta_since } : null,
+      },
+      sections: [
+        { id: 'featured', character: featured ? view(featured) : null },
+        { id: 'characters', characters: chars.filter((c) => c.id !== featured?.id).map(view) },
+      ],
     });
   }));
 
@@ -174,7 +218,7 @@ export function createPublicRouter({ db, limits, networkOf }) {
           const top = list.map((t) => ({ ...t, rank: list.findIndex((x) => x.value === t.value) + 1 }));
           return {
             id, name: s.name, named: s.named, grading: s.grading, nonzero: bc?.nonzero ?? 0,
-            tied: everyoneTied(counts.population, bc),
+            tied: everyoneTied(bc),
             top: top.map((t) => rowView(t, chars.get(t.character_id), null)),
           };
         }),
@@ -201,7 +245,7 @@ export function createPublicRouter({ db, limits, networkOf }) {
 
     const bc = await statCounts(db, { statisticId, rulesetId, period });
     const counts = { population: bc.population };
-    const tied = everyoneTied(counts.population, bc);
+    const tied = everyoneTied(bc);
     const page = tied ? { rows: [], next: null } : await boardPage(db, { statisticId, rulesetId, period, cursor: req.query.cursor, limit: req.query.limit });
     const viewer = viewerOf(req);
     const owned = viewer ? await db.query('SELECT id, slug, name, surname, hidden FROM characters WHERE owner_account_id = $1 AND ruleset_id = $2 AND stats_fetched_at IS NOT NULL LIMIT 50', [viewer, rulesetId]) : [];
@@ -214,7 +258,7 @@ export function createPublicRouter({ db, limits, networkOf }) {
         continue;
       }
       const rk = await rankOn(db, { characterId: o.id, statisticId, rulesetId, period });
-      mine.push({ slug: o.slug, name: o.name, surname: o.surname, hidden: false, rank: rk.rank, value: rk.value });
+      mine.push({ slug: o.slug, name: o.name, surname: o.surname, hidden: false, rank: rk.rank, value: rk.value, withAny: rk.withAny });
     }
     res.json({
       ...head,
@@ -222,8 +266,9 @@ export function createPublicRouter({ db, limits, networkOf }) {
       population: counts.population,
       nonzero: bc.nonzero,
       tied,
-      tiedValue: tied ? (bc.nonzero ? bc.max : 0) : null,
-      zeroRank: bc.nonzero + 1,
+      tiedValue: tied ? bc.max : null,
+      // Tracked characters at zero: not ranked, and not rows.
+      atZero: Math.max(0, counts.population - bc.nonzero),
       // How fresh the board is: the oldest and newest statistics fetch among its characters.
       data: await db.one('SELECT min(stats_fetched_at) AS oldest, max(stats_fetched_at) AS newest FROM characters WHERE ruleset_id = $1 AND stats_fetched_at IS NOT NULL AND NOT hidden', [rulesetId]),
       rows: page.rows.map((x) => rowView(x, chars.get(x.characterId), ownedIds)),

@@ -155,7 +155,8 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 - **Snapshots**: `character_snapshots`, one per character per UTC day (the first), two arrays (ids, values), in the
   `snapshots` tablespace (~1 KB per character per day measured). The first snapshot in a week/month is that period's
   baseline (`period_baselines`); `stat_gains` holds gains > 0, rebuilt per character on each fetch.
-- **Boards** (`stats/boards.js`): rank = 1 + visible characters strictly above; ties share; zeros tie after everyone;
+- **Boards** (`stats/boards.js`): rank = 1 + visible characters strictly above; ties share; **a zero is never ranked**
+  (0.4.1: "Not ranked", and "of N" counts only those above zero: "#1 of 3 with any");
   hidden characters are on no board and in no population. Every count repeats the partial index predicate (`value > 0`,
   `NOT hidden`), or the planner can't use the index. Nothing is cached: a rank and its "of N" are counted together.
   Weekly = from Tuesday 15:00 UTC (US weekly reset); monthly = calendar month UTC (`stats/periods.js`). A period board
@@ -170,6 +171,37 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   A failure there never fails the sign-in.
 - Lookups: a character fully fetched in the last 10 minutes is served without asking Blizzard; only a lookup that asks
   Blizzard counts against the per-network limit.
+
+## Usernames and profiles (0.4.1: `server/accounts/`, `/u/{username}`)
+
+- Every player account has ONE username: unique, stored lower case, 3–20 of a–z 0–9 `-` `_`, starting with a letter,
+  no doubled or trailing separators, not starting `user-`/`user_`. New accounts get a database-default placeholder
+  `user-xxxxxx` (`username_claimed` false): shown only to its owner, never publicly as a chosen name, no profile.
+  **Never default a name from a BattleTag or Discord name.** The prompt shows on every sign-in until claimed ("Not now"
+  lasts for that session: `sessions.username_prompt_dismissed`).
+- Rules live in `accounts/names.js` (one place): the admin-editable `reserved_names` list compared after lookalike
+  normalization (0→o, 1→i/l, 3→e, 4→a, 5→s, 7→t, @→a, $→s, separators dropped), blocked stems anywhere in a username
+  (admin, staff, official, moderator, support, blizzard; display names: all but "support"), and `accounts/profanity.json`.
+  Rejections say why in plain words and never name the entry that matched; the reserved list is sent to the admin only.
+- Claim is free; a rename uses `accounts.rename_allowance` (a number, default 1). The old name is held 30 days
+  (`username_holds`) and `/u/{old}` redirects. A deleted account's name is held 30 days too. Admin reclaim → fresh
+  placeholder, display name cleared, prompted again, allowance untouched, name held until released; admin grant
+  bypasses reserved/stem/profanity rules (not shape or uniqueness). Everything is in `username_history` + admin_events.
+- Availability checks: signed in only, 60 per network AND 30 per account per 15 minutes.
+- **Nothing keys on the username**: sessions, identities, passkeys, 2FA, characters, pins and beta membership all key on
+  account id, so a rename or reclaim can't break them (`server/test/usernames.test.js`).
+- The admin is not a player: no username, no profile; the top bar says "Admin" on /admin pages.
+- Profiles are a list of SECTIONS from the API (`featured`, `characters`), drawn by `SECTION_VIEWS` in
+  `client/src/pages/ProfilePage.jsx`: badges and pins are new sections, not a new page. Hidden characters never appear.
+
+## Gear and item icons (0.4.1: `crawler/parse.js` tooltipOf, `crawler/items.js`, `components/GearSheet.jsx`)
+
+- Tooltips show only Blizzard's own display strings from the equipment response, in the game's order; a field Blizzard
+  didn't send is left out. `characters.equipment_version` (2) makes an older stored equipment re-fetch once.
+- Icons: `item_media` per item id, shared by all characters, fetched in a separate 'items' crawl item at the priority of
+  whatever fetched the character (the character never waits). **Blizzard's API terms require a 30-day maximum TTL on all
+  API data** (Developer API Terms of Use, section 2), so a row older than 30 days is fetched again; the image is shown
+  from `render.worldofwarcraft.com`, never stored. A failed icon shows our own "?" art.
 
 ## The beta (`server/beta.js`, `chrome/BetaBanner.jsx`, `/beta`)
 
@@ -238,6 +270,8 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   - **Deleting an account** (Settings, `DELETE /api/account`) deletes the account row and everything that cascades from
     it (sign-in links, passkeys, 2FA, recovery codes, sessions, flows, pins, events, character checks). Reason: the
     person asked. Its characters stay (public data); ownership is cleared, a hidden one stays hidden.
+  - **Username holds expire** (`username_holds.held_until`): the row stays as history; an expired hold simply stops
+    counting. Not a deletion, listed here because a held name becomes claimable again by design.
   - **Discovery Battle.net tokens** (`discovery_grants`) are deleted when they expire (hourly sweep), when the admin
     forgets one, or when a new authorization replaces it. Reason: a credential, not history.
   - **Old nightly backup files are pruned**: the 14 newest dumps and the first dump of every month are kept, the rest
@@ -266,6 +300,10 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   `everstats` (web, port **3260**), `everstats-worker` (worker, port **3261**). The ports are written once in
   `server/core/config.js` (`DEFAULT_WEB_PORT`, `DEFAULT_WORKER_PORT`) and must agree with the Dockerfile, compose and
   the deploy (`server/test/compose-guard.test.js`); `WEB_PORT` / `WORKER_PORT` override the host side.
+- **The compose network has a fixed /24** (`EVERSTATS_SUBNET_PREFIX`, default `10.213.47`): its gateway `<prefix>.1` is
+  where cloudflared's connections arrive from, so `TRUSTED_PROXIES=<prefix>.1`. The web app warns at start-up and on
+  the admin page when TRUSTED_PROXIES is set but none of it is inside its own network. Changing the prefix needs a
+  `docker compose down` first (the network is recreated).
 - **Host ports bind to `BIND_IP` only, never `0.0.0.0`.** `BIND_IP`, `PG_DATA_DIR`, `PG_SNAPSHOT_DIR`, `BACKUP_DIR`
   and `POSTGRES_PASSWORD` are required with no default. **Database folders are direct disk paths, never `/mnt/user`**
   (Unraid's shfs FUSE layer and database locking don't mix); the deploy refuses `/mnt/user` paths.

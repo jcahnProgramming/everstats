@@ -16,6 +16,13 @@
 # The database folders must exist before deploying, owned by 999:999 (the postgres user in the image). Docker must
 # never create any of the three (create_host_path: false; the deploy's preflight checks them first).
 #
+# The stack's network has a FIXED subnet (0.4.1), so its gateway, the address cloudflared's connections arrive from
+# and the value TRUSTED_PROXIES trusts, can't move when Docker recreates the network. One value sets it:
+#   EVERSTATS_SUBNET_PREFIX   the first three octets of a /24 (default 10.213.47 → subnet 10.213.47.0/24, gateway
+#                             10.213.47.1). Outside Docker's default pools (172.17–172.31/16, 192.168/16), and an
+#                             unusual 10.x so it's unlikely to meet a home LAN or VPN range. TRUSTED_PROXIES is then
+#                             <prefix>.1. Changing it means `docker compose down` first (the network is recreated).
+#
 # Room for later: an everstats-mcp container (read-only, its own port, LAN only) will join this file and connect
 # with a read-only Postgres role. Not built in 1.0.
 
@@ -104,3 +111,10 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: "${EVERSTATS_SUBNET_PREFIX:-10.213.47}.0/24"
+          gateway: "${EVERSTATS_SUBNET_PREFIX:-10.213.47}.1"

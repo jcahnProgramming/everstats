@@ -245,6 +245,14 @@
   --es-q-rare: #5AAEFF;
   --es-q-epic: #C08CFF;
   --es-q-legendary: #FF9F3D;
+  /* 0.4.1 item tooltip: its own dark, in-game ground in every theme, so the item-quality colours and the game's
+     green and set-gold read on it (7:1+ for text, 4.5:1+ for muted). */
+  --es-tip-bg: #0B1430;
+  --es-tip-line: #3A4B80;
+  --es-tip-text: #F2EEE3;
+  --es-tip-muted: #9AA6C4;
+  --es-tip-green: #4FD86B;
+  --es-tip-set: #FFD34D;
   --es-hero-1: #22346F;
   --es-hero-2: #131D45;
   --es-hero-3: #0D1430;
@@ -299,6 +307,14 @@
   --es-q-rare: #6FBAFF;
   --es-q-epic: #C89AFF;
   --es-q-legendary: #FFA64A;
+  /* 0.4.1 item tooltip: its own dark, in-game ground in every theme, so the item-quality colours and the game's
+     green and set-gold read on it (7:1+ for text, 4.5:1+ for muted). */
+  --es-tip-bg: #0D1838;
+  --es-tip-line: #C9A24A;
+  --es-tip-text: #F5F1E4;
+  --es-tip-muted: #A9B3CC;
+  --es-tip-green: #55DA70;
+  --es-tip-set: #FFD650;
   --es-hero-1: #1C3F8A;
   --es-hero-2: #10275E;
   --es-hero-3: #08173A;
@@ -353,6 +369,14 @@
   --es-q-rare: #6DB2F0;
   --es-q-epic: #C995FF;
   --es-q-legendary: #FF9A3A;
+  /* 0.4.1 item tooltip: its own dark, in-game ground in every theme, so the item-quality colours and the game's
+     green and set-gold read on it (7:1+ for text, 4.5:1+ for muted). */
+  --es-tip-bg: #170D0C;
+  --es-tip-line: #8C5A2B;
+  --es-tip-text: #F3ECE6;
+  --es-tip-muted: #B3A49B;
+  --es-tip-green: #5BD474;
+  --es-tip-set: #FFCF4A;
   --es-hero-1: #5A1416;
   --es-hero-2: #2A1314;
   --es-hero-3: #130F10;

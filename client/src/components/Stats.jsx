@@ -11,12 +11,15 @@ import { TierBadge } from './Tier.jsx';
  * pages render their empty states instead of these.
  */
 
-/** Rank pill: "#22 of 9,999", or the dashed "board opens at N" while the board isn't open. */
-export function RankPill({ rank = null, of = null, to = null, opensAt = null }) {
+/**
+ * Rank pill: "#22 of 9,999 with any" (of = how many have any: zeros are never ranked). rank null → "Not ranked", in
+ * the no-data style (never the Unranked "–", which means a ruleset below the grading population).
+ */
+export function RankPill({ rank = null, of = null, to = null }) {
   if (rank === null) {
-    return <span className="rankpill pending">– board opens at {formatNumber(opensAt)}</span>;
+    return <span className="rankpill not-ranked" title="A value of 0 isn't ranked">Not ranked</span>;
   }
-  const body = <><b>#{formatNumber(rank)}</b> of {formatNumber(of)}</>;
+  const body = <><b>#{formatNumber(rank)}</b> of {formatNumber(of)} with any</>;
   return to ? <Link className="rankpill" to={to}>{body}</Link> : <span className="rankpill">{body}</span>;
 }
 

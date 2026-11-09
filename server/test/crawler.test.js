@@ -149,16 +149,24 @@ test('not found is honest; a statistic Blizzard adds appears in the catalog by i
   assert.equal(row.name, 'Fixture statistic from a patch');
 });
 
-test('boards: ties share a rank, zeros tie after everyone, hidden characters are on no board', async () => {
+test('boards: ties share a rank, a zero is never ranked, hidden characters are on no board', async () => {
   addCharacter('gamma-fixture', { id: 103, stats: STATS(4, 6, 950) }); // same as alpha now
   await t.client({ ip: '198.51.100.3' }).get('/api/characters/gamma-fixture');
   const board = (await t.client().get('/api/leaderboards/2/107')).json;
   assert.equal(board.population, 3);
   assert.deepEqual(board.rows.map((r) => [r.name, r.rank, r.value]), [['Alpha', 1, 950], ['Gamma', 1, 950], ['Beta', 3, 100]]);
 
+  // Deaths: alpha and gamma have 4 each, beta has none. Beta is not a row and has no rank; the two with any are tied.
   const deaths = (await t.client().get('/api/leaderboards/2/60')).json;
-  assert.deepEqual(deaths.rows.map((r) => r.rank), [1, 1]); // beta has 0 deaths
-  assert.equal(deaths.zeroRank, 3);
+  assert.equal(deaths.nonzero, 2);
+  assert.equal(deaths.atZero, 1);
+  assert.equal(deaths.tied, true);
+  assert.deepEqual(deaths.rows, []);
+  const beta = (await t.client({ ip: '198.51.100.3' }).get('/api/characters/beta-fixture')).json;
+  const betaDeaths = beta.statistics.categories.flatMap((c) => c.statistics).find((x) => x.id === 60);
+  assert.deepEqual([betaDeaths.value, betaDeaths.rank, betaDeaths.withAny], [0, null, 2]); // never "#3 of 3" for none
+  const betaKills = beta.statistics.categories.flatMap((c) => c.statistics).find((x) => x.id === 107);
+  assert.deepEqual([betaKills.rank, betaKills.withAny], [3, 3]); // "#3 of 3 with any"
 
   // A statistic only one character has, and the patch one: not "everyone tied" (two have 0, one has 2).
   assert.equal((await t.client().get('/api/leaderboards/2/99999')).json.tied, false);
@@ -259,7 +267,7 @@ test('Battle.net sign-in brings in every Forever character: owned, with honest s
   assert.deepEqual(dash.pins.map((p) => p.name), ['Times camped', 'Total deaths', 'Quests completed', 'Creatures killed'].filter((n) => n !== 'Quests completed'));
   assert.ok(dash.pins.every((p) => p.move === null));
   // A rank and its "of N" come from the same moment: never "#2 of 1".
-  assert.ok(dash.pins.every((p) => p.rank >= 1 && p.rank <= p.population), JSON.stringify(dash.pins));
+  assert.ok(dash.pins.every((p) => p.rank === null ? p.value === 0 : p.rank >= 1 && p.rank <= p.withAny), JSON.stringify(dash.pins));
   assert.equal(dash.pinsAreDefault, true);
 });
 

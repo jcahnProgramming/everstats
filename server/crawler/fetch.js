@@ -1,6 +1,7 @@
 import { BLIZZARD_API } from '../core/config.js';
 import { getSetting } from '../admin/settings.js';
-import { parseAttributes, parseEquipment, parseMedia, parseProfile, parseRoster, parseStatistics } from './parse.js';
+import { EQUIPMENT_VERSION, parseAttributes, parseEquipment, parseMedia, parseProfile, parseRoster, parseStatistics } from './parse.js';
+import { queueItemMedia } from './items.js';
 import { PRIORITY, enqueueMany } from './queue.js';
 import { markProfileMissing, storeDetails, storeMedia, storeProfile, takeSnapshot, updateGains, upsertKnown, upsertRuleset } from './store.js';
 
@@ -49,9 +50,11 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
   if (!p) throw new RetryableError('profile: an answer without a character in it', 'blizzard');
   if (!p.slug) p.slug = slug;
 
-  const existing = await db.one('SELECT login_at_full, last_fetched_at, media_state FROM characters WHERE id = $1', [p.id]);
+  const existing = await db.one('SELECT login_at_full, last_fetched_at, media_state, equipment_version FROM characters WHERE id = $1', [p.id]);
+  // Equipment stored before 0.4.1 has no tooltip fields: one full fetch brings them in, logged in or not.
   const unchanged = item.mode === 'check' && existing?.last_fetched_at && p.lastLoginAt && existing.login_at_full
-    && new Date(existing.login_at_full).getTime() === new Date(p.lastLoginAt).getTime();
+    && new Date(existing.login_at_full).getTime() === new Date(p.lastLoginAt).getTime()
+    && existing.equipment_version >= EQUIPMENT_VERSION;
 
   if (unchanged) {
     let media = null;
@@ -61,6 +64,7 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
       if (media) await storeMedia(q, p.id, media);
       await takeSnapshot(q, p.id, { now });
       await updateGains(q, p.id, { now });
+      await queueItemMedia(q, p.id, priority); // an icon past its 30-day TTL is fetched again
     });
     await maybeRoster({ db }, p);
     return 'unchanged';
@@ -86,6 +90,8 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
     });
     await takeSnapshot(q, p.id, { now });
     await updateGains(q, p.id, { now });
+    // Icons go in their own work item at this priority: the character is ready without waiting for them.
+    await queueItemMedia(q, p.id, priority);
   });
   await maybeRoster({ db }, p);
   return 'fetched';

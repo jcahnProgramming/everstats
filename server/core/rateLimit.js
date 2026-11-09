@@ -81,6 +81,10 @@ export function createLimits({ now = Date.now } = {}) {
     secondFactorByAccount: createLimiter({ limit: 5, windowMs: FIFTEEN_MINUTES, now }),
     // Admin sign-in and enrolment attempts: 10 per 15 minutes.
     admin: createLimiter({ limit: 10, windowMs: FIFTEEN_MINUTES, now }),
+    // Username availability checks (signed in only): 60 per network AND 30 per account per 15 minutes, so the check
+    // can't be used to walk the namespace or the reserved list.
+    usernameChecksByNetwork: createLimiter({ limit: 60, windowMs: FIFTEEN_MINUTES, now }),
+    usernameChecksByAccount: createLimiter({ limit: 30, windowMs: FIFTEEN_MINUTES, now }),
     // Account and admin changes (theme, unlinking, 2FA setup, keys): 120 per 15 minutes. A bound on abuse only.
     writes: createLimiter({ limit: 120, windowMs: FIFTEEN_MINUTES, now }),
   };

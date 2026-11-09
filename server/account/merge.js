@@ -49,6 +49,27 @@ export const MERGE_STEPS = [
     },
   },
   {
+    id: 'username',
+    describe: 'Usernames: the account you keep keeps its own. If it never chose one, it takes this account’s. A username this account gives up is held for 30 days and its profile address points to the kept account.',
+    async run(q, from, to) {
+      const [src, dst] = [
+        await q.one('SELECT username, username_claimed, display_name FROM accounts WHERE id = $1', [from]),
+        await q.one('SELECT username, username_claimed FROM accounts WHERE id = $1', [to]),
+      ];
+      if (!src.username_claimed) return;
+      if (!dst.username_claimed) {
+        // The source's row still holds the name (unique): free it first, then give it to the kept account.
+        const tmp = (await q.one('SELECT everstats_placeholder_username() AS n')).n;
+        await q.query('UPDATE accounts SET username = $2, username_claimed = false WHERE id = $1', [from, tmp]);
+        await q.query('UPDATE accounts SET username = $2, username_claimed = true, display_name = coalesce(display_name, $3) WHERE id = $1', [to, src.username, src.display_name]);
+        await q.query("INSERT INTO username_history (account_id, old_name, new_name, kind) VALUES ($1, $2, $3, 'merge')", [to, dst.username, src.username]);
+        return;
+      }
+      const { holdName } = await import('../accounts/usernames.js');
+      await holdName(q, src.username, to, 'merged');
+    },
+  },
+  {
     id: 'beta',
     describe: 'Beta membership: if either account was made during the beta, the account you keep is a beta member, from the earlier date.',
     async run(q, from, to) {

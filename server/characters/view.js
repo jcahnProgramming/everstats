@@ -1,4 +1,4 @@
-import { boardCounts, characterRanks, everyoneTied } from '../stats/boards.js';
+import { boardCounts, characterRanks } from '../stats/boards.js';
 import { categoryKey, loadCatalog } from '../stats/catalog.js';
 
 /**
@@ -6,9 +6,26 @@ import { categoryKey, loadCatalog } from '../stats/catalog.js';
  * statistics, gear), checkedAt (the profile, read even when nothing changed), media.fetchedAt (renders lag the profile
  * by hours) and each statistic's own updatedAt from Blizzard.
  */
+/** Each equipped item with its icon: { icon: url | null, iconState: 'ok' | 'pending' | 'missing' | 'failed' }. */
+export async function equipmentWithIcons(db, equipment) {
+  const list = Array.isArray(equipment) ? equipment : [];
+  const ids = list.map((i) => i.itemId).filter(Number.isSafeInteger);
+  const rows = ids.length ? await db.query('SELECT item_id, state, icon_url FROM item_media WHERE item_id = ANY($1::bigint[])', [ids]) : [];
+  const byId = new Map(rows.map((r) => [r.item_id, r]));
+  // mediaHref is how the crawler finds the icon; the page doesn't need it.
+  return list.map(({ mediaHref: _href, ...i }) => {
+    const m = byId.get(i.itemId);
+    return { ...i, icon: m?.state === 'ok' ? m.icon_url : null, iconState: m ? m.state : 'pending' };
+  });
+}
+
 export async function characterView(db, row, { mine = false } = {}) {
   const ruleset = row.ruleset_id !== null ? await db.one('SELECT id, name FROM rulesets WHERE id = $1', [row.ruleset_id]) : null;
   const guild = row.guild_id !== null ? await db.one('SELECT name, slug FROM guilds WHERE id = $1', [row.guild_id]) : null;
+  // "Claimed by @username": only for a character that isn't hidden, and only once its owner has a real username.
+  const owner = row.owner_account_id !== null && !row.hidden
+    ? await db.one('SELECT username FROM accounts WHERE id = $1 AND username_claimed', [row.owner_account_id])
+    : null;
   return {
     id: row.id,
     slug: row.slug,
@@ -32,17 +49,18 @@ export async function characterView(db, row, { mine = false } = {}) {
       avatar: row.media?.avatar ?? null,
       fetchedAt: row.media_fetched_at,
     },
-    equipment: row.equipment ?? null,
+    equipment: row.equipment ? await equipmentWithIcons(db, row.equipment) : null,
     attributes: row.attributes ?? null,
     hidden: row.hidden,
     mine,
+    claimedBy: owner ? { username: owner.username } : null,
   };
 }
 
 /**
  * Every statistic in the catalog for this character, grouped by category (the owner's decision, else the
- * suggestion). A statistic the character doesn't have is zero (Blizzard lists only what a character has done), and
- * zeros share the rank after everyone above zero. Hidden characters (seen by their owner) get no ranks.
+ * suggestion). A statistic the character doesn't have is zero (Blizzard lists only what a character has done), and a
+ * zero has no rank. "of N" is how many have any (withAny). Hidden characters (seen by their owner) get no ranks.
  */
 export async function characterStatistics(db, row) {
   const { statistics, categories } = await loadCatalog(db);
@@ -62,8 +80,8 @@ export async function characterStatistics(db, row) {
         const mine = mineById.get(id);
         const value = mine?.value ?? 0;
         const bc = counts?.byStat.get(id) ?? { nonzero: 0, min: null, max: null };
-        let rank = null;
-        if (ranked) rank = value > 0 ? mine.rank : bc.nonzero + 1;
+        // Zero is never ranked (0.4.1): "#2 of 116" for none at all read like an achievement.
+        const rank = ranked && value > 0 ? mine.rank : null;
         return {
           id,
           name: s.name,
@@ -72,7 +90,7 @@ export async function characterStatistics(db, row) {
           named: s.named,
           grading: s.grading,
           rank,
-          tied: ranked ? everyoneTied(counts.population, bc) : false,
+          withAny: bc.nonzero,
           updatedAt: mine?.updatedAt ?? null,
         };
       }),

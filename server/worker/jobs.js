@@ -172,9 +172,10 @@ export async function recordPinRanks(db, now = Date.now) {
       for (const c of chars) {
         for (const statId of ids) {
           const r = await rankOn(db, { characterId: c.id, statisticId: statId, rulesetId: c.ruleset_id, now });
+          if (r.rank === null) continue; // zero: not ranked, so no rank to remember
           const ins = await db.query(
             'INSERT INTO pin_rank_history (character_id, statistic_id, day, rank, population) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING RETURNING 1',
-            [c.id, statId, day, r.rank, r.population],
+            [c.id, statId, day, r.rank, r.withAny],
           );
           written += ins.length;
         }

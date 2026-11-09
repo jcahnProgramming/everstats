@@ -654,4 +654,104 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.4.1: usernames, display names, renames and the reserved list (accounts/names.js, accounts/usernames.js).
+    id: '010_usernames',
+    async up(q) {
+      await q.query(`
+        -- A placeholder for every account until it claims a name: "user-" + 6 random a–z0–9, never reused.
+        CREATE FUNCTION everstats_placeholder_username() RETURNS text LANGUAGE plpgsql VOLATILE AS $fn$
+        DECLARE
+          alphabet constant text := 'abcdefghijklmnopqrstuvwxyz0123456789';
+          candidate text;
+        BEGIN
+          LOOP
+            candidate := 'user-';
+            FOR i IN 1..6 LOOP
+              candidate := candidate || substr(alphabet, 1 + floor(random() * 36)::int, 1);
+            END LOOP;
+            EXIT WHEN NOT EXISTS (SELECT 1 FROM accounts WHERE username = candidate);
+          END LOOP;
+          RETURN candidate;
+        END
+        $fn$;
+
+        ALTER TABLE accounts
+          ADD COLUMN username text,
+          ADD COLUMN username_claimed boolean NOT NULL DEFAULT false,
+          ADD COLUMN display_name text CHECK (char_length(display_name) BETWEEN 1 AND 32),
+          -- Renames left. Claiming the first name is free; a reclaim by the admin doesn't use one either. A number, not
+          -- a rule: a later patron system or badge may grant more (the admin can set it).
+          ADD COLUMN rename_allowance integer NOT NULL DEFAULT 1 CHECK (rename_allowance >= 0);
+        UPDATE accounts SET username = everstats_placeholder_username() WHERE username IS NULL;
+        ALTER TABLE accounts
+          ALTER COLUMN username SET NOT NULL,
+          ALTER COLUMN username SET DEFAULT everstats_placeholder_username(),
+          ADD CONSTRAINT accounts_username_shape CHECK (username ~ '^[a-z][a-z0-9_-]{2,19}$');
+        CREATE UNIQUE INDEX accounts_username ON accounts (username);
+
+        -- "Dismiss" on the claim-your-username prompt lasts for this sign-in (this session) only.
+        ALTER TABLE sessions ADD COLUMN username_prompt_dismissed boolean NOT NULL DEFAULT false;
+
+        -- A name given up by a rename (or a merge) is held for 30 days: nobody else can claim it, and /u/{old}
+        -- redirects to the account's current name. A name taken back by the admin is held until the admin releases it
+        -- (held_until NULL) and redirects nowhere. Expired holds simply stop counting; rows stay as history.
+        CREATE TABLE username_holds (
+          name        text PRIMARY KEY,
+          account_id  bigint REFERENCES accounts (id) ON DELETE SET NULL,
+          reason      text NOT NULL CHECK (reason IN ('renamed', 'merged', 'reclaimed')),
+          held_at     timestamptz NOT NULL DEFAULT now(),
+          held_until  timestamptz
+        );
+        CREATE INDEX username_holds_account ON username_holds (account_id, held_at);
+
+        -- Every claim, rename, admin grant and reclaim, kept with the account (the admin reads it).
+        CREATE TABLE username_history (
+          id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          account_id  bigint NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+          old_name    text NOT NULL,
+          new_name    text NOT NULL,
+          kind        text NOT NULL CHECK (kind IN ('claim', 'rename', 'grant', 'reclaim', 'merge')),
+          by_admin    boolean NOT NULL DEFAULT false,
+          note        text CHECK (length(note) <= 200),
+          at          timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX username_history_account_time ON username_history (account_id, at);
+
+        -- Names nobody may claim (admin-editable). Compared after lookalike normalization (accounts/names.js). kind
+        -- 'path' entries guard URLs only; display names are checked against the other kinds.
+        CREATE TABLE reserved_names (
+          name      text PRIMARY KEY CHECK (name ~ '^[a-z0-9_-]{1,40}$'),
+          kind      text NOT NULL CHECK (kind IN ('everstats', 'path', 'company', 'community', 'admin')),
+          added_at  timestamptz NOT NULL DEFAULT now()
+        );
+      `);
+      const { RESERVED_SEED } = await import('../accounts/names.js');
+      const kinds = { everstats: 'everstats', paths: 'path', companies: 'company', community: 'community' };
+      for (const [group, names] of Object.entries(RESERVED_SEED)) {
+        for (const name of names) await q.query('INSERT INTO reserved_names (name, kind) VALUES ($1, $2) ON CONFLICT DO NOTHING', [name, kinds[group]]);
+      }
+    },
+  },
+  {
+    // 0.4.1: item icons from Blizzard's item media endpoint, shared by every character. Blizzard's API terms require
+    // a 30-day maximum TTL on all API data, so each row is refreshed when older than 30 days (crawler/items.js); the
+    // image itself is shown from Blizzard's render host, never stored. equipment_version: what the stored equipment
+    // carries (2 = tooltip fields); an older one is re-fetched once even when the character hasn't logged in.
+    id: '011_item_media',
+    async up(q) {
+      await q.query(`
+        CREATE TABLE item_media (
+          item_id     bigint PRIMARY KEY,
+          state       text NOT NULL CHECK (state IN ('ok', 'missing', 'failed')),
+          icon_url    text CHECK (icon_url IS NULL OR icon_url LIKE 'https://render.worldofwarcraft.com/%'),
+          fetched_at  timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX item_media_fetched ON item_media (fetched_at);
+        ALTER TABLE characters ADD COLUMN equipment_version smallint NOT NULL DEFAULT 1;
+        ALTER TABLE crawl_queue DROP CONSTRAINT crawl_queue_kind_check;
+        ALTER TABLE crawl_queue ADD CONSTRAINT crawl_queue_kind_check CHECK (kind IN ('character', 'guild', 'items'));
+      `);
+    },
+  },
 ];

@@ -8,7 +8,7 @@ import { loadSession } from './auth/sessions.js';
 import { config } from './core/config.js';
 import { createErrorHandler, route } from './core/errors.js';
 import { securityHeaders } from './core/headers.js';
-import { createNetworkResolver, logHeaderSources, trustedProxyEntries } from './core/network.js';
+import { createNetworkResolver, logHeaderSources, trustedProxyCheck, trustedProxyEntries } from './core/network.js';
 import { createLimits, limitBy } from './core/rateLimit.js';
 import { requireSameOrigin } from './core/sameOrigin.js';
 import { APP_VERSION } from './core/version.js';
@@ -80,7 +80,7 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   app.use('/api/auth', createAuthRouter({ db, limits, networkOf, fetch }));
   app.use('/api/admin', createAdminRouter({
     db, limits, networkOf, fetch,
-    proxies: () => ({ trustedProxies: trustedProxyEntries(trustedProxies), sources: onHeader?.sources?.() ?? [] }),
+    proxies: () => ({ trustedProxies: trustedProxyEntries(trustedProxies), sources: onHeader?.sources?.() ?? [], check: trustedProxyCheck(trustedProxies) }),
   }));
   app.use('/api', createAccountRouter({ db, limits, networkOf }));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));

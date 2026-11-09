@@ -93,9 +93,11 @@ function MiniBoard({ board: b, ruleset, population }) {
   const to = `/leaderboards/${ruleset.id}/${b.id}`;
   return (
     <Link className="panel mini" to={to}>
-      <span className="hd"><b className="ellipsis">{b.name}</b><span className="muted xsmall nowrap">{formatNumber(b.nonzero)} above 0</span></span>
-      {b.tied ? (
-        <span className="ln mini-note"><span /><span className="muted xsmall">Everyone's tied so far ({formatNumber(population)} tracked)</span><span /></span>
+      <span className="hd"><b className="ellipsis">{b.name}</b><span className="muted xsmall nowrap">{formatNumber(b.nonzero)} with any</span></span>
+      {b.nonzero === 0 ? (
+        <span className="ln mini-note"><span /><span className="muted xsmall">Nobody tracked has any yet ({formatNumber(population)} tracked)</span><span /></span>
+      ) : b.tied ? (
+        <span className="ln mini-note"><span /><span className="muted xsmall">All {formatNumber(b.nonzero)} with any are tied</span><span /></span>
       ) : b.top.map((r) => (
         <span key={r.slug ?? r.name} className="ln">
           <span className={`rk${r.rank <= 3 ? ` r${r.rank}` : ''}`}>{r.rank}</span>

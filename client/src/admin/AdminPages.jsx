@@ -10,6 +10,7 @@ import { NotFoundPage } from '../pages/NotFoundPage.jsx';
 import { AuthCard } from '../pages/SignInPages.jsx';
 import { passkeyRegister, passkeySignIn, wasCancelled } from '../passkeyClient.js';
 import { useCoverage } from '../useCoverage.js';
+import { PlayersSection, ReservedSection } from './PlayersSection.jsx';
 
 /**
  * The admin area (design/v1/pages/admin). Not linked from anywhere. Without an admin session, /admin sends the browser
@@ -66,6 +67,8 @@ export function AdminPage() {
         <BetaSection beta={state.beta} settings={state.settings} onBeta={(beta) => setState((st) => ({ ...st, beta }))} onSaved={(settings) => setState((st) => ({ ...st, settings }))} />
         <BackupsSection backups={state.backups} />
         <ProxiesSection proxies={state.proxies} />
+        <PlayersSection />
+        <ReservedSection />
       </div>
     </div>
   );
@@ -453,6 +456,7 @@ function ProxiesSection({ proxies }) {
         the address of the connection, never the visitor's. The one cloudflared uses goes in TRUSTED_PROXIES in .env,
         so nobody on the LAN can fake the header to dodge a rate limit.
       </p>
+      {proxies.check?.state === 'outside' && <div className="note err small" role="alert"><Icon name="error" /><span>None of TRUSTED_PROXIES is inside this container's own network ({proxies.check.networks.join(', ') || 'none found'}). CF-Connecting-IP is being ignored, so every tunnel visitor shares one rate-limit bucket. Set it to the network's gateway (EVERSTATS_SUBNET_PREFIX in docker-compose.yml, .1).</span></div>}
       {!trustedProxies && <div className="note warn small"><Icon name="warning" /><span>Set this before announcing the beta: character lookups spend the Blizzard budget, and their per-network limit only holds when the visitor's network is read from a trusted proxy.</span></div>}
       {trustedProxies && <div className="kv"><span className="t2">TRUSTED_PROXIES</span><span className="mono small">{trustedProxies.join(', ')}</span></div>}
       {sources.length === 0 ? (

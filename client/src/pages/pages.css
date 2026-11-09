@@ -85,7 +85,7 @@
 /* ---------------------------------------------------------------- account settings, merge */
 .narrow-wrap { max-width: var(--es-size-container-narrow); }
 .settings { gap: var(--es-space-32); }
-.settings-nav { flex: 1 1 var(--es-space-120); max-width: var(--es-size-sidebar); }
+.settings-side { flex: 1 1 var(--es-space-120); max-width: var(--es-size-sidebar); }
 .settings-title { font-size: var(--es-fs-32); }
 .settings-since { margin-bottom: var(--es-space-14); }
 .settings-hr { margin: var(--es-space-12) 0; }
@@ -112,7 +112,7 @@ ol.codes { margin: 0; list-style: none; }
 .merge-boxes { --col: var(--es-size-col-min); align-items: center; }
 .merge-target { border: var(--es-border-1) dashed var(--es-line-strong); border-radius: var(--es-radius-lg); }
 @media (max-width: 719px) {
-  .settings-nav { max-width: none; }
+  .settings-side { max-width: none; }
   .passkey-item { grid-template-columns: minmax(0, 1fr) auto; }
   .passkey-item > .muted { grid-column: 1; grid-row: 2; }
 }
@@ -164,7 +164,7 @@ ol.codes { margin: 0; list-style: none; }
 .beta-banner-link:hover .beta-banner-text { color: var(--es-text); text-decoration: underline; }
 .beta-banner-close { flex: none; }
 .beta-list { padding-left: var(--es-space-18); margin: 0; }
-.settings-beta { margin: var(--es-space-4) 0 var(--es-space-8); }
+.settings-beta { margin: var(--es-space-4) 0 var(--es-space-8); white-space: normal; line-height: var(--es-lh-snug); }
 
 /* ---------------------------------------------------------------- 0.4.0: character page */
 .grid-auto.col-base { --col: var(--es-size-col-min); }
@@ -204,3 +204,96 @@ ol.codes { margin: 0; list-style: none; }
    portrait cut-out the design drew. The frame crops it around the figure instead of shrinking the whole picture. */
 .render .figure { position: absolute; inset: 0; width: 100%; max-width: none; height: 100%; object-fit: cover; object-position: 50% 40%; }
 @media (max-width: 719px) { .render .figure { width: 100%; } }
+
+/* ---------------------------------------------------------------- 0.4.1: names in the top bar */
+.who-btn { max-width: var(--es-size-col-min-sm); }
+.who-names { display: flex; flex-direction: column; align-items: flex-start; line-height: var(--es-lh-snug); min-width: 0; }
+.who-display { font-weight: var(--es-weight-semibold); max-width: 100%; }
+.who-handle { font: var(--es-fs-11) var(--es-font-mono); color: var(--es-muted); max-width: 100%; }
+.admin-label { align-self: center; }
+.profile-name { overflow-wrap: anywhere; }
+
+/* ---------------------------------------------------------------- 0.4.1: Settings, sticky section nav */
+/* Desktop: the whole left column sticks just under the sticky top bar (--es-sticky-top, measured by AppShell; the
+   beta banner is not sticky, so it scrolls away and never overlaps) and scrolls itself if taller than the window. */
+.settings-side { flex: 0 0 var(--es-size-sidebar); max-width: var(--es-size-sidebar); overflow-x: hidden; position: sticky; top: calc(var(--es-sticky-top, var(--es-size-topbar)) + var(--es-space-16)); align-self: flex-start;
+  max-height: calc(100vh - var(--es-sticky-top, var(--es-size-topbar)) - var(--es-space-32)); overflow-y: auto; display: flex; flex-direction: column; gap: var(--es-space-8); }
+.settings-nav { display: flex; flex-direction: column; gap: var(--es-space-2); }
+.settings-link[aria-current="true"] { background: var(--es-raised); color: var(--es-text); box-shadow: inset var(--es-border-3) 0 0 var(--es-accent); }
+.settings .main > section { scroll-margin-top: calc(var(--es-sticky-top, var(--es-size-topbar)) + var(--es-space-16)); }
+@media (max-width: 719px) {
+  /* Phone: no left column. The heading stays in the page; the links become one horizontal bar pinned under the top
+     bar (the side wrapper dissolves so the bar sticks across the whole page, not just inside its own box). */
+  .settings-side { display: contents; }
+  .settings-head { width: 100%; }
+  .settings-nav { position: sticky; top: var(--es-sticky-top, var(--es-size-topbar-phone)); z-index: calc(var(--es-z-sticky) - 1); flex-direction: row;
+    align-items: center; overflow-x: auto; gap: var(--es-space-4); width: calc(100% + 2 * var(--es-space-16)); margin: 0 calc(-1 * var(--es-space-16));
+    padding: var(--es-space-6) var(--es-space-16); background: var(--es-bg); border-bottom: var(--es-border-1) solid var(--es-line); scrollbar-width: none; }
+  .settings-nav .btn { flex: none; white-space: nowrap; }
+  .settings-nav .settings-hr { display: none; }
+  .settings-link[aria-current="true"] { box-shadow: inset 0 calc(-1 * var(--es-border-2)) 0 var(--es-accent); }
+  .settings .main > section { scroll-margin-top: calc(var(--es-sticky-top, var(--es-size-topbar-phone)) + var(--es-size-control) + var(--es-space-28)); }
+}
+
+/* ---------------------------------------------------------------- 0.4.1: zero is "Not ranked" (the no-data look:
+   dashed and muted), never the Unranked "–" shield, which means a ruleset below the grading population. */
+.rankpill.not-ranked { border-style: dashed; background: none; color: var(--es-muted) !important; }
+
+/* ---------------------------------------------------------------- 0.4.1: Armory gear (components/GearSheet.jsx) */
+.armory { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(var(--es-size-col-min-sm), 1.1fr) minmax(0, 1fr); grid-template-areas: "left render right" "bottom bottom bottom"; gap: var(--es-space-14); align-items: start; }
+.armory-col { display: flex; flex-direction: column; gap: var(--es-space-6); min-width: 0; }
+.armory-col.left { grid-area: left; }
+.armory-col.right { grid-area: right; }
+.armory-render { grid-area: render; align-self: stretch; display: flex; }
+.armory-render .render { flex: 1; }
+.armory-bottom { grid-area: bottom; display: flex; justify-content: center; gap: var(--es-space-10); flex-wrap: wrap; }
+.armory-bottom .armory-slot { flex: 0 1 var(--es-size-col-min); }
+button.armory-slot { font: inherit; cursor: pointer; width: 100%; text-align: left; }
+button.armory-slot.right { text-align: right; }
+button.armory-slot:focus-visible { outline: var(--es-border-2) solid var(--es-focus); outline-offset: var(--es-space-2); }
+button.armory-slot[aria-expanded="true"] { border-color: var(--qc, var(--es-line-strong)); background: var(--es-raised); }
+.armory-slot .icon { overflow: hidden; }
+.armory-slot .icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.icon-unknown, .icon-empty { width: 70%; height: 70%; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; color: var(--es-muted); }
+.icon-wait { width: 40%; height: 40%; border-radius: var(--es-radius-round); border: var(--es-border-2) solid var(--es-line-strong); border-top-color: var(--es-accent); animation: es-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .icon-wait { animation: none; } }
+@keyframes es-spin { to { transform: rotate(360deg); } }
+@media (max-width: 1099px) and (min-width: 720px) {
+  .armory { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "render render" "left right" "bottom bottom"; }
+  .armory-render .render { min-height: var(--es-size-render-phone-h); }
+}
+@media (max-width: 719px) {
+  /* The design's phone pattern for gear: icon strips around the render. Names stay in the page for screen readers
+     (visually hidden, not display: none); a tap opens the tooltip with everything. */
+  .armory { grid-template-columns: minmax(0, 1fr); grid-template-areas: "left" "render" "right" "bottom"; }
+  .armory-col { flex-direction: row; overflow-x: auto; gap: var(--es-space-8); padding-bottom: var(--es-space-4); }
+  .armory-bottom { justify-content: flex-start; gap: var(--es-space-8); }
+  .armory-bottom .armory-slot { flex: none; }
+  .armory .slot .txt { display: block; position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  button.armory-slot { width: auto; }
+}
+
+/* The tooltip: the in-game dark ground in every theme (--es-tip-*), above everything, kept inside the window by JS. */
+.item-tip { position: fixed; z-index: var(--es-z-toast); width: max-content; max-width: min(var(--es-size-col-min-lg), calc(100vw - var(--es-space-16)));
+  display: flex; flex-direction: column; gap: var(--es-space-2); padding: var(--es-space-10) var(--es-space-12); background: var(--es-tip-bg); color: var(--es-tip-text);
+  border: var(--es-border-1) solid var(--es-tip-line); border-radius: var(--es-radius-sm); font-size: var(--es-fs-12-5); line-height: var(--es-lh-snug); pointer-events: none; }
+.item-tip .tip-name { font-size: var(--es-fs-14); font-weight: var(--es-weight-semibold); }
+.item-tip .tip-name.q-common { color: var(--es-tip-text); }
+.item-tip .tip-level { color: var(--es-tip-set); }
+.item-tip .tip-pair { display: flex; justify-content: space-between; gap: var(--es-space-16); }
+.item-tip .tip-green { color: var(--es-tip-green); }
+.item-tip .tip-muted { color: var(--es-tip-muted); }
+.item-tip .tip-set { margin-top: var(--es-space-6); gap: var(--es-space-2); }
+.item-tip .tip-set-name { color: var(--es-tip-set); }
+.item-tip .tip-set-on { color: var(--es-tip-text); padding-left: var(--es-space-8); }
+.item-tip .tip-set .tip-muted { padding-left: var(--es-space-8); }
+.item-tip .tip-sell { margin-top: var(--es-space-4); }
+.item-tip .coin { margin-right: var(--es-space-4); }
+.item-tip .tip-source { margin-top: var(--es-space-6); font-size: var(--es-fs-11); color: var(--es-tip-muted); }
+
+/* ---------------------------------------------------------------- 0.4.1: admin players */
+.listrow.linkrow { all: unset; box-sizing: border-box; display: flex; gap: var(--es-space-10); align-items: center; width: 100%; padding: var(--es-space-10) var(--es-space-14); cursor: pointer; border-top: var(--es-border-1) solid var(--es-row-sep); }
+.listrow.linkrow:hover { background: var(--es-raised); }
+.listrow.linkrow:focus-visible { outline: var(--es-border-2) solid var(--es-focus); }
+.reserved-list { padding-top: var(--es-space-8); }
+.reserved-list .tag { cursor: pointer; background: none; text-transform: none; }

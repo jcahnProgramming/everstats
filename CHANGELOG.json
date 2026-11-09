@@ -1,6 +1,29 @@
 {
   "releases": [
     {
+      "version": "0.4.1",
+      "date": "2026-11-10",
+      "title": "Usernames, profiles, and gear that looks like the game",
+      "sections": {
+        "New": [
+          "Usernames. Claim yours (first come, first served) and you get a public profile at everstats.app/u/yourname, showing your display name, beta membership, your featured character and your other characters that aren't hidden. Until you claim one you're asked at each sign-in; \"Not now\" keeps a placeholder that nobody else sees. Your BattleTag and Discord name are never used as your name.",
+          "Display names: what people see on your profile and at the top of the page. Change yours any time in Settings; it starts as your username.",
+          "One free rename (more may come later). A name you rename away from is kept for you for 30 days, and its profile address points to your new one.",
+          "Character pages say who claimed a character (\"Claimed by @name\"), once its owner has a username and as long as the character isn't hidden.",
+          "Gear looks like the game's character sheet: item icons framed in their quality colour around the character, weapons along the bottom, and a tooltip like the in-game one on hover, tap or keyboard focus. It shows everything Blizzard sends for the item, in the game's order: binding, slot and type, damage and speed, armor, stats, enchantments, \"Equip:\" and \"Use:\" effects, the set with the pieces you're wearing and its bonuses, durability, requirements and sell price."
+        ],
+        "Improved": [
+          "Settings keeps its section list in view as you scroll and marks the section you're reading. On a phone it's a bar pinned under the top bar.",
+          "The top bar shows your display name and @username instead of \"Account\".",
+          "For the site owner: the admin page can look players up by username, set how many renames an account has, give a reserved name to a verified partner, take a name back for impersonation or abuse, and edit the reserved-name list. It also warns when TRUSTED_PROXIES doesn't match the server's own network."
+        ],
+        "Fixed": [
+          "A statistic at zero no longer shows a rank. \"#2 of 116\" for zero kills read like an achievement; it now says \"Not ranked\", and ranks read \"#1 of 3 with any\", counting only the characters who have actually done it. A board where nobody has any yet says so.",
+          "The server's internal network now has a fixed address, so the setting that lets rate limits tell visitors apart can't silently stop working when the network is recreated."
+        ]
+      }
+    },
+    {
       "version": "0.4.0",
       "date": "2026-11-09",
       "title": "The beta: real characters, real leaderboards",

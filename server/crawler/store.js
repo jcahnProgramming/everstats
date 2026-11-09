@@ -1,5 +1,6 @@
 import { recordStatistics } from '../stats/catalog.js';
 import { PERIODS, periodStart, utcDay } from '../stats/periods.js';
+import { EQUIPMENT_VERSION } from './parse.js';
 
 /**
  * Writing what the crawler fetched. Parsed values only (crawler/parse.js): never a raw body.
@@ -104,6 +105,7 @@ export async function storeDetails(q, characterId, { stats, attributes, equipmen
     `UPDATE characters SET
        stats_fetched_at = CASE WHEN $2 THEN now() ELSE stats_fetched_at END,
        attributes = coalesce($3::jsonb, attributes), equipment = coalesce($4::jsonb, equipment),
+       equipment_version = CASE WHEN $4::jsonb IS NULL THEN equipment_version ELSE $8 END,
        media = CASE WHEN $5 = 'ok' THEN $6::jsonb ELSE media END,
        media_state = CASE WHEN $5 = 'ok' THEN 'ok' WHEN $5 = 'not_ready' AND media_state IS DISTINCT FROM 'ok' THEN 'not_ready'
                           WHEN $5 IS NULL THEN media_state WHEN media_state = 'ok' THEN 'ok' ELSE $5 END,
@@ -111,7 +113,7 @@ export async function storeDetails(q, characterId, { stats, attributes, equipmen
        last_fetched_at = now(), first_fetched_at = coalesce(first_fetched_at, now()), login_at_full = $7
      WHERE id = $1`,
     [characterId, Boolean(stats && ch.ruleset_id !== null), attributes ? JSON.stringify(attributes) : null, equipment ? JSON.stringify(equipment) : null,
-      media?.state ?? null, media?.assets ? JSON.stringify(media.assets) : null, loginAt],
+      media?.state ?? null, media?.assets ? JSON.stringify(media.assets) : null, loginAt, EQUIPMENT_VERSION],
   );
 }
 

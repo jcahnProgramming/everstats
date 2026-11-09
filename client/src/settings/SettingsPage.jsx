@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { authError } from '../authMessages.js';
@@ -11,6 +11,7 @@ import { formatDate } from '../format.js';
 import { providerNames, startProvider } from '../pages/SignInPages.jsx';
 import { passkeyRegister, passkeySignIn, passkeysSupported, wasCancelled } from '../passkeyClient.js';
 import { useSession } from '../session.jsx';
+import { UsernameClaim } from '../components/UsernameClaim.jsx';
 
 /**
  * Account settings (design/v1/pages/account-settings): a side nav and five sections. Behaviour is the scaffold's,
@@ -30,6 +31,7 @@ export const THEMES = [
 ];
 
 const SECTIONS = [
+  ['profile', 'Profile'],
   ['appearance', 'Appearance'],
   ['signin', 'Sign-in methods'],
   ['twofa', 'Two-factor'],
@@ -56,13 +58,13 @@ export function SettingsPage() {
     if (session.signedIn) load();
   }, [session.signedIn, load]);
 
-  if (session.loading) return <div className="wrap page-pad"><h1 className="h1">Account</h1></div>;
+  if (session.loading) return <div className="wrap page-pad"><h1 className="h1">Settings</h1></div>;
 
   if (!session.signedIn) {
     return (
       <div className="wrap page-pad stack gap-28 narrow-wrap">
         <div className="stack gap-10">
-          <h1 className="h1">Account</h1>
+          <h1 className="h1">Settings</h1>
           <p className="t2">Settings belong to an account, and accounts are optional: everything public works without one.</p>
         </div>
         <ThemeSection current="forever" disabled />
@@ -73,14 +75,18 @@ export function SettingsPage() {
 
   return (
     <div className="wrap page-pad split settings">
-      <nav aria-label="Settings" className="stack gap-2 settings-nav">
-        <h1 className="h1 settings-title">Account</h1>
-        {account && <span className="muted xsmall settings-since">Account #{account.id} · since {formatDate(account.createdAt)}</span>}
-        {account?.beta.member && <span className="tag gold self-start settings-beta">Beta member since {formatDate(account.beta.since)}</span>}
-        {SECTIONS.map(([id, label]) => <a key={id} className="btn ghost left" href={`#${id}`}>{label}</a>)}
-        <span className="hr settings-hr" />
-        <SignOut />
-      </nav>
+      <aside className="settings-side">
+        <div className="stack gap-2 settings-head">
+          <h1 className="h1 settings-title">Settings</h1>
+          {account && (
+            <span className="muted xsmall settings-since">
+              {account.usernameClaimed ? <span className="mono">@{account.username}</span> : 'No username yet'} · since {formatDate(account.createdAt)}
+            </span>
+          )}
+          {account?.beta.member && <span className="tag gold self-start settings-beta">Beta member since {formatDate(account.beta.since)}</span>}
+        </div>
+        <SectionNav />
+      </aside>
       <div className="main stack gap-28">
         {notice && (
           <div className={`note ${notice.kind} small`} role="status">
@@ -90,6 +96,7 @@ export function SettingsPage() {
           </div>
         )}
         {loadError && <div className="note err small" role="alert"><Icon name="error" /><span>{loadError}</span></div>}
+        {account && <ProfileSection account={account} onChange={setAccount} />}
         <ThemeSection current={session.theme} onChange={session.setTheme} />
         {account && (
           <>
@@ -102,6 +109,121 @@ export function SettingsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The section links. Desktop: a sidebar that stays in view under the sticky top bar (and scrolls itself if it's ever
+ * taller than the window). Phone: a horizontal bar pinned under the top bar. The link for the section in view is
+ * marked (aria-current), measured with an IntersectionObserver against the band just under the sticky header.
+ */
+function SectionNav() {
+  const [current, setCurrent] = useState(SECTIONS[0][0]);
+  const bar = useRef(null);
+  useEffect(() => {
+    const seen = new Map();
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) seen.set(e.target.id, e.isIntersecting);
+      const first = SECTIONS.find(([id]) => seen.get(id));
+      if (first) setCurrent(first[0]);
+    }, { rootMargin: '-20% 0px -60% 0px' });
+    const els = SECTIONS.map(([id]) => document.getElementById(id)).filter(Boolean);
+    els.forEach((el) => io.observe(el));
+    // Sections appear once the account loads: look again shortly.
+    const again = setTimeout(() => SECTIONS.map(([id]) => document.getElementById(id)).filter((el) => el && !els.includes(el)).forEach((el) => io.observe(el)), 500);
+    return () => {
+      clearTimeout(again);
+      io.disconnect();
+    };
+  }, []);
+  // On the phone bar, keep the current link in view.
+  useEffect(() => {
+    bar.current?.querySelector('[aria-current="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [current]);
+  return (
+    <nav aria-label="Settings sections" className="settings-nav" ref={bar}>
+      {SECTIONS.map(([id, label]) => (
+        <a key={id} className="btn ghost left settings-link" href={`#${id}`} aria-current={current === id ? 'true' : undefined}>{label}</a>
+      ))}
+      <span className="hr settings-hr" />
+      <SignOut />
+    </nav>
+  );
+}
+
+/**
+ * Profile: the username (claim it, or rename with the allowance left), the display name, and the public profile link.
+ * A placeholder name is shown only here, to its owner, and clearly as a placeholder.
+ */
+function ProfileSection({ account, onChange }) {
+  const session = useSession();
+  const toast = useToasts();
+  const [renaming, setRenaming] = useState(false);
+  const [display, setDisplay] = useState(account.displayNameSet ? account.displayName : '');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState(null);
+  const saveDisplay = async (value) => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const r = await api('/api/account/display-name', { method: 'PUT', body: { displayName: value } });
+      onChange(r.account);
+      setDisplay(r.account.displayNameSet ? r.account.displayName : '');
+      await session.refresh();
+      toast.ok('Display name saved', `People see ${r.account.displayName}.`);
+    } catch (err) {
+      setProblem(err.message);
+    }
+    setBusy(false);
+  };
+  return (
+    <section id="profile" className="panel pad-24 stack gap-18" aria-labelledby="profile-h">
+      <div className="row gap-10">
+        <h2 className="h2 h2-panel grow" id="profile-h">Profile</h2>
+        {account.usernameClaimed && <Link className="btn sm" to={`/u/${account.username}`}><Icon name="user" size="sm" />View your public profile</Link>}
+      </div>
+      <div className="stack gap-10">
+        <span className="eyebrow">Username</span>
+        {account.usernameClaimed ? (
+          <>
+            <div className="row gap-10">
+              <span className="h3 mono">@{account.username}</span>
+              <span className="muted small">everstats.app/u/{account.username}</span>
+              <span className="spacer" />
+              {!renaming && <button type="button" className="btn sm ghost" onClick={() => setRenaming(true)}>Rename</button>}
+            </div>
+            {renaming && (
+              <div className="raised pad-16 stack gap-10">
+                <UsernameClaim renaming renamesLeft={account.renamesLeft} onDone={(a) => { onChange(a); setRenaming(false); }} />
+                <button type="button" className="btn ghost sm self-start" onClick={() => setRenaming(false)}>Cancel</button>
+              </div>
+            )}
+            {!renaming && <span className="muted xsmall">{account.renamesLeft > 0 ? `${account.renamesLeft} rename${account.renamesLeft === 1 ? '' : 's'} left.` : 'Renames aren’t available on your account right now.'}</span>}
+          </>
+        ) : (
+          <>
+            <div className="note small"><Icon name="info" /><span>Claim your username. Until you do, your account has the placeholder <span className="mono">@{account.username}</span>, which nobody else sees, and you have no public profile.</span></div>
+            <UsernameClaim onDone={onChange} />
+          </>
+        )}
+      </div>
+      <span className="hr" />
+      <form className="stack gap-8" onSubmit={(e) => { e.preventDefault(); saveDisplay(display); }}>
+        <span className="eyebrow">Display name</span>
+        {account.usernameClaimed ? (
+          <>
+            <div className="row gap-8 align-end">
+              <Field label="What people see on your profile" className="grow" value={display} maxLength={32} placeholder={account.username} onChange={(e) => setDisplay(e.target.value)} error={problem} />
+              <Button type="submit" className="gold" loading={busy} disabled={!display.trim()}>Save</Button>
+              {account.displayNameSet && <button type="button" className="btn ghost" disabled={busy} onClick={() => saveDisplay(null)}>Use my username</button>}
+            </div>
+            <span className="muted xsmall">1–32 characters, change it any time; others can have the same one. Your username is what identifies you.</span>
+          </>
+        ) : <span className="muted small">Your display name starts as your username, once you've claimed one.</span>}
+      </form>
+      <span className="hr" />
+      <p className="muted xsmall">Your profile shows your display name, @username, beta membership and your characters that aren't hidden. Profiles can't be hidden yet: hide individual characters below instead.</p>
+    </section>
   );
 }
 
@@ -494,7 +616,7 @@ function DeleteSection({ account }) {
           onClose={() => setOpen(false)}
           actions={<><button type="button" className="btn ghost" onClick={() => setOpen(false)} disabled={busy}>Cancel</button><Button className="danger" loading={busy} onClick={go} disabled={twoFactor && code.trim().length < 6}>Delete for good</Button></>}
         >
-          <p className="t2 small">Account #{account.id} is deleted and you're signed out.{account.beta.member ? ' Its beta membership goes with it: a new account made later is a beta member only if the beta is still open then.' : ''}</p>
+          <p className="t2 small">{account.usernameClaimed ? `@${account.username}` : 'This account'} is deleted and you're signed out.{account.usernameClaimed ? ' Its username is held for 30 days, then anyone can claim it.' : ''}{account.beta.member ? ' Its beta membership goes with it: a new account made later is a beta member only if the beta is still open then.' : ''}</p>
           {twoFactor && <Field label="Two-factor code (or a recovery code)" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" maxLength={20} />}
           {problem && <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>}
         </Modal>

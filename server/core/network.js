@@ -1,4 +1,5 @@
 import { BlockList, isIP } from 'node:net';
+import { networkInterfaces } from 'node:os';
 
 /**
  * The visitor's network, the key every rate limit counts against.
@@ -123,4 +124,35 @@ function expandV6(ip) {
   // An embedded IPv4 tail ("::1.2.3.4") counts as two groups; only the first four groups matter here.
   const fill = Array(Math.max(0, 8 - a.length - b.length)).fill('0');
   return [...a, ...fill, ...b].map((g) => (g.includes('.') ? g : g.replace(/^0+(?=.)/, '')));
+}
+
+/**
+ * 0.4.1: is any TRUSTED_PROXIES entry inside the container's own network? cloudflared's connections arrive from the
+ * Docker network's gateway, which is inside that network's subnet. If TRUSTED_PROXIES is set but none of it is, the
+ * network was probably recreated on another subnet (docker-compose.yml now pins it): CF-Connecting-IP is then
+ * silently ignored and every visitor shares one rate-limit bucket. Checked at start-up (index.js logs it) and shown on
+ * the admin page.
+ *   → { state: 'unset' | 'ok' | 'outside', networks: ['10.213.47.0/24', …] }
+ */
+export function trustedProxyCheck(trustedProxies = process.env.TRUSTED_PROXIES, interfaces = networkInterfaces()) {
+  const entries = trustedProxyEntries(trustedProxies);
+  const nets = [];
+  for (const list of Object.values(interfaces ?? {})) {
+    for (const i of list ?? []) {
+      if (i.internal || !i.cidr) continue;
+      nets.push({ cidr: i.cidr, family: i.family === 'IPv6' || i.family === 6 ? 'ipv6' : 'ipv4' });
+    }
+  }
+  const networks = nets.map((n) => n.cidr);
+  if (!entries) return { state: 'unset', networks };
+  const own = new BlockList();
+  for (const n of nets) {
+    const [address, bits] = n.cidr.split('/');
+    own.addSubnet(address, Number(bits), n.family);
+  }
+  const inside = entries.some((entry) => {
+    const ip = cleanIp(entry.split('/')[0]);
+    return ip && own.check(ip, isIP(ip) === 6 ? 'ipv6' : 'ipv4');
+  });
+  return { state: inside ? 'ok' : 'outside', networks };
 }
