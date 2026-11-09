@@ -47,7 +47,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Admin settings | `server/admin/settings.js` | key, label, help, type, bounds, default |
 | Statistics / categories / leaderboards | `server/stats/registry.js` | **empty until the discovery pass**; shapes documented there |
 | Account merge steps | `server/account/merge.js` | how each account-owned table moves on a merge |
-| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run(); **empty in the scaffold** |
+| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background). One so far: `backup` |
 
 - Statistics, categories and rulesets come from Blizzard's API (discovery pass), stored as data, never typed in
   from memory. A new statistic in a game patch must be data, not a deploy.
@@ -80,7 +80,9 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   cookie, used once, 10 minutes. The OAuth callback compares `state` in constant time and always ends in a redirect
   to a page that explains the outcome (`?error=<code>`, words in `client/src/authMessages.js`).
 - **Honest "not configured":** until a provider's keys exist, `/api/session` says `configured: false` and the
-  sign-in page says sign-in isn't set up yet. Never a button that fails.
+  sign-in page shows that provider as a disabled "Not configured" button. Never a button that fails. "Isn't set up
+  yet" is said about providers only: passkeys are always offered (they're added from Settings once an account exists),
+  and a browser with no Everstats passkey gets "No passkey yet — sign in with … then add one in Settings".
 - Provider facts (verified 2026-11-08, comment in `providers.js`): Battle.net scopes `openid wow.profile`, HTTP
   Basic at the token endpoint, `/userinfo` for id + BattleTag, ~24 h tokens, no PKCE documented. Discord scope
   `identify`, no PKCE documented. The OAuth callbacks are exactly `/auth/battlenet/callback` and
@@ -98,19 +100,38 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 
 ## Themes and design
 
+- **The design system is Claude Design v1, "Cartographer's Ledger"** (`design/v1/`: README, tokens, component
+  specs, page mockups and screenshots, states). It is reference only: nothing there is served. Build new UI from it:
+  `design/v1/components/*.md` for a component, `design/v1/pages/<page>/` for a layout, `design/v1/states/` for a state.
+  Its placeholder names and numbers (`Placeholdername`, `99,999`, `[Date]`) never ship.
 - **Exactly three themes:** `forever` (twilight blue, gold, white, faint old-map grid), `alliance` (royal blue,
   polished gold trim, parchment highlight), `horde` (crimson and charcoal, bronze/iron, ember orange). Tokens in
-  `client/src/theme/tokens.css` (`[data-theme="…"]` blocks, so a swatch can wear a theme too).
+  `client/src/theme/tokens.css`, all `--es-*` (the design's `themes.css` copied verbatim under a header;
+  `[data-theme="…"]` blocks, so a swatch can wear a theme too).
+- **Stylesheets:** `theme/fonts.css` → `theme/tokens.css` → `theme/components.css` (the design's `components.css`,
+  VERBATIM, so the next handoff diffs cleanly; don't edit it, override in `app.css`) → `theme/app.css` (app additions)
+  → `pages/pages.css` (page layouts). The CSP forbids `style=""` attributes, so the mockups' inline styles become
+  classes; a React `style={{}}` (CSSOM) is allowed for computed values like a bar's width.
+- **Fonts are self-hosted** (`theme/fonts/`, SIL OFL 1.1, licence texts also served at `/licenses/`): Cinzel
+  (display, never body or values), Inter (body and every number, tabular lining figures), JetBrains Mono (codes).
 - **No colour outside `tokens.css`, ever.** `server/test/client-colours.test.js` fails on any hex/rgb/hsl elsewhere
-  and on a theme missing a token. Tier badges S/A/B/C/D borrow item-quality colours, tuned per theme; Unranked is
-  colourless and dashed.
+  and on a theme missing a token (hex or rgba). Tier badges S/A/B/C/D are shields with item-quality fills, tuned
+  per theme to 7:1; Unranked is the colourless "–" shield.
 - **Logged-out visitors always see Forever.** Switching themes is a signed-in perk; the choice is stored on the
   account (`accounts.theme`), never in the browser. `/api/theme-boot.js` (a blocking script in `index.html`, served by
   the app per session) applies it before first paint; a `second_factor` session still gets Forever.
-- Not Apple glass, not Material: its own WoW-flavoured look. The scaffold's styling is clean and token-driven, not
-  final; the design pass comes next.
-- A sticky top bar (emblem + name, Leaderboards, Sign in / Settings) and one strip pinned to the bottom of every page:
-  "Everstats v0.x.y · What's new". **That link is the only route to `/changelog`.**
+- Not Apple glass, not Material: its own WoW-flavoured look.
+- A sticky top bar (the design's navigation option A, "Ledger Bar": brand mark + wordmark, Leaderboards, Guilds, a
+  one-box character search with `/` to focus, Sign in / Finish sign-in / Account; on phones two icon buttons opening a
+  sheet) and a footer strip at the end of every page: the disclaimer and the "v0.x.y · What's new" chip. **That chip
+  is the only route to `/changelog`.** No admin link, even though the design draws one "for the owner".
+- **The four empty states** (`components/EmptyState.jsx`): Coming soon = solid gold-edged panel + clock (the design
+  has none; built from its parts); No data yet = dashed box; No coverage here = hatched panel + crossed circle;
+  Unranked = the "–" shield + a progress line only when the tracked count is known. Other states from
+  `design/v1/states` live in `components/States.jsx` (loading, not found, service unavailable) and `<RenderFrame
+  pending>`.
+- Destructive account actions (unlink, remove passkey, turn 2FA off) confirm in a `<Modal>` first; async results
+  use toasts (`components/Toasts.jsx`); errors that belong to a form stay in the form.
 - **No native `<select>`** (its popup ignores the theme); the theme picker is a radio group of buttons.
 - New pages open at the top with the heading focused; Back restores the position (`client/src/chrome/scrollMemory.js`,
   positions keyed by history entry AND path; see "Bugs that cost us").
@@ -129,13 +150,23 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
     for exactly that; its history lives on as the target's `account.merged_in` event.
   - **Unlinking a provider or removing a passkey deletes that row.** Reason: the person asked to remove a way in.
   - **Turning 2FA off deletes the secret and recovery codes.** Reason: a stale secret is a liability.
+  - **Old nightly backup files are pruned**: the 14 newest dumps and the first dump of every month are kept, the rest
+    deleted after a good backup (`server/core/backup.js`). Reason: they are copies of the database, not history; the
+    monthly ones keep a long-range restore point forever. The `backup_runs` log itself is kept forever.
 - Every time-series table has a composite index on `(parent_id, timestamp)`.
 - **Every query takes limit/cursor. No unbounded selects, ever** (`pageLimit()` in `server/core/db.js`).
 - Migrations: `server/core/schema.js` (`{ id, up(q) }`, run under an advisory lock by both processes). Never edit or
   reorder one that has shipped. **No Blizzard-shaped tables before the discovery pass.**
 - `pg` turns a JS array parameter into a Postgres array: for `jsonb` pass `JSON.stringify(value)`.
-- **Backups are not built yet** and must be before real data accumulates (snapshots are forever; a lost disk is a
-  lost history). Planned: nightly `pg_dump` to a folder on a different disk, verified, like next-up's.
+- **Backups** (`server/core/backup.js`, registered as the worker job `backup`; `RESTORE.md`): every night after
+  04:00 UTC (at once after a missed night) the worker runs `pg_dump --format=custom` into `BACKUP_DIR` (`/backups` in
+  the worker container), reads the whole archive back with `pg_restore` before keeping it as
+  `everstats-YYYY-MM-DD.dump`, and records each run in `backup_runs` (admin page and worker `/api/health` read it). The
+  dump runs in the background so the heartbeat never stalls; one at a time (PID lock file). A failure logs
+  `[backup] FAILED`, keeps every earlier dump and retries after an hour. By hand:
+  `docker exec everstats-worker node server/tools/backup.js now | list | verify <file>`. The image carries
+  `postgresql-client-17` (from apt.postgresql.org; it must match the server's major). Production workers refuse to
+  start without `BACKUP_DIR`. A dump does not contain the root key: a restore needs the same `.env`.
 
 ## Hosting and networking
 
@@ -145,8 +176,8 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   `everstats` (web, port **3260**), `everstats-worker` (worker, port **3261**). The ports are written once in
   `server/core/config.js` (`DEFAULT_WEB_PORT`, `DEFAULT_WORKER_PORT`) and must agree with the Dockerfile, compose and
   the deploy (`server/test/compose-guard.test.js`); `WEB_PORT` / `WORKER_PORT` override the host side.
-- **Host ports bind to `BIND_IP` only, never `0.0.0.0`.** `BIND_IP`, `PG_DATA_DIR`, `PG_SNAPSHOT_DIR` and
-  `POSTGRES_PASSWORD` are required with no default. **Database folders are direct disk paths, never `/mnt/user`**
+- **Host ports bind to `BIND_IP` only, never `0.0.0.0`.** `BIND_IP`, `PG_DATA_DIR`, `PG_SNAPSHOT_DIR`, `BACKUP_DIR`
+  and `POSTGRES_PASSWORD` are required with no default. **Database folders are direct disk paths, never `/mnt/user`**
   (Unraid's shfs FUSE layer and database locking don't mix); the deploy refuses `/mnt/user` paths.
 - **Only the web app is in the tunnel**: `everstats.app` → port 3260 on `BIND_IP`. The worker port is for the deploy
   and healthchecks only; never add it to the tunnel.
@@ -158,6 +189,10 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   would switch passkeys off).
 - **CSRF**: every non-GET `/api` request must carry `Origin: <PUBLIC_ORIGIN>` exactly (`server/core/sameOrigin.js`);
   no Origin is refused too.
+- **TRUSTED_PROXIES discovery:** the network resolver runs once on EVERY request (`server/app.js`), logs each new
+  connection address `CF-Connecting-IP` arrives from (`docker logs everstats 2>&1 | grep CF-Connecting-IP`) and lists
+  them on the admin page (Proxy addresses). Never the visitor's own address. Put cloudflared's address there into
+  `TRUSTED_PROXIES` in `.env`.
 - **Rate limits** per network, in memory (`server/core/rateLimit.js`, network from `CF-Connecting-IP` via
   `server/core/network.js`, copied from next-up; set `TRUSTED_PROXIES`): lookups 30/15 min, auth starts 30/15 min,
   wrong 2FA codes 10/15 min per network AND 5/15 min per account (a right code refunds), admin 10/15 min, account
@@ -166,12 +201,13 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 ## Deploy
 
 Push to `main` → `.gitea/workflows/deploy.yml` (from next-up): preflight (variables, Docker, `.env` has the root key
-and database password, both database folders exist and aren't under `/mnt/user`), fingerprint `.env`, **fast-forward**
+and database password, both database folders exist and aren't under `/mnt/user`, the backup folder exists and uid
+1000 can write to it; the backup folder MAY be under `/mnt/user`, a flat file write), fingerprint `.env`, **fast-forward**
 the host checkout from Gitea's internal URL (refuses a checkout with local edits, never `reset --hard`),
 `docker compose up -d --build`, then probe web `/api/health`, web `/`, worker `/api/health` and the database's health
 until all are healthy (~2 min), fail on any restart in the next 15 s (crash loop), fail unless both app containers
 report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. Gitea variables: `DEPLOY_DIR`,
-`INTERNAL_GIT_URL`, `BIND_IP`, `PG_DATA_DIR`, `PG_SNAPSHOT_DIR` (optional `WEB_PORT`, `WORKER_PORT`).
+`INTERNAL_GIT_URL`, `BIND_IP`, `PG_DATA_DIR`, `PG_SNAPSHOT_DIR`, `BACKUP_DIR` (optional `WEB_PORT`, `WORKER_PORT`).
 
 ## Credentials
 
@@ -212,6 +248,12 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
 - **A token on a light panel inherits the panel's text colour** (found here, 0.1.0: recovery codes on Alliance's
   parchment went dark-on-dark). Anything with its own background sets its own text colour. Visual pass in all three
   themes, every time.
+- **A diagnostic that only runs on some routes says nothing on the others** (found here, 0.1.0): the
+  `CF-Connecting-IP` source was only checked inside the rate limiters, so a real page load through the tunnel logged
+  nothing. Anything meant to observe every request is middleware on every request.
+- **The design draws things the rules forbid** (found here, design v1): an admin link for the owner, a last-four of
+  each API key, a hardcoded "Hardcore · soon" ruleset, and a merge that runs the wrong way round. This file wins; say
+  so in the component's header comment.
 
 ## Testing
 

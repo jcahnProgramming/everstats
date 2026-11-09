@@ -3,8 +3,9 @@
 WoW Forever character statistics, per-statistic leaderboards and letter tiers. US region. Not affiliated with
 Blizzard Entertainment.
 
-Status: scaffold (0.1.0). Every page exists; lookups, leaderboards and tiers are not built yet. `CLAUDE.md` is the
-project constitution; `CHANGELOG.json` is what changed.
+Status: 0.2.0, the design pass. Every page wears the Claude Design v1 system (`design/v1/`, reference only); lookups,
+leaderboards and tiers are not built yet. `CLAUDE.md` is the project constitution; `CHANGELOG.json` is what changed;
+`RESTORE.md` is how backups work and how to restore one.
 
 ## Run it locally
 
@@ -20,4 +21,5 @@ No Postgres or Docker needed locally: `npm run dev` starts an embedded one (data
 ## Deploy
 
 Push to `main`; `.gitea/workflows/deploy.yml` rebuilds the stack on the server (`docker-compose.yml`: Postgres, web
-on 3260, worker on 3261). See `CLAUDE.md` → Deploy and `.env.example`.
+on 3260, worker on 3261). See `CLAUDE.md` → Deploy and `.env.example`. Gitea variables: `DEPLOY_DIR`, `INTERNAL_GIT_URL`, `BIND_IP`, `PG_DATA_DIR`, `PG_SNAPSHOT_DIR`,
+`BACKUP_DIR`.
