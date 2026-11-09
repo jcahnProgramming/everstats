@@ -500,7 +500,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   past the window, swept by `data_at`, deleted at once when a character or its render is hidden, LRU-capped at 512 MB).
   Only a render counts against `cardRendersByNetwork` (40/15 min) and `cardRendersByAccount` (60/15 min); identical
   renders in flight share one; at most `cards.maxConcurrent` (admin, default 2) at once, 8 waiting, then 503.
-  `scripts/measure-cards.js` measures it.
+  `server/tools/measure-cards.js` measures it (runs in the container too).
 - **Saved defaults** (`share_card_defaults`, ours): only the character's owner, or the guild's GM / officers (`guildRole`),
   can save; it becomes the card everyone sees first and the link preview (always wide). A board card has none.
   Nobody else's choices are stored. Logged in account_events (and guild_events).

@@ -1,15 +1,15 @@
 // Share-card render cost (0.8.0): every type × format once, then bursts in parallel, with Chromium's memory sampled.
 // Uses FIXTURE data (names say so; no Blizzard values, no Blizzard images) and the real renderer (server/cards/render.js).
 //
-//   node scripts/measure-cards.js                    on a dev machine (Chromium from `npx playwright-core install --only-shell chromium`)
-//   docker exec everstats node scripts/measure-cards.js   on the server (the image carries Chromium)
+//   node server/tools/measure-cards.js               on a dev machine (Chromium from `npx playwright-core install --only-shell chromium`)
+//   docker exec everstats node server/tools/measure-cards.js   on the server (the image carries Chromium)
 //
 // Prints times in ms and the resident memory of the Chromium processes (Linux: /proc via ps; Windows: tasklist).
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const run = promisify(execFile);
-import { createCardRenderer } from '../server/cards/render.js';
+import { createCardRenderer } from '../cards/render.js';
 
 const FIX = 'Fixture';
 const stats = Array.from({ length: 6 }, (_, i) => ({ label: `Fixture statistic ${i + 1}`, value: (1000 * (6 - i)).toLocaleString('en-US'), rank: `#${i + 1} · Fixture` }));
