@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Icon } from '../chrome/Icon.jsx';
+import { BadgeIcon } from '../badges/Badges.jsx';
 
 /**
  * Toasts (design/v1/components/toasts.md): feedback for async actions (saved, copied, linked).
@@ -8,6 +10,9 @@ import { Icon } from '../chrome/Icon.jsx';
  *
  * kind: info (accent gem) | ok | warn | err. Info and ok dismiss after 5 s (paused while hovered); errors stay
  * until dismissed. They never take focus. Errors that belong to a form are shown in the form, not here.
+ *
+ * 0.7.0, badge toasts (design/v2-badges/components/badge-toast.md): `badge` shows the badge (with the "new" glow) in
+ * place of the gem, `ms` overrides the delay (earned and granted badges stay 8 s), `action` { to, label } adds a link.
  */
 const ToastContext = createContext(() => {});
 const AUTO_MS = 5000;
@@ -38,18 +43,23 @@ function Toast({ toast, onDismiss }) {
   const sticky = toast.kind === 'err';
   useEffect(() => {
     if (sticky || paused) return undefined;
-    const timer = setTimeout(() => done.current(), AUTO_MS);
+    const timer = setTimeout(() => done.current(), toast.ms ?? AUTO_MS);
     return () => {
       clearTimeout(timer);
     };
-  }, [sticky, paused]);
+  }, [sticky, paused, toast.ms]);
   const cls = { ok: 'ok', warn: 'warn', err: 'err' }[toast.kind] ?? '';
   return (
-    <div className={`toast ${cls}`} role={sticky ? 'alert' : 'status'} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
-      <span className="gemtag" aria-hidden="true" />
+    <div className={`toast ${cls}${toast.badge ? ' badge-toast' : ''}`} role={sticky ? 'alert' : 'status'} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
+      {toast.badge ? <BadgeIcon badge={toast.badge} isNew={toast.kind !== 'warn'} locked={toast.kind === 'warn'} /> : <span className="gemtag" aria-hidden="true" />}
       <div className="body">
         <b>{toast.title}</b>
-        {toast.body && <span>{toast.body}</span>}
+        {(toast.body || toast.action) && (
+          <span>
+            {toast.body}
+            {toast.action && <>{toast.body ? ' ' : ''}<Link to={toast.action.to} onClick={onDismiss}>{toast.action.label}</Link></>}
+          </span>
+        )}
       </div>
       <button type="button" className="btn ghost sm icon x" aria-label="Dismiss" onClick={onDismiss}>
         <Icon name="close" size="sm" />

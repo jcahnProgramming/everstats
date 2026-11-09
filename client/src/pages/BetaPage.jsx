@@ -56,7 +56,7 @@ export function BetaPage() {
             ))}
           </ul>
         )}
-        <p className="muted xsmall">Badges arrive with 1.0. Membership is recorded on each account the moment it's created, and it can't be added later.</p>
+        <p className="muted xsmall">Beta members receive the <Link to="/badges/beta-tester">Beta Tester badge</Link> now. Membership is recorded on each account the moment it's created, and it can't be added later.</p>
       </section>
 
       {beta.open && !session.signedIn && (
@@ -65,7 +65,7 @@ export function BetaPage() {
           <span className="muted small">Signing in with Battle.net brings every Forever character on your account in at once.</span>
         </div>
       )}
-      {beta.open && session.signedIn && <p className="t2 small">You're signed in. Your beta membership is shown in <Link to="/settings">Settings</Link>.</p>}
+      {beta.open && session.signedIn && <p className="t2 small">You're signed in. Your beta membership and your badges are in <Link to="/settings">Settings</Link>.</p>}
     </div>
   );
 }

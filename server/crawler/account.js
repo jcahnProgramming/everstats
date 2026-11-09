@@ -44,7 +44,18 @@ export async function importAccountCharacters({ db, accountId, providerId, userT
       }
     }
   });
-  return record(db, accountId, providerId, 'ok', list.length, null, queued);
+  const result = await record(db, accountId, providerId, 'ok', list.length, null, queued);
+  // 0.7.0: badges from the list Battle.net just gave (class, faction and level are on it), and Guild Master control of
+  // any guild whose rank-0 character this account now owns. Neither can fail the sign-in.
+  try {
+    const { evaluateQuietly } = await import('../badges/rules.js');
+    await evaluateQuietly(db, accountId);
+    const { syncGuildsOwnedBy } = await import('../guilds/manage.js');
+    await syncGuildsOwnedBy(db, accountId);
+  } catch (err) {
+    console.error(`[badges] after sign-in: ${err.code ?? err.name}`);
+  }
+  return result;
 }
 
 async function record(db, accountId, providerId, outcome, characters, detail, queued = 0) {

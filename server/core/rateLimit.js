@@ -87,6 +87,8 @@ export function createLimits({ now = Date.now } = {}) {
     usernameChecksByAccount: createLimiter({ limit: 30, windowMs: FIFTEEN_MINUTES, now }),
     // Account and admin changes (theme, unlinking, 2FA setup, keys): 120 per 15 minutes. A bound on abuse only.
     writes: createLimiter({ limit: 120, windowMs: FIFTEEN_MINUTES, now }),
+    // 0.7.0: "Report this link" on guild pages (anyone may report): 10 per 15 minutes.
+    reports: createLimiter({ limit: 10, windowMs: FIFTEEN_MINUTES, now }),
   };
 }
 

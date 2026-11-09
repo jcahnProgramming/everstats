@@ -54,7 +54,8 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Admin settings | `server/admin/settings.js` | key, label, help, type, bounds, default |
 | Statistics / categories / leaderboards | `server/stats/catalog.js` | the `statistics` table (grows from crawls) + discovery decisions, else suggestions |
 | Account merge steps | `server/account/merge.js` | how each account-owned table moves on a merge |
-| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks`, `retention`, `guild-totals`, `tiers` |
+| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks`, `retention`, `guild-totals`, `tiers`, `badges` |
+| Badges | `badge_definitions` (data; seeded from `server/badges/catalog.js` SEED_BADGES) + catalog.js TEMPLATES | id, family, name, how, art, manual or automatic rule, kept-while-held; new ones from templates on /admin/badges, no deploy |
 | Data sources | `server/sources/registry.js` | id, label, credential, userProvider, create() → `get(path, { namespace, auth, userToken })`. One so far: `blizzard`. A provider named as a `userProvider` reads characters at sign-in |
 | Discovery endpoints | `server/discovery/endpoints.js` | what a discovery run asks for (data, account, character, guild, slug probes) |
 | Suggestion rules | `server/discovery/suggest.js` | per-statistic suggestions (category, bad, leaderboard), each with its reasoning |
@@ -255,6 +256,50 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   Save, What counts with links to `/admin/discovery?stat=ID`, gradings). `server/tools/tiers-report.js` prints what
   counts and the letters on the server.
 
+## Badges (0.7.0: `server/badges/`, `client/src/badges/`, `/badges/{id}`, Settings → Badges, `/admin/badges`)
+
+- **Design: `design/v2-badges/`** (additive to v1, its files link into `../v1/`). Tokens are appended VERBATIM to
+  `theme/tokens.css` (a second set of theme blocks; the colour test checks every block); the component CSS is
+  `theme/badges.css`, VERBATIM (override in app.css); the SVGs are copied VERBATIM to `client/src/badges/art/`.
+  The SVGs colour themselves with `style="--bf:…"` attributes, which the CSP forbids, so `badges/art.jsx` parses each
+  file once and draws it as React elements (styles via the CSSOM). The export's template files open with a comment
+  containing `--` (not well-formed XML): comments are stripped before parsing. Letters in badges use the self-hosted
+  Cinzel; an SVG ever served standalone must have its text converted to outlines.
+- **Cosmetic only.** No badge grants anything; Dev Team is not the admin.
+- Definitions are DATA (`badge_definitions`, seeded once by migration 015); awards are `badge_awards`, one row per
+  (account, badge): when, how (automatic, or admin with a reason), and the Blizzard id of the character that earned a
+  class/faction badge, never a Blizzard value. **Revoking is a state with a reason, never a delete**; every grant, earn,
+  revoke, removal, mark change and the back-fill is in `badge_events` (append-only).
+- **Rules** (`badges/rules.js`, from stored data only): beta member; Early Supporter (admin setting
+  `badges.earlySupporter`; unset → the badge shows nowhere); faction / Envoy / class / Every Calling from OWNED level 10+
+  characters, hidden ones included; Guild Master = owns a rank-0 roster character; S-Tier = an owned visible character
+  with an overall S. **Everything stays once earned except S-Tier (kept while held).** Every Calling needs every class a
+  class badge names AND every class Blizzard has returned on a stored character (so a new class just needs a badge from
+  the class template). Evaluated after a sign-in's character import (and on every OAuth sign-in), after any fetch of an
+  owned character, after a roster for its rank-0 owner, after every full tier grading (S-Tier), every 6 h, and once on
+  deploy without toasts (the back-fill, counts on /admin/badges).
+- **Display** (the player's): `shown` (public; off = private everywhere), `featured` (the profile row, max 6, staff and
+  partner always first, even granted into a full row), `pinned` (the ONE inline badge; else first featured, else first
+  public, else none). Names always visible: pills (badge + name) on the profile, All badges and Settings; the 18px inline
+  badge shows its name on hover, focus and tap. **No inline badges on leaderboards**: header, "Claimed by", guild rosters.
+- **Partner marks** (`badges/marks.js`): PNG/WebP only, decided by magic bytes AND the decoder, never SVG; ≤ 2 MB,
+  ≤ 4096² decoded, ≥ 256 a side; re-encoded by sharp to a 256² PNG with no metadata. Upload needs the written-permission
+  box, Save needs a reason and "I've checked the preview". A Pro Team Partner badge can't be granted before its mark.
+
+## Guild page management (0.7.0: `server/guilds/manage.js`, `server/guilds/links.js`, `pages/GuildManage.jsx`)
+
+- **Guild Master** = the account owning the rank-0 character on the stored roster (ownership as proven by a Battle.net
+  sign-in), computed LIVE on every request. No roster (aged out) or no single rank 0 or an unclaimed GM character →
+  nobody can edit, officers included. `guild_pages.gm_*` only RECORDS who it was, to log handovers (`guild_events`).
+- **Officers** (`guild_editors`): added by the GM by @username, only accounts with a tracked, visible character in the
+  guild; access re-checked every request (leaving the guild ends it); they stay across a handover until the new GM
+  removes them. Editors change only our fields: description (280, plain), Discord invite CODE, ≤ 5 labelled links.
+- **Links are the only free URLs on Everstats**: https, a real domain (no IPs, no single-label/local hosts), no
+  user:pass, no port, not a shortener (`shorteners.json`), not on the admin blocklist (`link_blocklist`; subdomains
+  match). Shown with label + domain, behind a "You're leaving Everstats for {domain}" notice, `noopener noreferrer
+  nofollow`, each with "Report this link" (anyone, 10 per 15 min per network) → `/admin/guild-links`.
+- These tables key on Blizzard's guild id WITHOUT a foreign key: a `guilds` row ages out; our data about it must not.
+
 ## The beta (`server/beta.js`, `chrome/BetaBanner.jsx`, `/beta`)
 
 - A window (`beta_windows`), opened by migration 009 and closed/reopened only from the admin page. While open: the header
@@ -320,8 +365,12 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   - **Turning 2FA off deletes the secret and recovery codes.** Reason: a stale secret is a liability.
   - **Finished crawl-queue items** (`crawl_queue`) are deleted an hour after they finish. Reason: they are work orders;
     what they fetched lives in the character tables, and request counts in `crawler_hours` (kept forever).
+  - **A partner mark is replaced** when the admin saves a new one (the old bytes are overwritten; `badge_events` keeps
+    that it changed), and an unsaved upload is discarded on Cancel. Reason: only the mark in use is kept, by design.
+  - **Removing a domain from the guild-link blocklist** deletes that row. Reason: the admin asked; `admin_events` logs it.
   - **Deleting an account** (Settings, `DELETE /api/account`) deletes the account row and everything that cascades from
-    it (sign-in links, passkeys, 2FA, recovery codes, sessions, flows, pins, events, character checks). Reason: the
+    it (sign-in links, passkeys, 2FA, recovery codes, sessions, flows, pins, events, character checks; 0.7.0: badge
+    awards and guild officer roles; `badge_events` and `guild_events` keep the bare account id). Reason: the
     person asked. Its characters stay (public data); ownership is cleared, a hidden one stays hidden.
   - **Username holds expire** (`username_holds.held_until`): the row stays as history; an expired hold simply stops
     counting. Not a deletion, listed here because a held name becomes claimable again by design.
@@ -467,6 +516,12 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
 - **A diagnostic that only runs on some routes says nothing on the others** (found here, 0.1.0): the
   `CF-Connecting-IP` source was only checked inside the rate limiters, so a real page load through the tunnel logged
   nothing. Anything meant to observe every request is middleware on every request.
+- **Anything rendered outside `.es` doesn't get the site font** (found here, 0.7.0): the toast stack sits outside the
+  shell's wrapper and showed in the browser's default font for months. Portals and stacks set their own font.
+- **An absolutely positioned `.sr-only` inside a scrolling box escapes it** unless the box is positioned (found here,
+  0.7.0: a hidden table header widened /admin/guild-links to 831px at phone width). `.tblbox` is `position: relative`.
+- **"Open on keyboard focus" must mean a Tab press**, not `:focus-visible` alone: a dialog focusing its first control
+  opened a popover over itself (0.7.0, `badges/Badges.jsx`).
 - **The design draws things the rules forbid** (found here, design v1): an admin link for the owner, a last-four of
   each API key, a hardcoded "Hardcore · soon" ruleset, and a merge that runs the wrong way round. This file wins; say
   so in the component's header comment.

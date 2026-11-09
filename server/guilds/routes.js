@@ -16,6 +16,8 @@ import { parseGuildSlug } from '../stats/slug.js';
 import { periodsInfo, rulesetList } from '../characters/routes.js';
 import { lettersFor } from '../tiers/store.js';
 import { guildTierDistribution } from '../tiers/view.js';
+import { inlineBadges } from '../badges/store.js';
+import { guildLinksView } from './manage.js';
 
 /**
  * Guild pages, guild boards, the guild index and search (0.5.0). Everything here reads what the crawler already
@@ -345,13 +347,18 @@ export async function guildView(db, g) {
   const minMembers = await getSetting(db, 'guilds.minMembers');
   const head = await headOf(db, g);
   const members = g.ruleset_id === null ? [] : await db.query(
-    `SELECT c.id, c.slug, c.name, c.surname, c.level, c.class, c.race, c.last_login_at, c.stats_fetched_at, gr.rank
+    `SELECT c.id, c.slug, c.name, c.surname, c.level, c.class, c.race, c.last_login_at, c.stats_fetched_at, gr.rank,
+            CASE WHEN a.username_claimed THEN a.username END AS claimed_by, CASE WHEN a.username_claimed THEN a.id END AS claimed_account
        FROM characters c LEFT JOIN guild_roster gr ON gr.guild_id = c.guild_id AND gr.character_id = c.id
+       LEFT JOIN accounts a ON a.id = c.owner_account_id
       WHERE ${TRACKED_MEMBER} ORDER BY gr.rank NULLS LAST, c.level DESC NULLS LAST, c.name LIMIT $3`,
     [g.id, g.ruleset_id, MAX_ROSTER],
   );
   const trackedIds = members.map((m) => m.id);
   const letters = await lettersFor(db, trackedIds);
+  // 0.7.0: "Claimed by @username" + that player's one inline badge, as on character pages (hidden characters are
+  // never members here, so a claim is never shown for one).
+  const inline = await inlineBadges(db, members.map((m) => m.claimed_account).filter(Boolean));
   const roster = await db.one(
     `SELECT count(*)::int AS listed, count(*) FILTER (WHERE level < 10)::int AS under_ten,
             count(*) FILTER (WHERE (level IS NULL OR level >= 10) AND NOT (character_id = ANY($2::bigint[])))::int AS others,
@@ -422,6 +429,10 @@ export async function guildView(db, g) {
       tier: letters.get(Number(m.id)) ?? null,
       slug: m.slug, name: m.name, surname: m.surname, level: m.level, class: m.class, race: m.race, lastLoginAt: m.last_login_at,
       rank: m.rank ?? null, rankName: rankName(m.rank), fetchedAt: m.stats_fetched_at,
+      claimedBy: m.claimed_by ? { username: m.claimed_by, badge: inline.get(Number(m.claimed_account)) ?? null } : null,
     })),
+    // 0.7.0: the guild's own Links area (description, Discord invite, links), written by its Guild Master or officers.
+    // null when nothing is set, so the page shows no empty box.
+    links: await guildLinksView(db, g.id),
   };
 }

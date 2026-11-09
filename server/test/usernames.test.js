@@ -151,8 +151,12 @@ test('claiming is free; a rename uses the allowance; the old name is held 30 day
   assert.equal(profile.profile.displayName, 'pathseeker');
   assert.equal(profile.profile.beta.since !== null, true);
   assert.equal(profile.sections.find((x) => x.id === 'featured').character.name, 'zeta');
-  // Character pages say who claimed them, by @username only.
-  assert.deepEqual((await t.client({ ip: '198.51.100.43' }).get('/api/characters/zeta-fixture')).json.character.claimedBy, { username: 'pathseeker' });
+  // Character pages say who claimed them, by @username only (0.7.0: plus that player's one inline badge, here the
+  // Beta Tester badge this account earned at sign-in during the open beta).
+  const claimed = (await t.client({ ip: '198.51.100.43' }).get('/api/characters/zeta-fixture')).json.character.claimedBy;
+  assert.deepEqual(Object.keys(claimed).sort(), ['badge', 'username']);
+  assert.equal(claimed.username, 'pathseeker');
+  assert.equal(claimed.badge.id, 'beta-tester');
 });
 
 test('availability checks are rate limited per account (and per network), so names can’t be walked', async () => {

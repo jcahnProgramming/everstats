@@ -13,6 +13,7 @@ import { providerNames, startProvider } from '../pages/SignInPages.jsx';
 import { passkeyRegister, passkeySignIn, passkeysSupported, wasCancelled } from '../passkeyClient.js';
 import { useSession } from '../session.jsx';
 import { UsernameClaim } from '../components/UsernameClaim.jsx';
+import { BadgesSection, YourGuildsSection } from './BadgesSection.jsx';
 
 /**
  * Account settings (design/v1/pages/account-settings): a side nav and five sections. Behaviour is the scaffold's,
@@ -36,7 +37,9 @@ const SECTIONS = [
   ['appearance', 'Appearance'],
   ['signin', 'Sign-in methods'],
   ['twofa', 'Two-factor'],
+  ['badges', 'Badges'],
   ['characters', 'Characters'],
+  ['guilds', 'Your guilds'],
   ['merge', 'Merge accounts'],
   ['delete', 'Delete account'],
 ];
@@ -58,6 +61,12 @@ export function SettingsPage() {
   useEffect(() => {
     if (session.signedIn) load();
   }, [session.signedIn, load]);
+  // 0.7.0: guilds this account can manage (Guild Master or officer). The section and its nav link exist only then.
+  const [guilds, setGuilds] = useState([]);
+  useEffect(() => {
+    if (session.signedIn) api('/api/account/guilds').then((r) => setGuilds(r.guilds), () => setGuilds([]));
+  }, [session.signedIn]);
+  const sections = SECTIONS.filter(([id]) => id !== 'guilds' || guilds.length > 0);
 
   if (session.loading) return <div className="wrap page-pad"><h1 className="h1">Settings</h1></div>;
 
@@ -86,7 +95,7 @@ export function SettingsPage() {
           )}
           {account?.beta.member && <span className="tag gold self-start settings-beta">Beta member since {formatDate(account.beta.since)}</span>}
         </div>
-        <SectionNav />
+        <SectionNav sections={sections} />
       </aside>
       <div className="main stack gap-28">
         {notice && (
@@ -103,7 +112,9 @@ export function SettingsPage() {
           <>
             <MethodsSection account={account} providers={session.providers} onChange={setAccount} />
             <TwoFactorSection account={account} onChange={setAccount} />
+            <BadgesSection />
             <CharactersSection account={account} providers={session.providers} onChange={setAccount} />
+            {guilds.length > 0 && <YourGuildsSection guilds={guilds} />}
             <MergeSection account={account} providers={session.providers} />
             <DeleteSection account={account} />
           </>
@@ -126,8 +137,10 @@ export function SettingsPage() {
  * section. A clicked link stays current until the person scrolls themselves. The phone strip scrolls ITSELF
  * (horizontally) to keep the current link in view, never the page.
  */
-function SectionNav() {
-  const [current, setCurrent] = useState(SECTIONS[0][0]);
+function SectionNav({ sections = SECTIONS }) {
+  const [current, setCurrent] = useState(sections[0][0]);
+  const list = useRef(sections);
+  list.current = sections;
   const bar = useRef(null);
   const clicked = useRef(null); // { id, settledY } while a clicked link should stay current
   useEffect(() => {
@@ -148,7 +161,7 @@ function SectionNav() {
         if (Math.abs(window.scrollY - pin.settledY) < 8) return;
         clicked.current = null; // the person scrolled away themselves
       }
-      const tops = SECTIONS.map(([id]) => {
+      const tops = list.current.map(([id]) => {
         const el = document.getElementById(id);
         return el ? { id, top: el.getBoundingClientRect().top } : null;
       }).filter(Boolean);
@@ -189,7 +202,7 @@ function SectionNav() {
   }, [current]);
   return (
     <nav aria-label="Settings sections" className="settings-nav" ref={bar}>
-      {SECTIONS.map(([id, label]) => (
+      {sections.map(([id, label]) => (
         <a
           key={id}
           className="btn ghost left settings-link"

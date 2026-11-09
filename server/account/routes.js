@@ -18,6 +18,7 @@ import { MAX_PINS, pinCards, pinsOf, setPins } from '../stats/pins.js';
 import { PLATFORMS, checkBio, checkHandle, linkFor } from '../accounts/socials.js';
 import { checkDisplayName, reservedSet } from '../accounts/names.js';
 import { availability, changeUsername, holdName } from '../accounts/usernames.js';
+import { inlineBadges } from '../badges/store.js';
 
 /** The three themes. Logged-out visitors always get Forever; a signed-in account's choice is stored on it. */
 export const THEMES = ['forever', 'alliance', 'horde'];
@@ -135,7 +136,11 @@ export function createAccountRouter({ db, limits, networkOf }) {
     if (req.session.stage !== 'full') return res.json({ signedIn: false, stage: req.session.stage, theme: 'forever', providers, beta });
     const account = await db.one('SELECT theme, username, username_claimed, display_name FROM accounts WHERE id = $1', [req.session.accountId]);
     const dismissed = (await db.one('SELECT username_prompt_dismissed AS d FROM sessions WHERE id_hash = $1', [req.session.idHash]))?.d ?? false;
+    // 0.7.0: the one inline badge next to the name in the header, and how many badge toasts are waiting.
+    const badge = (await inlineBadges(db, [req.session.accountId])).get(Number(req.session.accountId)) ?? null;
+    const toasts = (await db.one('SELECT count(*)::int AS n FROM badge_awards WHERE account_id = $1 AND toast IS NOT NULL', [req.session.accountId])).n;
     return res.json({
+      badgeToasts: toasts,
       signedIn: true, stage: 'full', theme: account?.theme ?? 'forever', providers, beta,
       user: {
         username: account.username,
@@ -143,6 +148,7 @@ export function createAccountRouter({ db, limits, networkOf }) {
         displayName: account.display_name ?? (account.username_claimed ? account.username : null),
         // Every sign-in until a name is claimed; "Not now" lasts for this sign-in only.
         promptUsername: !account.username_claimed && !dismissed,
+        badge: account.username_claimed ? badge : null,
       },
     });
   }));

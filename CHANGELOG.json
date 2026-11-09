@@ -1,6 +1,31 @@
 {
   "releases": [
     {
+      "version": "0.7.0",
+      "date": "2026-11-09",
+      "title": "Badges, and guild pages their Guild Masters can edit",
+      "sections": {
+        "New": [
+          "Badges. Your account now earns small emblems for what you've done, shown on your public profile with their names. Six families, each with its own shape: Staff, Partner, Membership, Faction, Class and Achievement.",
+          "Most badges arrive by themselves, checked when you sign in with Battle.net and whenever your characters refresh: Alliance or Horde for owning a level 10+ character of that faction (Envoy for both), a badge for each class you have at level 10+ (Every Calling for all of them), Guild Master for owning your guild's rank-0 character, and S-Tier while you hold an overall S on any ruleset. Hidden characters count too, and a badge never names the character that earned it.",
+          "Badges stay once earned, even if the character that earned one is later deleted, hidden or changed. The one exception is S-Tier: it stays only while you hold an S, and comes back by itself if you regain it.",
+          "Beta Tester: every account created while the beta is open has it now. Staff and partner badges (Dev Team, Community Partner, team partners, and Blizzard or Discord employees) are granted by Everstats after checking, never earned, and they give no extra powers.",
+          "Choose what shows, in Settings → Badges: turn each badge on or off for your public profile, pick up to six to feature in your profile's badge row and put them in order (drag them, or use the keyboard), and pin one to show next to your name in the header, on characters you've claimed, and on guild rosters. Badges you've turned off are seen by nobody but you. Settings also lists every badge you can still earn and exactly how.",
+          "Every badge has its own page (open one from any badge): what it means, how it's earned, how many players hold it, and who shows it on their profile.",
+          "A message tells you when you earn, are granted or lose a badge. Several at once arrive as one.",
+          "Guild pages can now be edited by their Guild Master: the player whose character is rank 0 on Blizzard's roster and who signed in with Battle.net. They can add a short description, a Discord invite and up to five links (an application form, a website), and add officers to help. Control moves by itself when the guild changes hands in game, at the next roster refresh. Visitors see a Links area only when something is set, a warning before any link takes them off Everstats, and a way to report a link."
+        ],
+        "Improved": [
+          "Public profiles have a new header: your initials, name and username, your badges, your bio, your main ruleset, faction and guilds, and your social handles together in one place. Your other characters show as cards with their tier.",
+          "Guild rosters and character pages show who claimed each character, with that player's pinned badge.",
+          "The beta page and its perks say what beta members get now that badges exist."
+        ],
+        "Fixed": [
+          "Pop-up messages (like \"Theme saved\") now use the site's own font instead of the browser's default."
+        ]
+      }
+    },
+    {
       "version": "0.6.0",
       "date": "2026-11-09",
       "title": "Letter tiers",

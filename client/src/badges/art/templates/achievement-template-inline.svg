@@ -1,0 +1,7 @@
+<?xml-stylesheet type="text/css" href="../../../v1/tokens/themes.css"?>
+<?xml-stylesheet type="text/css" href="../../tokens/badges.css"?>
+<!-- TEMPLATE: replace the element(s) marked data-slot="…" only. Keep frame, rim and metal ring.
+     partner-mark: put the partner mark (with permission) inside a 30×30 box centred at 32,32 (inline: 32×32 box).
+     platform-monogram: one capital letter, Cinzel 800, in the tab (inline: in the rosette).
+     class-mark / achievement-mark: an original single-colour glyph in var(--bi), ~24×24 centred. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-3 -3 70 70" role="img" aria-label="Achievement (template) badge" style="--bf:var(--es-badge-achv-fill);--bm:var(--es-badge-achv-metal);--bi:var(--es-badge-achv-ink);--bf2:var(--es-badge-horde-fill)" width="20" height="20"><path d="M32 4 L56.5 18 V46 L32 60 L7.5 46 V18 Z" style="fill:none;stroke:var(--es-badge-rim);stroke-width:10;stroke-linejoin:round"/><path d="M32 4 L56.5 18 V46 L32 60 L7.5 46 V18 Z" style="fill:var(--bf);stroke:none"/><path d="M32 4 L56.5 18 V46 L32 60 L7.5 46 V18 Z" style="fill:none;stroke:var(--bm);stroke-width:6;stroke-linejoin:round"/><g data-slot="achievement-mark"><path d="M32 14 L47 23 V41 L32 50 L17 41 V23 Z" style="fill:none;stroke:var(--bi);stroke-width:5;stroke-dasharray:6 5"/></g></svg>

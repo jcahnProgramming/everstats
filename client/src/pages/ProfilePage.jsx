@@ -5,21 +5,28 @@ import { EmptyState, Provenance } from '../components/EmptyState.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
 import { RenderFrame } from '../components/Stats.jsx';
 import { TierBadge, TierBrief } from '../components/Tier.jsx';
-import { formatDate, formatNumber } from '../format.js';
+import { formatNumber } from '../format.js';
+import { BadgeRow } from '../badges/Badges.jsx';
 
 /**
  * A player's public profile: /u/{username} (GET /api/users/:username). Anyone can view it.
  *
- * The header: display name, @username, joined date, beta membership, and the main ruleset and faction (from the
- * featured character). Then SECTIONS from the server, each drawn by its entry in SECTION_VIEWS. A section with
- * nothing in it isn't sent, so there are no empty boxes; an id this build doesn't know is skipped. Badges later are a
- * new section id and a new entry here.
+ * 0.7.0, the design's profile (design/v2-badges/pages/profile), adopted where it is better than 0.4.2's:
+ *   - one header sheet: an initials avatar, the display name, "@username · Joined", the BADGE ROW (pills: badge + name;
+ *     "+N more" opens All badges; no badges → no row at all), then the bio, the main ruleset / faction / guild tags and
+ *     the social handles, which 0.4.2 split between the header and an "About" panel
+ *   - other characters as cards with their tier shield (the design's grid), not a list
+ *   - the "Beta member since" tag is gone: the Beta Tester badge says it, and the player decides whether it shows
+ * Kept from 0.4.2: the pinned-stats section (and its on/off setting), the featured character with its render, the
+ * guilds section (which character is in which guild), the joined date, and every "Source" line.
+ *
+ * Then SECTIONS from the server, each drawn by its entry in SECTION_VIEWS. A section with nothing in it isn't sent, so
+ * there are no empty boxes; an id this build doesn't know is skipped. 'about' is drawn inside the header now.
  *
  * Everything from Blizzard (ruleset, faction, characters, guilds, pinned values) follows the 30-day rule and carries a
  * "Source" line; the bio and social links are the player's own.
  */
 const SECTION_VIEWS = {
-  about: AboutSection,
   pins: PinsSection,
   featured: FeaturedSection,
   characters: CharactersSection,
@@ -27,6 +34,15 @@ const SECTION_VIEWS = {
 };
 
 const monthYear = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+/** Up to two initials from the display name (letters or digits); the avatar is decoration only. */
+function initials(name) {
+  const ok = (ch) => /[\p{L}\p{N}]/u.test(ch);
+  const words = String(name ?? '').trim().split(/[\s_-]+/u).filter(Boolean);
+  const first = (w) => [...w].find(ok) ?? '';
+  const out = words.length > 1 ? first(words[0]) + first(words[1]) : [...(words[0] ?? '')].filter(ok).slice(0, 2).join('');
+  return out.toUpperCase() || '?';
+}
 
 export function ProfilePage() {
   const { username } = useParams();
@@ -60,16 +76,29 @@ export function ProfilePage() {
   if (!data) return <div className="wrap page-pad"><h1 className="h1">@{String(username).toLowerCase()}</h1><span className="t2 small" role="status">Loading…</span></div>;
 
   const p = data.profile;
-  const main = p.main ? [p.main.ruleset, p.main.faction].filter(Boolean).join(' · ') : null;
+  const about = data.sections.find((s) => s.id === 'about') ?? null;
+  const guilds = data.sections.find((s) => s.id === 'guilds')?.guilds ?? [];
   return (
     <div className="wrap page-pad stack gap-28">
-      <section className="sheet sheet-pad stack gap-10" aria-label="Player">
-        <h1 className="h-display profile-name">{p.displayName}</h1>
-        <div className="row gap-10">
-          <span className="mono t2">@{p.username}</span>
-          <span className="muted small">Joined {monthYear(p.joinedAt)}</span>
-          {p.beta && <span className="tag gold">Beta member since {formatDate(p.beta.since)}</span>}
-          {main && <span className="tag">{main}</span>}
+      <section className="sheet sheet-pad" aria-label="Player">
+        <div className="profile-head">
+          <span className="profile-av" aria-hidden="true">{initials(p.displayName)}</span>
+          <div className="stack gap-12">
+            <div className="stack gap-4">
+              <h1 className="h-display profile-name">{p.displayName}</h1>
+              <span className="t2"><span className="mono">@{p.username}</span> · Joined {monthYear(p.joinedAt)}</span>
+            </div>
+            <BadgeRow badges={data.badges} whose={`@${p.username}`} />
+            {about?.bio && <p className="t2 profile-bio">{about.bio}</p>}
+            {(p.main || guilds.length > 0) && (
+              <div className="profile-tags" aria-label="Main ruleset, faction and guilds">
+                {p.main?.ruleset && <span className="tag">Main · {p.main.ruleset}</span>}
+                {p.main?.faction && <span className="tag">{p.main.faction}</span>}
+                {guilds.slice(0, 3).map((g) => <Link key={g.slug} className="tag gold" to={`/g/${encodeURIComponent(g.slug)}`}>{g.name}</Link>)}
+              </div>
+            )}
+            {about?.links?.length > 0 && <SocialLinks links={about.links} />}
+          </div>
         </div>
       </section>
       {data.sections.map((s) => {
@@ -85,15 +114,13 @@ export function ProfilePage() {
   );
 }
 
-/** The bio (plain text: nothing in it is a link) and the social links, each built by Everstats from a handle. */
-function AboutSection({ section }) {
+/** The social links: handles only, each link built by Everstats. (The bio is plain text: nothing in it is a link.) */
+function SocialLinks({ links }) {
   return (
-    <section className="panel pad-20 stack gap-14" aria-labelledby="about-h">
-      <h2 className="eyebrow" id="about-h">About</h2>
-      {section.bio && <p className="t2 profile-bio">{section.bio}</p>}
-      {section.links.length > 0 && (
+    <div className="stack gap-6">
+      {links.length > 0 && (
         <ul className="plain row gap-10 profile-links" aria-label="Elsewhere">
-          {section.links.map((l) => (
+          {links.map((l) => (
             <li key={l.platform}>
               <a className="btn sm ghost" href={l.url} target="_blank" rel="noopener noreferrer nofollow">
                 <b>{l.label}</b><span className="mono profile-handle">{l.platform === 'discord' ? `discord.gg/${l.handle}` : `@${l.handle}`}</span>
@@ -102,8 +129,8 @@ function AboutSection({ section }) {
           ))}
         </ul>
       )}
-      {section.links.length > 0 && <span className="muted xsmall">Links are the player’s own and aren’t verified by Everstats.</span>}
-    </section>
+      <span className="muted xsmall">Links are the player’s own and aren’t verified by Everstats.</span>
+    </div>
   );
 }
 
@@ -153,14 +180,14 @@ function FeaturedSection({ section }) {
 
 function CharactersSection({ section }) {
   return (
-    <section className="panel clip" aria-labelledby="chars-h">
-      <div className="row board-head"><h2 className="h3" id="chars-h">Characters</h2><span className="muted xsmall">{section.characters.length}</span></div>
-      <div className="listbox flush">
+    <section className="stack gap-12" aria-labelledby="chars-h">
+      <div className="row gap-10"><h2 className="h2" id="chars-h">Other characters</h2><span className="muted xsmall">{section.characters.length} · claimed through Battle.net</span></div>
+      <div className="profile-chars">
         {section.characters.map((c) => (
-          <div key={c.slug} className="listrow">
-            <TierBadge letter={c.tier ?? null} size="sm" />
-            <span className="stack grow-col">
-              <b><Link to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link></b>
+          <div key={c.slug} className="panel">
+            <TierBadge letter={c.tier ?? null} size="md" />
+            <span className="stack grow-col gap-2">
+              <b className="ellipsis"><Link to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link></b>
               <span className="muted xsmall">{[c.level ? `Level ${c.level}` : null, c.race, c.class, c.ruleset?.name].filter(Boolean).join(' · ')}</span>
             </span>
           </div>

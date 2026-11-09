@@ -988,4 +988,183 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.7.0: badges (server/badges/) and guild page management (server/guilds/manage.js). Every table here is
+    // Everstats' own data (retention/registry.js OURS). No Blizzard value is copied in: an award keeps at most the
+    // Blizzard ID of the character that earned it (ids are ours to keep), never its name, level, class or faction.
+    //   badge_definitions  what badges exist (seeded from design/v2-badges; admin adds more from templates). A partner's
+    //                      mark is the admin's upload, re-encoded server-side (badges/marks.js); never SVG.
+    //   badge_awards       an account's badge: when, how (automatic rule or admin grant with a reason), and the
+    //                      player's display choices (public, featured + order, pinned). Revoking is a STATE, never a delete.
+    //   badge_events       append-only log of every grant, earn, revoke, removal, mark change and definition created.
+    //   guild_pages        a guild's Everstats page fields (description, Discord invite) and the Guild Master we last
+    //                      recorded (who controls it is computed live from the roster; this records handovers).
+    //   guild_editors      officers a Guild Master added (removal is a state, kept as history).
+    //   guild_links        up to 5 labelled https links per guild (removal is a state, kept as history).
+    //   guild_link_reports "Report this link" queue for the admin.
+    //   link_blocklist     hosts the admin refuses in guild links.
+    //   guild_events       append-only log of every change of control and every edit.
+    // guild ids are Blizzard's ids, deliberately WITHOUT a foreign key: a guilds row ages out with Blizzard's 30-day
+    // rule, and our own data about the guild must not be cascaded away with it.
+    id: '015_badges_guild_pages',
+    async up(q) {
+      await q.query(`
+        CREATE TABLE badge_definitions (
+          id               text PRIMARY KEY CHECK (id ~ '^[a-z][a-z0-9-]{1,47}$'),
+          family           text NOT NULL CHECK (family IN ('staff', 'partner', 'membership', 'faction', 'class', 'achievement')),
+          name             text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 40),
+          description      text NOT NULL CHECK (char_length(description) BETWEEN 1 AND 300),
+          how              text NOT NULL CHECK (char_length(how) BETWEEN 1 AND 200),
+          art              text NOT NULL CHECK (art ~ '^[a-z]+/[a-z0-9-]+$'),
+          template         text CHECK (template IN ('partner-pro', 'platform-employee', 'class', 'achievement')),
+          monogram         text CHECK (monogram ~ '^[A-Z]$'),
+          award            text NOT NULL CHECK (award IN ('manual', 'automatic')),
+          rule             jsonb,
+          kept_while_held  boolean NOT NULL DEFAULT false,
+          time_limited     boolean NOT NULL DEFAULT false,
+          verified         boolean NOT NULL DEFAULT false,
+          -- Planned (after 1.0): automatic verification, e.g. { "method": "work_email", "domains": ["…"] }. NULL = granted by hand.
+          verification     jsonb,
+          sort             integer NOT NULL DEFAULT 1000,
+          mark             bytea,
+          mark_sha         text,
+          mark_set_at      timestamptz,
+          mark_pending     bytea,
+          mark_pending_sha text,
+          mark_pending_at  timestamptz,
+          created_at       timestamptz NOT NULL DEFAULT now(),
+          created_by       text NOT NULL DEFAULT 'seed' CHECK (created_by IN ('seed', 'admin')),
+          CHECK ((award = 'automatic') = (rule IS NOT NULL))
+        );
+
+        CREATE TABLE badge_awards (
+          account_id      bigint NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+          badge_id        text NOT NULL REFERENCES badge_definitions (id),
+          state           text NOT NULL DEFAULT 'held' CHECK (state IN ('held', 'revoked')),
+          earned_at       timestamptz NOT NULL DEFAULT now(),
+          source          text NOT NULL CHECK (source IN ('automatic', 'admin')),
+          reason          text CHECK (char_length(reason) <= 500),
+          character_id    bigint,
+          revoked_at      timestamptz,
+          revoked_by      text CHECK (revoked_by IN ('admin', 'rule')),
+          revoked_reason  text CHECK (char_length(revoked_reason) <= 500),
+          shown           boolean NOT NULL DEFAULT true,
+          featured        boolean NOT NULL DEFAULT false,
+          position        smallint,
+          pinned          boolean NOT NULL DEFAULT false,
+          seen_at         timestamptz,
+          toast           text CHECK (toast IN ('earned', 'granted', 'removed')),
+          toast_at        timestamptz,
+          PRIMARY KEY (account_id, badge_id),
+          CHECK (NOT featured OR shown),
+          CHECK (NOT pinned OR shown)
+        );
+        CREATE UNIQUE INDEX badge_awards_one_pin ON badge_awards (account_id) WHERE pinned;
+        CREATE INDEX badge_awards_badge ON badge_awards (badge_id, state, earned_at);
+        CREATE INDEX badge_awards_toast ON badge_awards (account_id, toast_at) WHERE toast IS NOT NULL;
+
+        CREATE TABLE badge_events (
+          id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          at          timestamptz NOT NULL DEFAULT now(),
+          type        text NOT NULL CHECK (type IN ('granted', 'earned', 'revoked', 'removed', 'restored', 'mark_uploaded', 'mark_saved', 'created', 'backfill')),
+          badge_id    text,
+          account_id  bigint,   -- no FK: the log outlives a deleted account (ids only)
+          actor       text NOT NULL CHECK (actor IN ('admin', 'rule', 'backfill')),
+          reason      text CHECK (char_length(reason) <= 500),
+          detail      jsonb NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX badge_events_time ON badge_events (at);
+        CREATE INDEX badge_events_account_time ON badge_events (account_id, at);
+
+        CREATE TABLE guild_pages (
+          guild_id         bigint PRIMARY KEY,
+          gm_account_id    bigint REFERENCES accounts (id) ON DELETE SET NULL,
+          gm_character_id  bigint,
+          gm_since         timestamptz,
+          description      text CHECK (char_length(description) <= 280),
+          discord_invite   text CHECK (discord_invite ~ '^[A-Za-z0-9-]{2,32}$'),
+          updated_at       timestamptz,
+          updated_by       bigint
+        );
+        CREATE INDEX guild_pages_gm ON guild_pages (gm_account_id) WHERE gm_account_id IS NOT NULL;
+
+        CREATE TABLE guild_editors (
+          guild_id        bigint NOT NULL,
+          account_id      bigint NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+          added_by        bigint,
+          added_at        timestamptz NOT NULL DEFAULT now(),
+          removed_at      timestamptz,
+          removed_by      bigint,
+          removed_reason  text CHECK (char_length(removed_reason) <= 200),
+          PRIMARY KEY (guild_id, account_id)
+        );
+        CREATE INDEX guild_editors_account ON guild_editors (account_id, added_at);
+
+        CREATE TABLE guild_links (
+          id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          guild_id        bigint NOT NULL,
+          position        smallint NOT NULL,
+          label           text NOT NULL CHECK (char_length(label) BETWEEN 1 AND 40),
+          url             text NOT NULL CHECK (char_length(url) <= 400 AND url LIKE 'https://%'),
+          host            text NOT NULL,
+          created_at      timestamptz NOT NULL DEFAULT now(),
+          created_by      bigint,
+          removed_at      timestamptz,
+          removed_by      text CHECK (removed_by IN ('editor', 'admin')),
+          removed_reason  text CHECK (char_length(removed_reason) <= 300)
+        );
+        CREATE INDEX guild_links_live ON guild_links (guild_id, position) WHERE removed_at IS NULL;
+        CREATE INDEX guild_links_guild_time ON guild_links (guild_id, created_at);
+
+        CREATE TABLE guild_link_reports (
+          id                   bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          link_id              bigint NOT NULL REFERENCES guild_links (id),
+          guild_id             bigint NOT NULL,
+          reported_at          timestamptz NOT NULL DEFAULT now(),
+          reporter_account_id  bigint REFERENCES accounts (id) ON DELETE SET NULL,
+          note                 text CHECK (char_length(note) <= 300),
+          state                text NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'dismissed', 'removed')),
+          resolved_at          timestamptz
+        );
+        CREATE INDEX guild_link_reports_open ON guild_link_reports (state, reported_at);
+        CREATE INDEX guild_link_reports_link_time ON guild_link_reports (link_id, reported_at);
+
+        CREATE TABLE link_blocklist (
+          host      text PRIMARY KEY CHECK (host ~ '^[a-z0-9.-]{3,253}$'),
+          note      text CHECK (char_length(note) <= 200),
+          added_at  timestamptz NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE guild_events (
+          id                bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          guild_id          bigint NOT NULL,
+          at                timestamptz NOT NULL DEFAULT now(),
+          type              text NOT NULL,
+          account_id        bigint,
+          actor_account_id  bigint,
+          actor             text NOT NULL CHECK (actor IN ('player', 'admin', 'roster')),
+          detail            jsonb NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX guild_events_guild_time ON guild_events (guild_id, at);
+      `);
+      const { SEED_BADGES } = await import('../badges/catalog.js');
+      for (const b of SEED_BADGES) {
+        await q.query(
+          `INSERT INTO badge_definitions (id, family, name, description, how, art, template, monogram, award, rule, kept_while_held, time_limited, verified, sort)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14) ON CONFLICT (id) DO NOTHING`,
+          [b.id, b.family, b.name, b.description, b.how, b.art, b.template ?? null, b.monogram ?? null, b.rule ? 'automatic' : 'manual',
+            b.rule ? JSON.stringify(b.rule) : null, Boolean(b.keptWhileHeld), Boolean(b.timeLimited), ['staff', 'partner'].includes(b.family), b.sort],
+        );
+      }
+      // The /beta page's perk said badges were coming ("will receive … when badges launch"). If the owner never edited
+      // it, the stored value is the old default: say what is true now. An edited text is left alone.
+      const OLD = 'Every account created while the beta is open will receive the Beta Tester badge when badges launch.';
+      const { BETA_PERK_TEXT } = await import('../badges/catalog.js');
+      const row = await q.one("SELECT value FROM settings WHERE key = 'beta.perks'");
+      if (row && Array.isArray(row.value) && row.value.some((p) => p?.description === OLD)) {
+        const next = row.value.map((p) => (p?.description === OLD ? { ...p, description: BETA_PERK_TEXT } : p));
+        await q.query("UPDATE settings SET value = $1::jsonb, updated_at = now() WHERE key = 'beta.perks'", [JSON.stringify(next)]);
+      }
+    },
+  },
 ];

@@ -3,6 +3,8 @@ import { getSetting } from '../admin/settings.js';
 import { EQUIPMENT_VERSION, parseAttributes, parseEquipment, parseGuildProfile, parseMedia, parseProfile, parseRoster, parseStatistics } from './parse.js';
 import { queueItemMedia } from './items.js';
 import { gradeCharacter } from '../tiers/store.js';
+import { evaluateQuietly } from '../badges/rules.js';
+import { currentGuildMaster, syncGuildMaster } from '../guilds/manage.js';
 import { PRIORITY, enqueueMany } from './queue.js';
 import {
   markProfileMissing, storeDetails, storeGuildProfile, storeMedia, storeProfile, storeRoster, takeSnapshot, updateGains, upsertKnown, upsertRuleset,
@@ -80,6 +82,7 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
     // Its values didn't change: its tier only needs grading if it has none yet (the full grading keeps the rest).
     if (!(await db.one('SELECT 1 AS x FROM character_tiers WHERE character_id = $1', [p.id]))) await gradeQuietly(db, p.id);
     await maybeRoster({ db }, p);
+    await badgesForOwner(db, p.id);
     return 'unchanged';
   }
 
@@ -109,7 +112,14 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
   // 0.6.0: its tier from its new values, before the item finishes, so a lookup's page shows it.
   await gradeQuietly(db, p.id);
   await maybeRoster({ db }, p);
+  await badgesForOwner(db, p.id);
   return 'fetched';
+}
+
+/** 0.7.0: an owned character's fetch (the daily refresh included) re-checks its owner's automatic badges. */
+async function badgesForOwner(db, characterId) {
+  const row = await db.one('SELECT owner_account_id FROM characters WHERE id = $1', [characterId]);
+  if (row?.owner_account_id) await evaluateQuietly(db, row.owner_account_id);
 }
 
 /** A tier that couldn't be graded never fails the fetch: the next full grading includes the character anyway. */
@@ -175,6 +185,15 @@ export async function fetchGuildRoster({ db, client }, item) {
   }
   const members = parseRoster(json);
   await db.tx((q) => storeRoster(q, gp.id, members));
+  // 0.7.0: who controls the guild's Everstats page follows the roster (a handover is logged), and the rank-0
+  // character's owner gets Guild Master. Neither can fail the roster.
+  try {
+    await db.tx((q) => syncGuildMaster(q, gp.id));
+    const gm = await currentGuildMaster(db, gp.id);
+    if (gm?.accountId) await evaluateQuietly(db, gm.accountId);
+  } catch (err) {
+    console.error(`[guilds] guild master sync failed: ${err.code ?? err.name}`);
+  }
   if (!(await getSetting(db, 'crawler.rosterExpansion'))) return `roster: ${members.length} members (expansion off)`;
   const eligible = members.filter((m) => Number.isInteger(m.level) && m.level >= MIN_TRACKED_LEVEL);
   const known = new Set((await db.query('SELECT id FROM characters WHERE id = ANY($1::bigint[])', [eligible.map((m) => m.id)])).map((x) => x.id));

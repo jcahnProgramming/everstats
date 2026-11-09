@@ -11,6 +11,7 @@ import { BrandMark } from './BrandMark.jsx';
 import { Icon } from './Icon.jsx';
 import { createScrollMemory, focusMainHeading, restoreScroll, scrollDecision } from './scrollMemory.js';
 import { TierBadge } from '../components/Tier.jsx';
+import { BadgeToastWatcher, InlineBadge } from '../badges/Badges.jsx';
 
 /**
  * The frame of every page (design v1, navigation option A "Ledger Bar", design/v1/components/nav.md):
@@ -34,6 +35,7 @@ export function AppShell() {
         <TopBar />
         <BetaBanner />
         <UsernamePrompt />
+        <BadgeToastWatcher />
         <main id="main" className="app-main" key={pathname}>
           <Outlet />
         </main>
@@ -175,14 +177,18 @@ function AccountButton({ className = '', block = false }) {
   if (session.loading) return <span className={`btn ${size} ghost ${className} is-placeholder`} aria-hidden="true">Sign in</span>;
   if (session.signedIn) {
     const u = session.user;
-    return (
-      <NavLink to="/settings" className={`btn ${size} ghost ${className} who-btn`} aria-label={u?.claimed ? `${u.displayName}, @${u.username}: settings` : 'Choose a username: settings'}>
+    // 0.7.0: the player's one inline badge sits BESIDE the link (a button can't live inside a link); its name shows on
+    // hover, focus and tap, and the link's own label names it too.
+    const link = (
+      <NavLink to="/settings" className={`btn ${size} ghost ${className} who-btn`} aria-label={u?.claimed ? `${u.displayName}, @${u.username}${u.badge ? `, ${u.badge.name} badge` : ''}: settings` : 'Choose a username: settings'}>
         <Icon name="user" size="sm" />
         {u?.claimed ? (
           <span className="who-names"><span className="who-display ellipsis">{u.displayName}</span><span className="who-handle ellipsis">@{u.username}</span></span>
         ) : <span className="who-claim-label">Choose a username</span>}
       </NavLink>
     );
+    if (!u?.badge) return link;
+    return <span className={`who-wrap${block ? ' block' : ''}`}>{link}<InlineBadge badge={u.badge} /></span>;
   }
   if (session.stage === 'second_factor') {
     return <NavLink to="/sign-in/2fa" className={`btn ${size} ${className}`}>Finish sign-in</NavLink>;

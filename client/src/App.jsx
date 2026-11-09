@@ -2,6 +2,9 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AdminEnrollPage, AdminPage, AdminSignInPage } from './admin/AdminPages.jsx';
 import { DiscoveryPage } from './admin/DiscoveryPage.jsx';
 import { TiersAdminPage } from './admin/TiersAdminPage.jsx';
+import { BadgesAdminPage } from './admin/BadgesAdminPage.jsx';
+import { GuildLinksAdminPage } from './admin/GuildLinksAdminPage.jsx';
+import { BadgePage } from './pages/BadgePage.jsx';
 import { AppShell } from './chrome/AppShell.jsx';
 import { BetaPage } from './pages/BetaPage.jsx';
 import { ChangelogPage } from './pages/ChangelogPage.jsx';
@@ -51,9 +54,12 @@ export function App() {
             <Route path="beta" element={<BetaPage />} />
             <Route path="privacy" element={<PrivacyPage />} />
             <Route path="u/:username" element={<ProfilePage />} />
+            <Route path="badges/:id" element={<BadgePage />} />
             <Route path="admin" element={<AdminPage />} />
             <Route path="admin/discovery" element={<DiscoveryPage />} />
             <Route path="admin/tiers" element={<TiersAdminPage />} />
+            <Route path="admin/badges" element={<BadgesAdminPage />} />
+            <Route path="admin/guild-links" element={<GuildLinksAdminPage />} />
             <Route path="admin/sign-in" element={<AdminSignInPage />} />
             <Route path="admin/enroll" element={<AdminEnrollPage />} />
             <Route path="*" element={<NotFoundPage />} />

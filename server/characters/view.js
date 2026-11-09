@@ -1,5 +1,6 @@
 import { boardCounts, characterRanks } from '../stats/boards.js';
 import { categoryKey, loadCatalog } from '../stats/catalog.js';
+import { inlineBadges } from '../badges/store.js';
 
 /**
  * A tracked character as the public API shows it. Everything carries its freshness: fetchedAt (the last full fetch:
@@ -53,7 +54,8 @@ export async function characterView(db, row, { mine = false } = {}) {
     attributes: row.attributes ?? null,
     hidden: row.hidden,
     mine,
-    claimedBy: owner ? { username: owner.username } : null,
+    // 0.7.0: the owner's one inline badge (pinned, else first featured), never on leaderboards.
+    claimedBy: owner ? { username: owner.username, badge: (await inlineBadges(db, [row.owner_account_id])).get(Number(row.owner_account_id)) ?? null } : null,
   };
 }
 

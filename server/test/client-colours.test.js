@@ -31,9 +31,14 @@ test('colours appear only in client/src/theme/tokens.css', () => {
 
 test('every theme defines every colour token the default defines', () => {
   const css = readFileSync(TOKENS, 'utf8');
+  // EVERY block for the selector (0.7.0: the badge tokens are a second set of theme blocks, appended verbatim from
+  // design/v2-badges; checking only the first block would let a theme miss a badge colour unnoticed).
   const block = (selector) => {
-    const start = css.indexOf(`${selector} {`);
-    return css.slice(start, css.indexOf('\n}', start));
+    let out = '';
+    for (let start = css.indexOf(`${selector} {`); start !== -1; start = css.indexOf(`${selector} {`, start + 1)) {
+      out += css.slice(start, css.indexOf('\n}', start));
+    }
+    return out;
   };
   // Hex and rgba() colours both: a theme missing a translucent token (a glow, the map grid) would inherit Forever's.
   const names = (text) => new Set([...text.matchAll(/(--[a-z0-9-]+):\s*(?:#|rgba?\()/g)].map((m) => m[1]));

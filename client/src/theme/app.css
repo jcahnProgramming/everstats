@@ -152,3 +152,109 @@ body { background-color: var(--es-bg); color: var(--es-text); }
 .search-suggest .search-suggest-h { padding: var(--es-space-8) var(--es-space-12) var(--es-space-2); }
 .search-suggest .search-suggest-foot { padding: var(--es-space-8) var(--es-space-12) var(--es-space-4); border-top: var(--es-border-1) solid var(--es-row-sep); margin-top: var(--es-space-4); }
 .top-search-box.full .search-suggest { position: static; width: auto; margin-top: var(--es-space-6); max-height: none; }
+
+/* ==========================================================================================================
+   0.7.0 badges (client/src/badges/). The design's component CSS is theme/badges.css, verbatim; these are the app's
+   additions and overrides, all from v1/v2 tokens:
+     - PILLS: every badge on the profile row, in "All badges" and in Settings shows its name (the owner's brief; the
+       design's row is icon-only). Standard 44px badge + name, pill-shaped, wrapping on phones.
+     - the inline badge's name tooltip (hover, keyboard focus, tap)
+     - the popover as position: fixed (escapes clipped panels), flipping above, with its arrow placed by the script
+   ========================================================================================================== */
+.bdg-anchor { position: relative; display: inline-flex; max-width: 100%; min-width: 0; }
+.bdg-pill { display: inline-flex; align-items: center; gap: var(--es-space-8); max-width: 100%; min-width: 0; min-height: var(--es-size-badge);
+  padding: var(--es-space-2) var(--es-space-14) var(--es-space-2) var(--es-space-2); border-radius: var(--es-radius-pill);
+  background: var(--es-sunken); border: var(--es-border-1) solid var(--es-line-strong); color: var(--es-text);
+  font: var(--es-weight-semibold) var(--es-fs-13-5)/var(--es-lh-snug) var(--es-font-body); cursor: pointer; text-align: left;
+  transition: border-color var(--es-motion-fast) var(--es-motion-ease); }
+.bdg-pill:hover, .bdg-pill[aria-expanded="true"] { border-color: var(--es-accent); }
+.bdg-pill:hover .bdg svg { transform: translateY(calc(var(--es-border-1) * -1)); filter: brightness(1.08); }
+.bdg-pill:focus-visible { outline: var(--es-border-2) solid var(--es-focus); outline-offset: var(--es-space-2); }
+.bdg-pill .bdg { cursor: inherit; }
+.bdg-pill-name { min-width: 0; overflow-wrap: anywhere; }
+.bdg-pill.is-locked, .bdg-pill.is-retired { background: transparent; border-style: dashed; color: var(--es-text-2); }
+.tag.xs { padding: var(--es-space-1) var(--es-space-6); font-size: var(--es-fs-10); }
+.bdg-row { gap: var(--es-space-8); }
+.bdg-more { min-height: var(--es-size-badge); }
+
+/* The popover: fixed, placed by usePopover (top/left and --pop-arrow set through the CSSOM, never a style attribute). */
+.bdg-pop.is-fixed { position: fixed; z-index: calc(var(--es-z-modal) + 1); }
+.bdg-pop.is-fixed::before { content: ""; position: absolute; top: calc(var(--es-space-6) * -1); left: var(--pop-arrow, var(--es-space-16)); width: var(--es-space-10); height: var(--es-space-10);
+  background: var(--es-raised); border-left: var(--es-border-1) solid var(--es-line-strong); border-top: var(--es-border-1) solid var(--es-line-strong); transform: rotate(45deg); }
+.bdg-pop.is-fixed.above::before { top: auto; bottom: calc(var(--es-space-6) * -1); transform: rotate(225deg); }
+.bdg-pop .hd .bdg { cursor: default; }
+.wrap-row { flex-wrap: wrap; }
+
+/* Inline badge (18px) next to a username: its name on hover, keyboard focus and tap (.is-open). */
+.name-badge .handle { color: var(--es-text); text-decoration: none; }
+.name-badge a.handle:hover { text-decoration: underline; }
+.ibdg { position: relative; display: inline-flex; flex: none; }
+.ibdg .bdg.inline { cursor: help; }
+.ibdg .bdg.inline:focus-visible { outline: var(--es-border-2) solid var(--es-focus); outline-offset: var(--es-space-2); }
+.ibdg-tip { position: absolute; left: 50%; bottom: calc(100% + var(--es-space-6)); transform: translateX(-50%); white-space: nowrap; pointer-events: none;
+  padding: var(--es-space-3) var(--es-space-8); border-radius: var(--es-radius-sm); background: var(--es-raised); color: var(--es-text);
+  border: var(--es-border-1) solid var(--es-line-strong); box-shadow: var(--es-shadow-toast); font: var(--es-weight-semibold) var(--es-fs-12) var(--es-font-body);
+  opacity: 0; visibility: hidden; transition: opacity var(--es-motion-fast) var(--es-motion-ease); z-index: var(--es-z-dropdown); }
+.ibdg:hover .ibdg-tip, .ibdg:focus-within .ibdg-tip, .ibdg.is-open .ibdg-tip { opacity: 1; visibility: visible; }
+.topbar .ibdg-tip { bottom: auto; top: calc(100% + var(--es-space-6)); }
+.who-wrap { display: inline-flex; align-items: center; gap: var(--es-space-4); min-width: 0; }
+.who-wrap.block { display: flex; }
+.who-wrap.block .who-btn { flex: 1 1 auto; }
+
+/* Toasts with a badge in place of the gem. */
+.toast.badge-toast .bdg { cursor: default; }
+
+/* Profile header (design/v2-badges/pages/profile): avatar, name, handle, the badge row, bio, tags, socials. */
+.profile-head { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--es-space-24); align-items: start; }
+.profile-av { width: var(--es-space-88); height: var(--es-space-88); border-radius: var(--es-radius-round); display: grid; place-items: center; flex: none;
+  border: var(--es-border-2) solid var(--es-accent); color: var(--es-text); background: var(--es-raised); font: var(--es-weight-bold) var(--es-fs-28) var(--es-font-display); }
+.profile-tags { display: flex; flex-wrap: wrap; gap: var(--es-space-8); }
+.profile-chars { display: grid; gap: var(--es-space-12); grid-template-columns: repeat(auto-fill, minmax(min(var(--es-size-col-min-md), 100%), 1fr)); }
+.profile-chars .panel { display: flex; gap: var(--es-space-12); align-items: center; padding: var(--es-space-12) var(--es-space-14); min-width: 0; }
+
+/* Settings → Badges (badge-picker.md). */
+.slot-b { padding: 0; color: inherit; font: inherit; }
+.slot-b.is-picked { border-color: var(--es-focus); box-shadow: var(--es-shadow-toast); transform: rotate(-3deg); }
+.slot-b:focus-visible { outline: var(--es-border-2) solid var(--es-focus); outline-offset: var(--es-space-2); }
+.bcard { grid-template-columns: minmax(0, 1fr) auto; }
+.bcard .bcard-main { display: flex; flex-direction: column; gap: var(--es-space-4); min-width: 0; }
+.bcard .bcard-ctl { display: flex; flex-direction: column; align-items: flex-end; gap: var(--es-space-6); }
+.bcard .bdg-anchor { align-self: flex-start; }
+.pin-toggle[aria-pressed="true"] { border-color: var(--es-accent); color: var(--es-accent); }
+.where-shows { display: flex; flex-wrap: wrap; align-items: center; gap: var(--es-space-8) var(--es-space-16); padding: var(--es-space-10) var(--es-space-14);
+  border-radius: var(--es-radius-lg); border: var(--es-border-1) solid var(--es-line); background: var(--es-sunken); }
+
+/* Badge detail (pages/badge-detail). */
+.badge-hero { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--es-space-28); align-items: start; }
+.badge-hero-art { display: flex; flex-direction: column; align-items: center; gap: var(--es-space-10); }
+.badge-sizes { display: flex; align-items: center; gap: var(--es-space-16); flex-wrap: wrap; }
+.badge-sibs { display: flex; flex-wrap: wrap; gap: var(--es-space-8); }
+
+/* Admin → Badges: the three-theme mark preview; each column is a data-theme subtree with its own ground and text. */
+.preview3 > div { color: var(--es-text); }
+.radio-list { display: flex; flex-wrap: wrap; gap: var(--es-space-8); }
+.radio-list [role="radio"][aria-checked="true"] { border-color: var(--es-accent); box-shadow: inset 0 0 0 var(--es-border-1) var(--es-accent); }
+
+/* Guild page: the Links area and the Manage guild panel (0.7.0, built from v1 parts). */
+.guild-links { display: flex; flex-direction: column; gap: var(--es-space-12); }
+.guild-links-list { display: flex; flex-wrap: wrap; gap: var(--es-space-8); }
+.guild-link { display: inline-flex; flex-direction: column; align-items: flex-start; gap: var(--es-space-2); min-width: 0; max-width: 100%; height: auto; padding-top: var(--es-space-6); padding-bottom: var(--es-space-6); }
+.guild-link .host { font: var(--es-fs-11-5) var(--es-font-mono); color: var(--es-muted); overflow-wrap: anywhere; }
+.guild-desc { white-space: pre-line; overflow-wrap: anywhere; }
+.link-edit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; gap: var(--es-space-8); align-items: end; }
+
+@media (max-width: 719px) {
+  .profile-head { grid-template-columns: minmax(0, 1fr); gap: var(--es-space-14); }
+  .profile-av { width: var(--es-space-64); height: var(--es-space-64); font-size: var(--es-fs-22); }
+  .badge-hero { grid-template-columns: minmax(0, 1fr); }
+  .bcard { grid-template-columns: minmax(0, 1fr); }
+  .bcard .bcard-ctl { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; }
+  .link-edit { grid-template-columns: minmax(0, 1fr); }
+  .bdg-pill { font-size: var(--es-fs-13); }
+}
+
+/* 0.7.0 fix: the toast stack renders outside .es (ToastProvider wraps the shell), so it took the browser's default font. */
+.toasts { font-family: var(--es-font-body); color: var(--es-text); }
+/* 0.7.0 fix: a visually hidden (absolutely positioned) header inside a scrolling table escaped the scroll box and widened
+   the page at 390px. The box now contains it. */
+.tblbox { position: relative; }

@@ -15,6 +15,8 @@ import { APP_VERSION } from './core/version.js';
 import { createPublicRouter } from './characters/routes.js';
 import { createGuildRouter } from './guilds/routes.js';
 import { createTierRouter } from './tiers/routes.js';
+import { createBadgeRouter } from './badges/routes.js';
+import { createGuildManageRouter } from './guilds/manage.js';
 
 /**
  * The web app (API + built client), without listening. index.js starts it; tests build it with their own database,
@@ -81,6 +83,10 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   // Guild pages, guild boards, the guild index and search (guilds/routes.js, 0.5.0).
   app.use('/api', createGuildRouter({ db, limits, networkOf }));
   app.use('/api', createTierRouter({ db }));
+  // Badges (0.7.0): badge pages, partner marks, and the player's badge settings and toasts.
+  app.use('/api', createBadgeRouter({ db, limits, networkOf }));
+  // Guild page management (0.7.0): the Guild Master's and officers' panel, "Report this link", "Your guilds".
+  app.use('/api', createGuildManageRouter({ db, limits, networkOf }));
 
   app.use('/api/auth', createAuthRouter({ db, limits, networkOf, fetch }));
   app.use('/api/admin', createAdminRouter({

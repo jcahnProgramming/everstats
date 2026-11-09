@@ -17,6 +17,7 @@ import { PLATFORMS, getPlatform, linkFor } from '../accounts/socials.js';
 import { pinCards, pinsOf } from '../stats/pins.js';
 import { lettersFor } from '../tiers/store.js';
 import { characterTierView, tierBrief } from '../tiers/view.js';
+import { badgeContext, publicBadgesOf } from '../badges/store.js';
 
 /**
  * The public, read-mostly API: character lookups, leaderboards, the statistics catalog, coverage and the beta.
@@ -164,7 +165,14 @@ export function createPublicRouter({ db, limits, networkOf }) {
     const others = chars.filter((c) => c.id !== featured?.id).map(view);
     if (others.length) sections.push({ id: 'characters', characters: others });
     if (guilds.size) sections.push({ id: 'guilds', guilds: [...guilds.values()] });
+    // 0.7.0: the badge row under the name. Only badges the player made public; none at all → no row (no empty box).
+    const ctx = await badgeContext(db);
+    const badges = await publicBadgesOf(db, a.id, ctx);
+    const own = viewerOf(req) === a.id;
+    const unseen = own ? new Set((await db.query("SELECT badge_id FROM badge_awards WHERE account_id = $1 AND state = 'held' AND seen_at IS NULL LIMIT 500", [a.id])).map((x) => x.badge_id)) : new Set();
+    const mark = (b) => ({ ...b, isNew: unseen.has(b.id) });
     res.json({
+      badges: badges.featured.length || badges.more.length ? { featured: badges.featured.map(mark), more: badges.more.map(mark), own } : null,
       status: 'ok',
       profile: {
         username: a.username,

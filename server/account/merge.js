@@ -70,6 +70,37 @@ export const MERGE_STEPS = [
     },
   },
   {
+    id: 'badges',
+    describe: 'Badges: the account you keep gets every badge this account has (the earlier date wins when both have one). Its own choices of what to show stay as they are.',
+    async run(q, from, to) {
+      // A badge only the source holds moves over (not featured or pinned: the kept account's display choices stand).
+      await q.query(
+        `UPDATE badge_awards s SET account_id = $2, featured = false, pinned = false, position = NULL
+          WHERE s.account_id = $1 AND NOT EXISTS (SELECT 1 FROM badge_awards t WHERE t.account_id = $2 AND t.badge_id = s.badge_id)`,
+        [from, to],
+      );
+      // Both hold it: the kept one keeps its row, held if either was, with the earlier date.
+      await q.query(
+        `UPDATE badge_awards t SET state = 'held', earned_at = least(t.earned_at, s.earned_at), revoked_at = NULL, revoked_by = NULL, revoked_reason = NULL
+           FROM badge_awards s WHERE t.account_id = $2 AND s.account_id = $1 AND s.badge_id = t.badge_id AND s.state = 'held'
+            AND NOT (t.state = 'revoked' AND t.revoked_by = 'admin')`,
+        [from, to],
+      );
+      await q.query("INSERT INTO badge_events (type, account_id, actor, reason, detail) VALUES ('restored', $1, 'rule', 'accounts merged', $2::jsonb)", [to, JSON.stringify({ mergedFrom: from })]);
+      const { tidyDisplay } = await import('../badges/store.js');
+      await tidyDisplay(q, to);
+    },
+  },
+  {
+    id: 'guild_officers',
+    describe: 'Guild officer roles move to the account you keep.',
+    run: (q, from, to) => q.query(
+      `UPDATE guild_editors s SET account_id = $2 WHERE s.account_id = $1
+          AND NOT EXISTS (SELECT 1 FROM guild_editors t WHERE t.account_id = $2 AND t.guild_id = s.guild_id)`,
+      [from, to],
+    ),
+  },
+  {
     id: 'beta',
     describe: 'Beta membership: if either account was made during the beta, the account you keep is a beta member, from the earlier date.',
     async run(q, from, to) {

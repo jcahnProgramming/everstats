@@ -1,5 +1,6 @@
 import { HttpError } from '../core/errors.js';
 import { DEFAULT_SHARES, TIER_LETTERS, sharesProblem } from '../stats/tiers.js';
+import { BETA_PERK_TEXT } from '../badges/catalog.js';
 
 /**
  * The admin settings registry. Every setting declares itself here; the admin page renders whatever is declared and
@@ -11,6 +12,7 @@ import { DEFAULT_SHARES, TIER_LETTERS, sharesProblem } from '../stats/tiers.js';
  *        'shares'   the five letter shares { S, A, B, C, D }, whole percents adding up to 100
  *        'boolean'
  *        'perks'    a short list of { title, description } (the beta page's perks), at most PERKS_MAX items
+ *        'window'   null, or { start, end } as UTC calendar dates 'YYYY-MM-DD', both days included (0.7.0)
  */
 export const PERKS_MAX = 12;
 export const SETTINGS = [
@@ -138,8 +140,18 @@ export const SETTINGS = [
     help: 'Shown on the /beta page, while the beta is open and after it has closed.',
     type: 'perks',
     default: [
-      { title: 'Beta Tester badge', description: 'Every account created while the beta is open will receive the Beta Tester badge when badges launch.' },
+      { title: 'Beta Tester badge', description: BETA_PERK_TEXT },
     ],
+  },
+  {
+    // 0.7.0: the Early Supporter badge (badges/rules.js). Unset = the badge isn't awardable, isn't listed as earnable
+    // and shows nowhere. After the end date it shows as "No longer available" to accounts that didn't get it.
+    key: 'badges.earlySupporter',
+    section: 'badges',
+    label: 'Early Supporter window',
+    help: 'Accounts created between these dates (UTC, both days included) get the Early Supporter badge. Leave it unset and the badge shows nowhere.',
+    type: 'window',
+    default: null,
   },
 ];
 
@@ -174,6 +186,14 @@ function check(def, value) {
       if (description.length > 300) throw new HttpError(400, 'A perk description is up to 300 characters', 'invalid');
       return { title, description };
     });
+  }
+  if (def.type === 'window') {
+    if (value === null) return null;
+    const ok = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`))
+      && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d;
+    if (!ok(value?.start) || !ok(value?.end)) throw new HttpError(400, 'Give a start and an end date (YYYY-MM-DD), or clear the window.', 'invalid');
+    if (value.end < value.start) throw new HttpError(400, 'The window ends before it starts.', 'invalid');
+    return { start: value.start, end: value.end };
   }
   if (def.type === 'retention') {
     const days = value?.days;

@@ -57,6 +57,8 @@ export function AdminPage() {
         <h1 className="h1 admin-title">Admin</h1>
         <span className="tag gold">Owner only</span>
         <span className="spacer" />
+        <Link className="btn sm" to="/admin/badges"><Icon name="check" size="sm" />Badges</Link>
+        <Link className="btn sm" to="/admin/guild-links"><Icon name="guild" size="sm" />Guild links</Link>
         <Link className="btn sm" to="/admin/tiers"><Icon name="chart" size="sm" />Tiers</Link>
         <Link className="btn sm" to="/admin/discovery"><Icon name="search" size="sm" />Discovery</Link>
         <button type="button" className="btn ghost sm" onClick={load}><Icon name="refresh" size="sm" />Refresh</button>

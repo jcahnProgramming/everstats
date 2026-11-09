@@ -1,0 +1,7 @@
+<?xml-stylesheet type="text/css" href="../../../v1/tokens/themes.css"?>
+<?xml-stylesheet type="text/css" href="../../tokens/badges.css"?>
+<!-- TEMPLATE: replace the element(s) marked data-slot="…" only. Keep frame, rim and metal ring.
+     partner-mark: put the partner mark (with permission) inside a 30×30 box centred at 32,32 (inline: 32×32 box).
+     platform-monogram: one capital letter, Cinzel 800, in the tab (inline: in the rosette).
+     class-mark / achievement-mark: an original single-colour glyph in var(--bi), ~24×24 centred. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-3 -3 70 70" role="img" aria-label="Pro Team Partner badge" style="--bf:var(--es-badge-partner-fill);--bm:var(--es-badge-partner-metal);--bi:var(--es-badge-partner-ink);--bf2:var(--es-badge-horde-fill)" width="20" height="20"><path d="M15 4 H49 L60 15 V49 L49 60 H15 L4 49 V15 Z" style="fill:none;stroke:var(--es-badge-rim);stroke-width:10;stroke-linejoin:round"/><path d="M15 4 H49 L60 15 V49 L49 60 H15 L4 49 V15 Z" style="fill:var(--bf);stroke:none"/><path d="M15 4 H49 L60 15 V49 L49 60 H15 L4 49 V15 Z" style="fill:none;stroke:var(--bm);stroke-width:6;stroke-linejoin:round"/><g data-slot="partner-mark"><path d="M32 15 L47 20 V31 C47 41 40 46 32 49 C24 46 17 41 17 31 V20 Z" style="fill:var(--bi)"/></g></svg>

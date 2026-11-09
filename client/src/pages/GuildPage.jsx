@@ -8,6 +8,8 @@ import { EmptyState, Fresh, Provenance } from '../components/EmptyState.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
 import { TierBadge, TierDistribution, TierLink } from '../components/Tier.jsx';
 import { formatDate, formatNumber, timeAgo } from '../format.js';
+import { NameWithBadge } from '../badges/Badges.jsx';
+import { GuildLinksArea, ManageGuild } from './GuildManage.jsx';
 
 /**
  * A guild (design/v1/pages/guild), 0.5.0. GET /api/guilds/:slug answers from what Everstats stored; a guild it has
@@ -118,10 +120,10 @@ export function GuildPage() {
       </div>
     );
   }
-  return <GuildSheet data={result} />;
+  return <GuildSheet data={result} onReload={load} />;
 }
 
-function GuildSheet({ data }) {
+function GuildSheet({ data, onReload }) {
   const g = data.guild;
   const c = data.counts;
   return (
@@ -157,6 +159,11 @@ function GuildSheet({ data }) {
           <span>Everstats knows this guild from {c.tracked === 1 ? 'one member’s' : 'its members’'} profile{c.tracked === 1 ? '' : 's'}. Its roster is read once a day; the member counts fill in when it is.</span>
         </EmptyState>
       )}
+
+      {/* 0.7.0: the guild's own Links area (only when something is set) and, for its Guild Master and officers only,
+          the Manage guild panel. */}
+      <GuildLinksArea links={data.links} slug={g.slug} />
+      <ManageGuild slug={g.slug} onSaved={onReload} />
 
       <GuildTiers data={data} />
       <Totals data={data} />
@@ -225,6 +232,8 @@ const COLUMNS = [
   { id: 'class', label: 'Class', get: (m) => m.class ?? '' },
   { id: 'race', label: 'Race', get: (m) => m.race ?? '' },
   { id: 'rank', label: 'Guild rank', get: (m) => (m.rank ?? 999) },
+  // 0.7.0: who claimed the character on Everstats, with their one inline badge (never on leaderboards).
+  { id: 'claimed', label: 'Claimed by', get: (m) => m.claimedBy?.username ?? '~' },
   { id: 'seen', label: 'Last seen in game', get: (m) => (m.lastLoginAt ? Date.parse(m.lastLoginAt) : 0), desc: true },
 ];
 
@@ -279,6 +288,7 @@ function Roster({ data }) {
                   <td className="t2">{m.class ?? '—'}</td>
                   <td className="t2">{m.race ?? '—'}</td>
                   <td className="t2">{m.rankName ?? <span className="muted">not on the last roster</span>}</td>
+                  <td>{m.claimedBy ? <NameWithBadge username={m.claimedBy.username} badge={m.claimedBy.badge} /> : <span className="muted">—</span>}</td>
                   <td className="r t2">{m.lastLoginAt ? timeAgo(m.lastLoginAt) : 'not reported'}</td>
                 </tr>
               ))}

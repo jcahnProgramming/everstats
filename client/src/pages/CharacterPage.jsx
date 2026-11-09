@@ -11,6 +11,7 @@ import { groupCoreStats } from '../coreStats.js';
 import { TierBadge } from '../components/Tier.jsx';
 import { OverallTier, WhyThisTier } from '../components/TierBreakdown.jsx';
 import { useToasts } from '../components/Toasts.jsx';
+import { NameWithBadge } from '../badges/Badges.jsx';
 import { formatDate, formatDateTime, formatNumber, timeAgo } from '../format.js';
 import { useSession } from '../session.jsx';
 
@@ -138,7 +139,7 @@ function CharacterSheet({ data, onReload }) {
               {c.mine && <span className="tag you">Yours</span>}
             </div>
             <h1 className="h-display char-name">{c.name} <span className="surname">{c.surname}</span></h1>
-            {c.claimedBy && <span className="small t2">Claimed by <Link className="mono" to={`/u/${c.claimedBy.username}`}>@{c.claimedBy.username}</Link></span>}
+            {c.claimedBy && <span className="claimed">Claimed by <NameWithBadge username={c.claimedBy.username} badge={c.claimedBy.badge} /></span>}
             <span className="t2 char-line">{line}{c.guild ? <> · <Link className="guild-inline" to={`/g/${encodeURIComponent(c.guild.slug)}`}>&lt;{c.guild.name}&gt;</Link></> : null}</span>
             <div className="row gap-14 small">
               <span className="t2">Last seen in game: <b className="strong-text">{c.lastLoginAt ? timeAgo(c.lastLoginAt) : 'not reported'}</b></span>

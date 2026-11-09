@@ -260,4 +260,45 @@ export function tiersJob() {
   };
 }
 
-export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob(), tiersJob()]);
+/**
+ * 0.7.0: automatic badges (badges/rules.js). Every minute: the one-time back-fill of every existing account (no
+ * toasts) if it hasn't run; S-Tier for everyone it can change for after each full tier grading finishes; and every
+ * 6 hours a full pass as a safety net (an Early Supporter window set after the fact, a class badge just created).
+ * Reads stored data only (no Blizzard request). Runs in the background.
+ */
+export const BADGE_SWEEP_MS = 6 * 60 * 60 * 1000;
+export function badgesJob() {
+  let running = null;
+  let last = null;
+  let gradingSeen = null;
+  let sweptAt = Date.now(); // the back-fill (or the last deploy's) covers start-up
+  return {
+    id: 'badges',
+    label: 'Automatic badges',
+    everyMs: 60 * 1000,
+    async run({ db, now = Date.now }) {
+      if (running) return { summary: 'Checking badges' };
+      const rules = await import('../badges/rules.js');
+      running = (async () => {
+        const filled = await rules.backfillOnce(db);
+        if (filled) last = `Back-filled ${filled.accounts} account(s)`;
+        const graded = await db.one("SELECT max(finished_at) AS t FROM tier_runs WHERE status = 'done'");
+        const t = graded?.t ? new Date(graded.t).getTime() : 0;
+        if (gradingSeen === null || t > gradingSeen) {
+          const c = await rules.sTierSweep(db);
+          gradingSeen = t;
+          last = `S-Tier checked for ${c.accounts} account(s) after the grading`;
+        }
+        if (now() - sweptAt >= BADGE_SWEEP_MS) {
+          const c = await rules.evaluateEveryone(db);
+          sweptAt = now();
+          last = `Full pass: ${c.accounts} account(s)`;
+        }
+      })().catch((err) => console.error(`[badges] job failed: ${err.code ?? err.name}`)).finally(() => { running = null; });
+      return { summary: last ?? 'Started' };
+    },
+    inFlight: () => running,
+  };
+}
+
+export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob(), tiersJob(), badgesJob()]);

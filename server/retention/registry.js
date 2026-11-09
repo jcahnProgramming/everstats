@@ -229,6 +229,18 @@ export const OURS = {
   reserved_names: 'Reserved usernames',
   retention_sweeps: 'What each retention sweep deleted (counts, times)',
   tier_runs: 'Full tier gradings and requests for one: times, reasons, letter counts (0.6.0)',
+  // 0.7.0: badges. Definitions are ours (names and art from our design; a partner mark is the admin's upload). An award
+  // keeps at most the Blizzard ID of the character that earned it, never a Blizzard value (name, level, class, faction).
+  badge_definitions: 'Badge definitions: our names, descriptions, art keys and admin-uploaded partner marks (0.7.0)',
+  badge_awards: 'Which account holds which badge, when and how (rule or admin grant + reason), display choices; character ids only (0.7.0)',
+  badge_events: 'Badge log: grants, earns, revokes, removals, mark changes, the back-fill (ids, reasons, counts) (0.7.0)',
+  // 0.7.0: guild page management. Written by Guild Masters and officers, keyed on Blizzard guild ids (allowed).
+  guild_pages: 'Guild page description and Discord invite written by its Guild Master or officers; who we last recorded as Guild Master (ids) (0.7.0)',
+  guild_editors: 'Officers a Guild Master added (account ids, dates) (0.7.0)',
+  guild_links: 'Links a Guild Master or officer added (label, https URL, domain) (0.7.0)',
+  guild_link_reports: '"Report this link" queue (link ids, optional note) (0.7.0)',
+  link_blocklist: 'Domains the admin refuses in guild links (0.7.0)',
+  guild_events: 'Guild page log: changes of control, edits, officers (ids) (0.7.0)',
 };
 
 /** Oldest "last fetched from Blizzard" per category still stored (for the admin page). */

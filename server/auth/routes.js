@@ -226,7 +226,13 @@ export function createCallbackRouter({ db, fetch = globalThis.fetch }) {
       await logAccountEvent(q, id, twoFactor ? 'signed_in_awaiting_code' : 'signed_in', { method: provider.id });
       return { id, twoFactor };
     });
-    await bringCharacters(accountId.id);
+    const imported = await bringCharacters(accountId.id);
+    // 0.7.0: account-level badges (Beta Tester, Early Supporter) on every sign-in; the character import above already
+    // evaluated everything when it ran (a Discord sign-in reads no characters).
+    if (!imported || imported.outcome !== 'ok') {
+      const { evaluateQuietly } = await import('../badges/rules.js');
+      await evaluateQuietly(db, accountId.id);
+    }
     const next = flow.data.returnTo ?? '/';
     if (accountId.twoFactor) return res.redirect(303, `/sign-in/2fa?next=${encodeURIComponent(next)}`);
     return res.redirect(303, next);

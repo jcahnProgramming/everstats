@@ -405,3 +405,146 @@
   --es-topbar-bg: color-mix(in oklab, var(--es-bg) 82%, transparent);
   --es-footbar-bg: color-mix(in oklab, var(--es-bg) 70%, var(--es-sunken));
 }
+
+
+/* ==========================================================================================================
+   Badge tokens (0.7.0). Source: design/v2-badges/tokens/badges.css (Claude Design v2-badges), copied VERBATIM
+   below this comment so the next handoff diffs cleanly. Additive to v1: badge colours per theme (--es-badge-*) and
+   badge sizes. Every badge colour comes from here; the art (client/src/badges/art/) only names these tokens.
+   server/test/client-colours.test.js checks every theme block defines every colour, these blocks included.
+   ========================================================================================================== */
+
+/* Everstats v2 — badge tokens. Load AFTER v1/tokens/themes.css. Forever = :root default. */
+:root {
+  --es-size-badge-inline: 18px;
+  --es-size-badge: 44px;
+  --es-size-badge-lg: 112px;
+  --es-size-badge-xl: 128px;
+  --es-size-badge-slot: 64px;
+  --es-size-badge-popover: 320px;
+  --es-size-badge-pip: 8px;
+  --es-badge-row-max: 6;
+}
+
+:root, [data-theme="forever"] {
+  --es-badge-rim: #04060D;
+  --es-badge-staff-fill: #2B1E5E;
+  --es-badge-staff-metal: #F3CF6E;
+  --es-badge-staff-ink: #FFEDB3;
+  --es-badge-partner-fill: #0E3B46;
+  --es-badge-partner-metal: #9FE0E6;
+  --es-badge-partner-ink: #E2F8F9;
+  --es-badge-member-fill: #3D2614;
+  --es-badge-member-metal: #DDA46A;
+  --es-badge-member-ink: #FCE6CB;
+  --es-badge-alliance-fill: #173A8C;
+  --es-badge-alliance-metal: #E7C068;
+  --es-badge-alliance-ink: #FFF3D1;
+  --es-badge-horde-fill: #6E1414;
+  --es-badge-horde-metal: #C2A68C;
+  --es-badge-horde-ink: #FFDCC7;
+  --es-badge-class-metal: #CDD3E1;
+  --es-badge-class-ink: #F8F5EE;
+  --es-badge-class-warrior: #6B4A2E;
+  --es-badge-class-paladin: #86345F;
+  --es-badge-class-hunter: #365F28;
+  --es-badge-class-rogue: #5E571B;
+  --es-badge-class-priest: #4F5763;
+  --es-badge-class-shaman: #1F4C85;
+  --es-badge-class-mage: #245E7A;
+  --es-badge-class-warlock: #4B2A7A;
+  --es-badge-class-druid: #7C4518;
+  --es-badge-class-template: #3A4252;
+  --es-badge-achv-fill: #123F2C;
+  --es-badge-achv-metal: #D2D98A;
+  --es-badge-achv-ink: #EAF6CD;
+  --es-badge-locked-fill: #232B45;
+  --es-badge-locked-metal: #4A5578;
+  --es-badge-locked-ink: #7380A3;
+  --es-badge-new: #F3DB9C;
+  --es-badge-light-panel: #F5F2E9;
+  --es-badge-light-panel-text: #1B2140;
+  --es-badge-light-panel-line: #C9C2AD;
+}
+
+[data-theme="alliance"] {
+  --es-badge-rim: #04060D;
+  --es-badge-staff-fill: #2B1E5E;
+  --es-badge-staff-metal: #F0D58C;
+  --es-badge-staff-ink: #FFF3CF;
+  --es-badge-partner-fill: #0E3B46;
+  --es-badge-partner-metal: #9FE0E6;
+  --es-badge-partner-ink: #E2F8F9;
+  --es-badge-member-fill: #3D2614;
+  --es-badge-member-metal: #DDA46A;
+  --es-badge-member-ink: #FCE6CB;
+  --es-badge-alliance-fill: #173A8C;
+  --es-badge-alliance-metal: #E7C068;
+  --es-badge-alliance-ink: #FFF3D1;
+  --es-badge-horde-fill: #6E1414;
+  --es-badge-horde-metal: #C2A68C;
+  --es-badge-horde-ink: #FFDCC7;
+  --es-badge-class-metal: #CDD3E1;
+  --es-badge-class-ink: #F8F5EE;
+  --es-badge-class-warrior: #6B4A2E;
+  --es-badge-class-paladin: #86345F;
+  --es-badge-class-hunter: #365F28;
+  --es-badge-class-rogue: #5E571B;
+  --es-badge-class-priest: #4F5763;
+  --es-badge-class-shaman: #1F4C85;
+  --es-badge-class-mage: #245E7A;
+  --es-badge-class-warlock: #4B2A7A;
+  --es-badge-class-druid: #7C4518;
+  --es-badge-class-template: #3A4252;
+  --es-badge-achv-fill: #123F2C;
+  --es-badge-achv-metal: #D2D98A;
+  --es-badge-achv-ink: #EAF6CD;
+  --es-badge-locked-fill: #142A5E;
+  --es-badge-locked-metal: #3D5A99;
+  --es-badge-locked-ink: #8495C4;
+  --es-badge-new: #F0D58C;
+  --es-badge-light-panel: #FBF6E4;
+  --es-badge-light-panel-text: #1B2140;
+  --es-badge-light-panel-line: #D6CBA6;
+}
+
+[data-theme="horde"] {
+  --es-badge-rim: #04060D;
+  --es-badge-staff-fill: #33204F;
+  --es-badge-staff-metal: #E8B57A;
+  --es-badge-staff-ink: #FFE7C7;
+  --es-badge-partner-fill: #0E3B46;
+  --es-badge-partner-metal: #9FE0E6;
+  --es-badge-partner-ink: #E2F8F9;
+  --es-badge-member-fill: #3D2614;
+  --es-badge-member-metal: #DDA46A;
+  --es-badge-member-ink: #FCE6CB;
+  --es-badge-alliance-fill: #173A8C;
+  --es-badge-alliance-metal: #E7C068;
+  --es-badge-alliance-ink: #FFF3D1;
+  --es-badge-horde-fill: #6E1414;
+  --es-badge-horde-metal: #C2A68C;
+  --es-badge-horde-ink: #FFDCC7;
+  --es-badge-class-metal: #CDD3E1;
+  --es-badge-class-ink: #F8F5EE;
+  --es-badge-class-warrior: #6B4A2E;
+  --es-badge-class-paladin: #86345F;
+  --es-badge-class-hunter: #365F28;
+  --es-badge-class-rogue: #5E571B;
+  --es-badge-class-priest: #4F5763;
+  --es-badge-class-shaman: #1F4C85;
+  --es-badge-class-mage: #245E7A;
+  --es-badge-class-warlock: #4B2A7A;
+  --es-badge-class-druid: #7C4518;
+  --es-badge-class-template: #3A4252;
+  --es-badge-achv-fill: #123F2C;
+  --es-badge-achv-metal: #D2D98A;
+  --es-badge-achv-ink: #EAF6CD;
+  --es-badge-locked-fill: #2B1E1F;
+  --es-badge-locked-metal: #5C4240;
+  --es-badge-locked-ink: #9A8580;
+  --es-badge-new: #FF9D57;
+  --es-badge-light-panel: #F4EAE3;
+  --es-badge-light-panel-text: #2A1416;
+  --es-badge-light-panel-line: #D3BFB5;
+}

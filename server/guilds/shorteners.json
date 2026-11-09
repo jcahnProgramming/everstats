@@ -1,0 +1,10 @@
+{
+  "note": "URL shorteners and redirectors refused in guild links (server/guilds/links.js): a short link hides where it goes, and the 'You're leaving Everstats for {domain}' notice would name the shortener, not the destination. A host matches itself and every subdomain. Add more on the admin page's blocklist; this list is the built-in floor.",
+  "hosts": [
+    "bit.ly", "bitly.com", "tinyurl.com", "t.co", "goo.gl", "g.co", "ow.ly", "is.gd", "v.gd", "buff.ly", "cutt.ly", "rebrand.ly",
+    "shorturl.at", "tiny.cc", "rb.gy", "bl.ink", "t.ly", "lnkd.in", "s.id", "qr.ae", "adf.ly", "shorte.st", "bit.do", "mcaf.ee",
+    "soo.gd", "x.co", "tiny.one", "shorturl.com", "short.io", "short.gy", "urlz.fr", "clck.ru", "u.to", "tr.im", "po.st", "su.pr",
+    "yourls.org", "linktr.ee", "lnk.to", "trib.al", "dlvr.it", "ift.tt", "fb.me", "amzn.to", "youtu.be", "redd.it", "db.tt",
+    "rotf.lol", "chilp.it", "1url.com", "2u.pm", "0rz.tw", "cli.re", "kutt.it", "lstu.fr", "s.coop", "tinu.be", "zpr.io"
+  ]
+}

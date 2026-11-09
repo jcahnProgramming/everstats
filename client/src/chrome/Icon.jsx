@@ -24,6 +24,7 @@ const ICONS = {
   'no-coverage': "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M5.6 5.6l12.8 12.8\"/>",
   'passkey': "<circle cx=\"9\" cy=\"8\" r=\"4\"/><path d=\"M3 20c1-3.5 3.3-5.5 6-5.5 1.2 0 2.3.3 3.2 1M17 13a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM17 18v3M17 21h2\"/>",
   'pause': "<path d=\"M9 5v14M15 5v14\"/>",
+  'pin': "<path d=\"M12 17v5M8 3h8l-1 6 3 3v2H6v-2l3-3z\"/>",
   'play': "<path d=\"M7 5l12 7-12 7z\"/>",
   'plus': "<path d=\"M12 5v14M5 12h14\"/>",
   'print': "<path d=\"M7 9V4h10v5M7 17H5a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M7 14h10v6H7z\"/>",
