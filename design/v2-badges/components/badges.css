@@ -1,0 +1,103 @@
+/* Everstats v2 — badge components. Additive to v1.
+   Load order: v1/assets/fonts/fonts.css → v1/tokens/themes.css → v1/components/components.css
+               → v2-badges/tokens/badges.css → v2-badges/components/badges.css
+   Only var(--es-*) values. Badge SVGs colour themselves through --bf / --bf2 / --bm / --bi set on the <svg>. */
+
+/* ---------------------------------------------------------------- badge */
+.bdg { position: relative; display: inline-grid; place-items: center; flex: none; padding: 0; margin: 0; border: 0; background: none; color: inherit; cursor: pointer; border-radius: var(--es-radius-md); vertical-align: middle; text-decoration: none; }
+.bdg svg { width: 100%; height: 100%; display: block; overflow: visible; transition: transform var(--es-motion-fast) var(--es-motion-ease), filter var(--es-motion-fast); }
+.bdg.inline { width: var(--es-size-badge-inline); height: var(--es-size-badge-inline); border-radius: var(--es-radius-xs); }
+.bdg.std { width: var(--es-size-badge); height: var(--es-size-badge); }
+.bdg.lg { width: var(--es-size-badge-lg); height: var(--es-size-badge-lg); }
+.bdg.xl { width: var(--es-size-badge-xl); height: var(--es-size-badge-xl); }
+span.bdg, div.bdg { cursor: default; }
+button.bdg:hover svg, a.bdg:hover svg, .bdg.is-hover svg { transform: translateY(calc(var(--es-border-1) * -1)); filter: brightness(1.08); }
+button.bdg:active svg, a.bdg:active svg, .bdg.is-active svg { transform: none; filter: brightness(0.96); }
+.bdg.is-focus { outline: var(--es-border-2) solid var(--es-focus); outline-offset: var(--es-space-2); }
+
+/* new — just earned, until the popover/detail is opened */
+.bdg.is-new svg { filter: drop-shadow(0 0 var(--es-space-6) color-mix(in oklab, var(--es-badge-new) 70%, transparent)); }
+.bdg.is-new::after { content: ""; position: absolute; top: 0; right: 0; width: var(--es-size-badge-pip); height: var(--es-size-badge-pip); border-radius: var(--es-radius-round); background: var(--es-badge-new); box-shadow: 0 0 0 var(--es-border-2) var(--es-bg); }
+.bdg.lg.is-new::after, .bdg.xl.is-new::after { width: var(--es-space-14); height: var(--es-space-14); top: var(--es-space-6); right: var(--es-space-6); }
+.newtag { display: inline-flex; align-items: center; padding: var(--es-space-3) var(--es-space-6); border-radius: var(--es-radius-pill); background: var(--es-badge-new); color: var(--es-accent-ink); font: var(--es-weight-bold) var(--es-fs-10)/var(--es-lh-none) var(--es-font-body); letter-spacing: var(--es-tracking-tag); text-transform: uppercase; }
+
+/* locked (earnable) and retired (no longer available): greyed silhouette, motif dimmed */
+.bdg.is-locked svg, .bdg.is-retired svg {
+  --bf: var(--es-badge-locked-fill) !important; --bf2: var(--es-badge-locked-fill) !important;
+  --bm: var(--es-badge-locked-metal) !important; --bi: var(--es-badge-locked-ink) !important; }
+.bdg.is-retired svg { opacity: 0.7; }
+.bdg .state-ico { position: absolute; right: calc(var(--es-space-4) * -1); bottom: calc(var(--es-space-2) * -1); width: 40%; height: 40%; min-width: var(--es-space-16); min-height: var(--es-space-16); border-radius: var(--es-radius-round); background: var(--es-raised); border: var(--es-border-1) solid var(--es-line-strong); display: grid; place-items: center; color: var(--es-muted); }
+.bdg .state-ico svg { width: 60%; height: 60%; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.bdg.inline .state-ico { display: none; }
+.bdg.is-loading { background: none; }
+.bdg.is-loading svg { visibility: hidden; }
+.bdg.is-loading::before { content: ""; position: absolute; inset: 8%; border-radius: var(--es-radius-md); background: linear-gradient(90deg, var(--es-raised) 0%, color-mix(in oklab, var(--es-raised) 55%, var(--es-line-strong)) 50%, var(--es-raised) 100%); background-size: 200% 100%; animation: es-shimmer var(--es-motion-shimmer) linear infinite; }
+
+/* ---------------------------------------------------------------- badge row (profile) */
+.bdg-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--es-space-10); }
+.bdg-more { display: inline-flex; align-items: center; justify-content: center; min-width: var(--es-size-badge); height: var(--es-size-badge); padding: 0 var(--es-space-12); border-radius: var(--es-radius-pill); background: var(--es-sunken); border: var(--es-border-1) dashed var(--es-line-strong); color: var(--es-text-2); font: var(--es-weight-semibold) var(--es-fs-13) var(--es-font-body); cursor: pointer; }
+.bdg-more:hover { border-color: var(--es-accent); color: var(--es-text); }
+
+/* ---------------------------------------------------------------- inline badge next to a name */
+.name-badge { display: inline-flex; align-items: center; gap: var(--es-space-6); min-width: 0; }
+.name-badge .handle { font-weight: var(--es-weight-semibold); color: var(--es-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.claimed { display: inline-flex; align-items: center; gap: var(--es-space-6); font-size: var(--es-fs-12-5); color: var(--es-muted); }
+
+/* ---------------------------------------------------------------- popover */
+.bdg-pop { width: var(--es-size-badge-popover); max-width: calc(100vw - var(--es-space-32)); display: flex; flex-direction: column; gap: var(--es-space-12); padding: var(--es-space-16); background: var(--es-raised); border: var(--es-border-1) solid var(--es-line-strong); border-radius: var(--es-radius-lg); box-shadow: var(--es-shadow-toast); color: var(--es-text); z-index: var(--es-z-dropdown); }
+.bdg-pop .hd { display: flex; gap: var(--es-space-12); align-items: center; }
+.bdg-pop .nm { font: var(--es-weight-bold) var(--es-fs-17)/var(--es-lh-snug) var(--es-font-display); letter-spacing: var(--es-tracking-heading); }
+.bdg-pop .how { font-size: var(--es-fs-13-5); color: var(--es-text-2); }
+.bdg-pop .meta { display: flex; justify-content: space-between; gap: var(--es-space-10); font-size: var(--es-fs-12); color: var(--es-muted); border-top: var(--es-border-1) solid var(--es-line); padding-top: var(--es-space-10); }
+.bdg-pop.anchored { position: absolute; top: calc(100% + var(--es-space-8)); left: 0; }
+.bdg-pop.anchored::before { content: ""; position: absolute; top: calc(var(--es-space-6) * -1); left: var(--es-space-16); width: var(--es-space-10); height: var(--es-space-10); background: var(--es-raised); border-left: var(--es-border-1) solid var(--es-line-strong); border-top: var(--es-border-1) solid var(--es-line-strong); transform: rotate(45deg); }
+.verified { display: inline-flex; align-items: center; gap: var(--es-space-4); color: var(--es-success); font: var(--es-weight-semibold) var(--es-fs-11) var(--es-font-body); letter-spacing: var(--es-tracking-tag); text-transform: uppercase; }
+.verified svg { width: var(--es-space-14); height: var(--es-space-14); stroke: currentColor; fill: none; stroke-width: 2.6; }
+
+/* ---------------------------------------------------------------- light panel proof */
+.on-light { background: var(--es-badge-light-panel); color: var(--es-badge-light-panel-text); border: var(--es-border-1) solid var(--es-badge-light-panel-line); border-radius: var(--es-radius-lg); }
+.on-light .muted { color: var(--es-badge-light-panel-text); opacity: 0.75; }
+
+/* ---------------------------------------------------------------- picker (Settings → Badges) */
+.slots { display: grid; grid-template-columns: repeat(6, minmax(0, var(--es-size-badge-slot))); gap: var(--es-space-12); }
+.slot-b { position: relative; aspect-ratio: 1; border-radius: var(--es-radius-lg); background: var(--es-sunken); border: var(--es-border-1) solid var(--es-line-strong); display: grid; place-items: center; cursor: grab; }
+.slot-b.empty { border-style: dashed; cursor: default; color: var(--es-muted); font: var(--es-fs-11) var(--es-font-mono); }
+.slot-b.pinned { cursor: default; border-color: color-mix(in oklab, var(--es-accent) 55%, var(--es-line)); }
+.slot-b.dragging { border-color: var(--es-focus); box-shadow: var(--es-shadow-toast); transform: rotate(-3deg); }
+.slot-b.drop { border: var(--es-border-2) dashed var(--es-focus); background: color-mix(in oklab, var(--es-focus) 10%, var(--es-sunken)); }
+.slot-b .n { position: absolute; top: var(--es-space-3); left: var(--es-space-5); font: var(--es-weight-semibold) var(--es-fs-10) var(--es-font-mono); color: var(--es-muted); }
+.slot-b .pin { position: absolute; top: var(--es-space-3); right: var(--es-space-3); color: var(--es-accent); }
+.slot-b .pin svg { width: var(--es-space-12); height: var(--es-space-12); stroke: currentColor; fill: none; stroke-width: 2.4; }
+.bcards { display: grid; gap: var(--es-space-10); grid-template-columns: repeat(auto-fill, minmax(min(var(--es-size-col-min-md), 100%), 1fr)); }
+.bcard { display: grid; grid-template-columns: var(--es-size-badge) minmax(0, 1fr) auto; gap: var(--es-space-12); align-items: center; padding: var(--es-space-10) var(--es-space-12); background: var(--es-surface); border: var(--es-border-1) solid var(--es-line); border-radius: var(--es-radius-lg); }
+.bcard.is-featured { border-color: color-mix(in oklab, var(--es-accent) 60%, var(--es-line)); }
+.bcard .nm { font-weight: var(--es-weight-semibold); }
+.bcard .sub { font-size: var(--es-fs-12); color: var(--es-muted); }
+.bcard.locked { background: transparent; border-style: dashed; }
+.bcard.locked .nm { color: var(--es-text-2); }
+.fam { font-size: var(--es-fs-11); letter-spacing: var(--es-tracking-tag); text-transform: uppercase; color: var(--es-muted); font-weight: var(--es-weight-semibold); }
+
+/* ---------------------------------------------------------------- admin */
+.dropzone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--es-space-8); text-align: center; padding: var(--es-space-24); border: var(--es-border-1-5) dashed var(--es-line-strong); border-radius: var(--es-radius-lg); background: var(--es-sunken); color: var(--es-text-2); }
+.dropzone:hover, .dropzone.is-hover { border-color: var(--es-accent); }
+textarea.inp { height: auto; min-height: var(--es-space-88); padding: var(--es-space-10) var(--es-space-12); resize: vertical; font: var(--es-fs-14)/var(--es-lh-normal) var(--es-font-body); }
+.preview3 { display: grid; gap: var(--es-space-12); grid-template-columns: repeat(auto-fit, minmax(min(var(--es-size-col-min-sm), 100%), 1fr)); }
+.preview3 > div { display: flex; flex-direction: column; align-items: center; gap: var(--es-space-10); padding: var(--es-space-14); border-radius: var(--es-radius-lg); border: var(--es-border-1) solid var(--es-line-strong); background: var(--es-bg); }
+
+/* ---------------------------------------------------------------- toast */
+.toast.badge-toast { align-items: center; }
+.toast.badge-toast .bdg { margin: calc(var(--es-space-4) * -1) 0; }
+
+/* ---------------------------------------------------------------- profile */
+.avatar-lg { width: var(--es-space-88); height: var(--es-space-88); border-radius: var(--es-radius-round); background: var(--es-raised); border: var(--es-border-2) solid var(--es-accent); display: grid; place-items: center; font: var(--es-weight-bold) var(--es-fs-28) var(--es-font-display); color: var(--es-text); flex: none; }
+.social { display: inline-flex; align-items: center; gap: var(--es-space-6); padding: var(--es-space-6) var(--es-space-10); border-radius: var(--es-radius-pill); border: var(--es-border-1) solid var(--es-line); color: var(--es-text-2) !important; text-decoration: none; font-size: var(--es-fs-13); }
+.social b { color: var(--es-text); font-weight: var(--es-weight-semibold); }
+
+@media (max-width: 719px) {
+  .slots { grid-template-columns: repeat(3, minmax(0, var(--es-size-badge-slot))); }
+  .bdg-pop.anchored { left: calc(var(--es-space-8) * -1); }
+  .avatar-lg { width: var(--es-space-64); height: var(--es-space-64); font-size: var(--es-fs-22); }
+}
+
+/* search boxes stacked in a column must not grow vertically */
+.stack > .search { flex: none; }

@@ -1,0 +1,621 @@
+{
+  "$description": "Everstats v2 badge tokens \u2014 additive to v1/tokens. CSS names: --es-badge-<key> (colours) and --es-<key> (sizes).",
+  "themes": {
+    "forever": {
+      "color": {
+        "badge-rim": {
+          "$type": "color",
+          "$value": "#04060D",
+          "$description": "Dark outer hairline on every badge (separates it from light panels)."
+        },
+        "badge-staff-fill": {
+          "$type": "color",
+          "$value": "#2B1E5E",
+          "$description": ""
+        },
+        "badge-staff-metal": {
+          "$type": "color",
+          "$value": "#F3CF6E",
+          "$description": ""
+        },
+        "badge-staff-ink": {
+          "$type": "color",
+          "$value": "#FFEDB3",
+          "$description": ""
+        },
+        "badge-partner-fill": {
+          "$type": "color",
+          "$value": "#0E3B46",
+          "$description": ""
+        },
+        "badge-partner-metal": {
+          "$type": "color",
+          "$value": "#9FE0E6",
+          "$description": ""
+        },
+        "badge-partner-ink": {
+          "$type": "color",
+          "$value": "#E2F8F9",
+          "$description": ""
+        },
+        "badge-member-fill": {
+          "$type": "color",
+          "$value": "#3D2614",
+          "$description": ""
+        },
+        "badge-member-metal": {
+          "$type": "color",
+          "$value": "#DDA46A",
+          "$description": ""
+        },
+        "badge-member-ink": {
+          "$type": "color",
+          "$value": "#FCE6CB",
+          "$description": ""
+        },
+        "badge-alliance-fill": {
+          "$type": "color",
+          "$value": "#173A8C",
+          "$description": ""
+        },
+        "badge-alliance-metal": {
+          "$type": "color",
+          "$value": "#E7C068",
+          "$description": ""
+        },
+        "badge-alliance-ink": {
+          "$type": "color",
+          "$value": "#FFF3D1",
+          "$description": ""
+        },
+        "badge-horde-fill": {
+          "$type": "color",
+          "$value": "#6E1414",
+          "$description": ""
+        },
+        "badge-horde-metal": {
+          "$type": "color",
+          "$value": "#C2A68C",
+          "$description": ""
+        },
+        "badge-horde-ink": {
+          "$type": "color",
+          "$value": "#FFDCC7",
+          "$description": ""
+        },
+        "badge-class-metal": {
+          "$type": "color",
+          "$value": "#CDD3E1",
+          "$description": ""
+        },
+        "badge-class-ink": {
+          "$type": "color",
+          "$value": "#F8F5EE",
+          "$description": ""
+        },
+        "badge-class-warrior": {
+          "$type": "color",
+          "$value": "#6B4A2E",
+          "$description": ""
+        },
+        "badge-class-paladin": {
+          "$type": "color",
+          "$value": "#86345F",
+          "$description": ""
+        },
+        "badge-class-hunter": {
+          "$type": "color",
+          "$value": "#365F28",
+          "$description": ""
+        },
+        "badge-class-rogue": {
+          "$type": "color",
+          "$value": "#5E571B",
+          "$description": ""
+        },
+        "badge-class-priest": {
+          "$type": "color",
+          "$value": "#4F5763",
+          "$description": ""
+        },
+        "badge-class-shaman": {
+          "$type": "color",
+          "$value": "#1F4C85",
+          "$description": ""
+        },
+        "badge-class-mage": {
+          "$type": "color",
+          "$value": "#245E7A",
+          "$description": ""
+        },
+        "badge-class-warlock": {
+          "$type": "color",
+          "$value": "#4B2A7A",
+          "$description": ""
+        },
+        "badge-class-druid": {
+          "$type": "color",
+          "$value": "#7C4518",
+          "$description": ""
+        },
+        "badge-class-template": {
+          "$type": "color",
+          "$value": "#3A4252",
+          "$description": ""
+        },
+        "badge-achv-fill": {
+          "$type": "color",
+          "$value": "#123F2C",
+          "$description": ""
+        },
+        "badge-achv-metal": {
+          "$type": "color",
+          "$value": "#D2D98A",
+          "$description": ""
+        },
+        "badge-achv-ink": {
+          "$type": "color",
+          "$value": "#EAF6CD",
+          "$description": ""
+        },
+        "badge-locked-fill": {
+          "$type": "color",
+          "$value": "#232B45",
+          "$description": "Locked / no-longer-available silhouette fill."
+        },
+        "badge-locked-metal": {
+          "$type": "color",
+          "$value": "#4A5578",
+          "$description": "Locked frame ring."
+        },
+        "badge-locked-ink": {
+          "$type": "color",
+          "$value": "#7380A3",
+          "$description": "Locked motif (shown at 35% or hidden)."
+        },
+        "badge-new": {
+          "$type": "color",
+          "$value": "#F3DB9C",
+          "$description": "\u201cNew\u201d highlight glow + dot (just earned, until viewed)."
+        },
+        "badge-light-panel": {
+          "$type": "color",
+          "$value": "#F5F2E9",
+          "$description": "Light panel ground used to prove badges on light surfaces (popover on paper, emails, exports)."
+        },
+        "badge-light-panel-text": {
+          "$type": "color",
+          "$value": "#1B2140",
+          "$description": "Text on --es-badge-light-panel."
+        },
+        "badge-light-panel-line": {
+          "$type": "color",
+          "$value": "#C9C2AD",
+          "$description": "Border on --es-badge-light-panel."
+        }
+      }
+    },
+    "alliance": {
+      "color": {
+        "badge-rim": {
+          "$type": "color",
+          "$value": "#04060D",
+          "$description": "Dark outer hairline on every badge (separates it from light panels)."
+        },
+        "badge-staff-fill": {
+          "$type": "color",
+          "$value": "#2B1E5E",
+          "$description": ""
+        },
+        "badge-staff-metal": {
+          "$type": "color",
+          "$value": "#F0D58C",
+          "$description": ""
+        },
+        "badge-staff-ink": {
+          "$type": "color",
+          "$value": "#FFF3CF",
+          "$description": ""
+        },
+        "badge-partner-fill": {
+          "$type": "color",
+          "$value": "#0E3B46",
+          "$description": ""
+        },
+        "badge-partner-metal": {
+          "$type": "color",
+          "$value": "#9FE0E6",
+          "$description": ""
+        },
+        "badge-partner-ink": {
+          "$type": "color",
+          "$value": "#E2F8F9",
+          "$description": ""
+        },
+        "badge-member-fill": {
+          "$type": "color",
+          "$value": "#3D2614",
+          "$description": ""
+        },
+        "badge-member-metal": {
+          "$type": "color",
+          "$value": "#DDA46A",
+          "$description": ""
+        },
+        "badge-member-ink": {
+          "$type": "color",
+          "$value": "#FCE6CB",
+          "$description": ""
+        },
+        "badge-alliance-fill": {
+          "$type": "color",
+          "$value": "#173A8C",
+          "$description": ""
+        },
+        "badge-alliance-metal": {
+          "$type": "color",
+          "$value": "#E7C068",
+          "$description": ""
+        },
+        "badge-alliance-ink": {
+          "$type": "color",
+          "$value": "#FFF3D1",
+          "$description": ""
+        },
+        "badge-horde-fill": {
+          "$type": "color",
+          "$value": "#6E1414",
+          "$description": ""
+        },
+        "badge-horde-metal": {
+          "$type": "color",
+          "$value": "#C2A68C",
+          "$description": ""
+        },
+        "badge-horde-ink": {
+          "$type": "color",
+          "$value": "#FFDCC7",
+          "$description": ""
+        },
+        "badge-class-metal": {
+          "$type": "color",
+          "$value": "#CDD3E1",
+          "$description": ""
+        },
+        "badge-class-ink": {
+          "$type": "color",
+          "$value": "#F8F5EE",
+          "$description": ""
+        },
+        "badge-class-warrior": {
+          "$type": "color",
+          "$value": "#6B4A2E",
+          "$description": ""
+        },
+        "badge-class-paladin": {
+          "$type": "color",
+          "$value": "#86345F",
+          "$description": ""
+        },
+        "badge-class-hunter": {
+          "$type": "color",
+          "$value": "#365F28",
+          "$description": ""
+        },
+        "badge-class-rogue": {
+          "$type": "color",
+          "$value": "#5E571B",
+          "$description": ""
+        },
+        "badge-class-priest": {
+          "$type": "color",
+          "$value": "#4F5763",
+          "$description": ""
+        },
+        "badge-class-shaman": {
+          "$type": "color",
+          "$value": "#1F4C85",
+          "$description": ""
+        },
+        "badge-class-mage": {
+          "$type": "color",
+          "$value": "#245E7A",
+          "$description": ""
+        },
+        "badge-class-warlock": {
+          "$type": "color",
+          "$value": "#4B2A7A",
+          "$description": ""
+        },
+        "badge-class-druid": {
+          "$type": "color",
+          "$value": "#7C4518",
+          "$description": ""
+        },
+        "badge-class-template": {
+          "$type": "color",
+          "$value": "#3A4252",
+          "$description": ""
+        },
+        "badge-achv-fill": {
+          "$type": "color",
+          "$value": "#123F2C",
+          "$description": ""
+        },
+        "badge-achv-metal": {
+          "$type": "color",
+          "$value": "#D2D98A",
+          "$description": ""
+        },
+        "badge-achv-ink": {
+          "$type": "color",
+          "$value": "#EAF6CD",
+          "$description": ""
+        },
+        "badge-locked-fill": {
+          "$type": "color",
+          "$value": "#142A5E",
+          "$description": "Locked / no-longer-available silhouette fill."
+        },
+        "badge-locked-metal": {
+          "$type": "color",
+          "$value": "#3D5A99",
+          "$description": "Locked frame ring."
+        },
+        "badge-locked-ink": {
+          "$type": "color",
+          "$value": "#8495C4",
+          "$description": "Locked motif (shown at 35% or hidden)."
+        },
+        "badge-new": {
+          "$type": "color",
+          "$value": "#F0D58C",
+          "$description": "\u201cNew\u201d highlight glow + dot (just earned, until viewed)."
+        },
+        "badge-light-panel": {
+          "$type": "color",
+          "$value": "#FBF6E4",
+          "$description": "Light panel ground used to prove badges on light surfaces (popover on paper, emails, exports)."
+        },
+        "badge-light-panel-text": {
+          "$type": "color",
+          "$value": "#1B2140",
+          "$description": "Text on --es-badge-light-panel."
+        },
+        "badge-light-panel-line": {
+          "$type": "color",
+          "$value": "#D6CBA6",
+          "$description": "Border on --es-badge-light-panel."
+        }
+      }
+    },
+    "horde": {
+      "color": {
+        "badge-rim": {
+          "$type": "color",
+          "$value": "#04060D",
+          "$description": "Dark outer hairline on every badge (separates it from light panels)."
+        },
+        "badge-staff-fill": {
+          "$type": "color",
+          "$value": "#33204F",
+          "$description": ""
+        },
+        "badge-staff-metal": {
+          "$type": "color",
+          "$value": "#E8B57A",
+          "$description": ""
+        },
+        "badge-staff-ink": {
+          "$type": "color",
+          "$value": "#FFE7C7",
+          "$description": ""
+        },
+        "badge-partner-fill": {
+          "$type": "color",
+          "$value": "#0E3B46",
+          "$description": ""
+        },
+        "badge-partner-metal": {
+          "$type": "color",
+          "$value": "#9FE0E6",
+          "$description": ""
+        },
+        "badge-partner-ink": {
+          "$type": "color",
+          "$value": "#E2F8F9",
+          "$description": ""
+        },
+        "badge-member-fill": {
+          "$type": "color",
+          "$value": "#3D2614",
+          "$description": ""
+        },
+        "badge-member-metal": {
+          "$type": "color",
+          "$value": "#DDA46A",
+          "$description": ""
+        },
+        "badge-member-ink": {
+          "$type": "color",
+          "$value": "#FCE6CB",
+          "$description": ""
+        },
+        "badge-alliance-fill": {
+          "$type": "color",
+          "$value": "#173A8C",
+          "$description": ""
+        },
+        "badge-alliance-metal": {
+          "$type": "color",
+          "$value": "#E7C068",
+          "$description": ""
+        },
+        "badge-alliance-ink": {
+          "$type": "color",
+          "$value": "#FFF3D1",
+          "$description": ""
+        },
+        "badge-horde-fill": {
+          "$type": "color",
+          "$value": "#6E1414",
+          "$description": ""
+        },
+        "badge-horde-metal": {
+          "$type": "color",
+          "$value": "#C2A68C",
+          "$description": ""
+        },
+        "badge-horde-ink": {
+          "$type": "color",
+          "$value": "#FFDCC7",
+          "$description": ""
+        },
+        "badge-class-metal": {
+          "$type": "color",
+          "$value": "#CDD3E1",
+          "$description": ""
+        },
+        "badge-class-ink": {
+          "$type": "color",
+          "$value": "#F8F5EE",
+          "$description": ""
+        },
+        "badge-class-warrior": {
+          "$type": "color",
+          "$value": "#6B4A2E",
+          "$description": ""
+        },
+        "badge-class-paladin": {
+          "$type": "color",
+          "$value": "#86345F",
+          "$description": ""
+        },
+        "badge-class-hunter": {
+          "$type": "color",
+          "$value": "#365F28",
+          "$description": ""
+        },
+        "badge-class-rogue": {
+          "$type": "color",
+          "$value": "#5E571B",
+          "$description": ""
+        },
+        "badge-class-priest": {
+          "$type": "color",
+          "$value": "#4F5763",
+          "$description": ""
+        },
+        "badge-class-shaman": {
+          "$type": "color",
+          "$value": "#1F4C85",
+          "$description": ""
+        },
+        "badge-class-mage": {
+          "$type": "color",
+          "$value": "#245E7A",
+          "$description": ""
+        },
+        "badge-class-warlock": {
+          "$type": "color",
+          "$value": "#4B2A7A",
+          "$description": ""
+        },
+        "badge-class-druid": {
+          "$type": "color",
+          "$value": "#7C4518",
+          "$description": ""
+        },
+        "badge-class-template": {
+          "$type": "color",
+          "$value": "#3A4252",
+          "$description": ""
+        },
+        "badge-achv-fill": {
+          "$type": "color",
+          "$value": "#123F2C",
+          "$description": ""
+        },
+        "badge-achv-metal": {
+          "$type": "color",
+          "$value": "#D2D98A",
+          "$description": ""
+        },
+        "badge-achv-ink": {
+          "$type": "color",
+          "$value": "#EAF6CD",
+          "$description": ""
+        },
+        "badge-locked-fill": {
+          "$type": "color",
+          "$value": "#2B1E1F",
+          "$description": "Locked / no-longer-available silhouette fill."
+        },
+        "badge-locked-metal": {
+          "$type": "color",
+          "$value": "#5C4240",
+          "$description": "Locked frame ring."
+        },
+        "badge-locked-ink": {
+          "$type": "color",
+          "$value": "#9A8580",
+          "$description": "Locked motif (shown at 35% or hidden)."
+        },
+        "badge-new": {
+          "$type": "color",
+          "$value": "#FF9D57",
+          "$description": "\u201cNew\u201d highlight glow + dot (just earned, until viewed)."
+        },
+        "badge-light-panel": {
+          "$type": "color",
+          "$value": "#F4EAE3",
+          "$description": "Light panel ground used to prove badges on light surfaces (popover on paper, emails, exports)."
+        },
+        "badge-light-panel-text": {
+          "$type": "color",
+          "$value": "#2A1416",
+          "$description": "Text on --es-badge-light-panel."
+        },
+        "badge-light-panel-line": {
+          "$type": "color",
+          "$value": "#D3BFB5",
+          "$description": "Border on --es-badge-light-panel."
+        }
+      }
+    }
+  },
+  "shared": {
+    "size-badge-inline": {
+      "$type": "dimension",
+      "$value": "18px"
+    },
+    "size-badge": {
+      "$type": "dimension",
+      "$value": "44px"
+    },
+    "size-badge-lg": {
+      "$type": "dimension",
+      "$value": "112px"
+    },
+    "size-badge-xl": {
+      "$type": "dimension",
+      "$value": "128px"
+    },
+    "size-badge-slot": {
+      "$type": "dimension",
+      "$value": "64px"
+    },
+    "size-badge-popover": {
+      "$type": "dimension",
+      "$value": "320px"
+    },
+    "size-badge-pip": {
+      "$type": "dimension",
+      "$value": "8px"
+    },
+    "badge-row-max": {
+      "$type": "number",
+      "$value": "6"
+    }
+  }
+}
