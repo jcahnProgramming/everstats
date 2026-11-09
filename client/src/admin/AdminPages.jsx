@@ -69,6 +69,9 @@ export function AdminPage() {
         <button type="button" className="btn ghost sm" onClick={load}><Icon name="refresh" size="sm" />Refresh</button>
         <button type="button" className="btn ghost sm" onClick={async () => { await api('/api/admin/sign-out', { method: 'POST', body: {} }); navigate('/'); }}>Sign out of admin</button>
       </div>
+      {state.creatorAlerts > 0 && (
+        <div className="note warn small" role="status"><Icon name="warning" /><span className="flex-fill">{state.creatorAlerts === 1 ? 'A verified creator changed a handle' : `${state.creatorAlerts} verified creators changed a handle`}: its Verified mark is already off; the badge stays until you decide.</span><Link className="btn sm" to="/admin/badges#creators">Check</Link></div>
+      )}
       <ActivitySection />
       <KeysSection credentials={state.credentials} onSaved={load} />
       <div className="grid-auto col-xl gap-24 align-start-grid">
@@ -76,6 +79,7 @@ export function AdminPage() {
         <CrawlerSection crawler={state.crawler} settings={state.settings} onSaved={(settings) => setState((st) => ({ ...st, settings }))} onRefresh={load} />
         <BetaSection beta={state.beta} settings={state.settings} onBeta={(beta) => setState((st) => ({ ...st, beta }))} onSaved={(settings) => setState((st) => ({ ...st, settings }))} />
         <RetentionSection retention={state.retention} setting={state.settings.find((st) => st.key === 'retention.window')} onSaved={load} />
+        <RendersSection settings={state.settings} onSaved={(settings) => setState((st) => ({ ...st, settings }))} />
         <CardsSection settings={state.settings} onSaved={(settings) => setState((st) => ({ ...st, settings }))} />
         <BackupsSection backups={state.backups} />
         <ProxiesSection proxies={state.proxies} />
@@ -223,6 +227,7 @@ function GradingSection({ settings, onSaved }) {
 
 export function SettingRow({ setting: s, onSaved }) {
   if (s.type === 'boolean') return <BooleanSetting setting={s} onSaved={onSaved} />;
+  if (s.type === 'text') return <TextSetting setting={s} onSaved={onSaved} />;
   return <IntegerSetting setting={s} onSaved={onSaved} />;
 }
 
@@ -244,6 +249,46 @@ function BooleanSetting({ setting: s, onSaved }) {
       <Toggle checked={s.value} disabled={busy} onChange={flip}>{s.label}</Toggle>
       <span className="muted xsmall">{s.help}{s.updatedAt ? ` Changed ${formatDateTime(s.updatedAt)}.` : ''}</span>
     </div>
+  );
+}
+
+/** A one-line plain-text setting (0.8.1: the note shown while Blizzard renders are off). */
+function TextSetting({ setting: s, onSaved }) {
+  const toast = useToasts();
+  const [value, setValue] = useState(s.value ?? '');
+  const [problem, setProblem] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const save = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      onSaved((await api(`/api/admin/settings/${s.key}`, { method: 'PUT', body: { value } })).settings);
+      setProblem(null);
+      toast.ok('Saved', s.label);
+    } catch (err) {
+      setProblem(err.message);
+    }
+    setBusy(false);
+  };
+  return (
+    <form className="stack gap-8" onSubmit={save}>
+      <div className="row gap-12 align-end">
+        <Field label={s.label} className="grow-col" value={value} maxLength={s.max} onChange={(e) => setValue(e.target.value)} error={problem} />
+        <Button type="submit" className="gold" loading={busy}>Save</Button>
+      </div>
+      <span className="muted xsmall">{s.help} {value.length} / {s.max}.{s.updatedAt ? ` Changed ${formatDateTime(s.updatedAt)}.` : ''}</span>
+    </form>
+  );
+}
+
+/** 0.8.1: "Show Blizzard renders" and its note (server/characters/renders.js). */
+function RendersSection({ settings, onSaved }) {
+  const on = settings.find((s) => s.key === 'renders.show')?.value !== false;
+  return (
+    <section className="panel pad-20 stack gap-16" aria-labelledby="renders-h">
+      <div className="row gap-10"><h2 className="h2 h2-panel" id="renders-h">Character renders</h2><span className={`tag ${on ? 'ok' : 'warn'}`}>{on ? 'Showing Blizzard’s renders' : 'Paused: crest everywhere'}</span></div>
+      {settings.filter((s) => s.section === 'renders').map((s) => <SettingRow key={s.key} setting={s} onSaved={onSaved} />)}
+    </section>
   );
 }
 

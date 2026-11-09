@@ -171,7 +171,7 @@ function CharacterSheet({ data, onReload }) {
           <CoreStats attributes={c.attributes} equipment={c.equipment} />
         </div>
         <Provenance source="Blizzard Entertainment’s game data API: profile, equipment, statistics" fetchedAt={c.fetchedAt}>
-          <span className="muted">Render: {c.media.state === 'hidden' ? 'hidden by its owner' : c.media.state === 'ok' ? <>fetched {timeAgo(c.media.fetchedAt)} (renders lag the profile by hours)</> : 'not ready yet at Blizzard'}</span>
+          <span className="muted">Render: {c.media.state === 'paused' ? 'paused on Everstats' : c.media.state === 'hidden' ? 'hidden by its owner' : c.media.state === 'ok' ? <>fetched {timeAgo(c.media.fetchedAt)} (renders lag the profile by hours)</> : 'not ready yet at Blizzard'}</span>
         </Provenance>
       </section>
 
@@ -212,7 +212,12 @@ function CharacterRender({ c, onReload }) {
   };
   return (
     <div className="stack gap-6 render-wrap">
-      {c.media.state === 'hidden' ? (
+      {c.media.state === 'paused' ? (
+        <RenderFrame>
+          <span className="render-crest disp" aria-hidden="true">{(c.name?.[0] ?? '') + (c.surname?.[0] ?? '')}</span>
+          <span className="small t2 render-paused-note" role="note">{c.media.note}</span>
+        </RenderFrame>
+      ) : c.media.state === 'hidden' ? (
         <RenderFrame>
           <span className="state-glyph-sm" aria-hidden="true"><Icon name="user" size="xl" /></span>
           <span className="h3">Render hidden by its owner</span>
@@ -222,7 +227,7 @@ function CharacterRender({ c, onReload }) {
         <RenderFrame src={c.media.state === 'ok' ? c.media.render : null} alt={`${c.name} ${c.surname}, as Blizzard renders them`} pending={c.media.state !== 'ok'} />
       )}
       <span className="row gap-10 wrap-row render-links xsmall">
-        {c.media.state !== 'hidden' && <Link to={feedbackHref(page, { type: 'bug', about: 'render' })}>Report a wrong render</Link>}
+        {c.media.state !== 'hidden' && c.media.state !== 'paused' && <Link to={feedbackHref(page, { type: 'bug', about: 'render' })}>Report a wrong render</Link>}
         {c.mine && <button type="button" className="linklike" onClick={toggle} disabled={busy}>{c.media.state === 'hidden' ? 'Show my render' : 'Hide my render'}</button>}
       </span>
     </div>

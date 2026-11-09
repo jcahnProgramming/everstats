@@ -37,6 +37,11 @@ test('profile fields: handles only (never URLs), each checked against its platfo
 
   const saved = (await c.put('/api/account/profile', { bio: 'Healer.\nCamps a lot.', links: { bluesky: '@Fixture.bsky.social', discord: 'fixtureinv', x: '' }, showPins: false })).json.account.profile;
   assert.deepEqual(saved.links, { bluesky: 'fixture.bsky.social', discord: 'fixtureinv' });
+  // 0.8.1: an X handle saves (the one-letter platform id 'x' was refused by the database check until migration 018).
+  const withX = await c.put('/api/account/profile', { bio: 'Healer.\nCamps a lot.', links: { bluesky: 'fixture.bsky.social', discord: 'fixtureinv', x: '@fixture_x' }, showPins: false });
+  assert.equal(withX.status, 200);
+  assert.equal(withX.json.account.profile.links.x, 'fixture_x');
+  await c.put('/api/account/profile', { bio: 'Healer.\nCamps a lot.', links: { bluesky: 'fixture.bsky.social', discord: 'fixtureinv' }, showPins: false });
 
   // Characters: one shown (in a guild), one hidden (in another guild, which must never appear).
   await t.db.query("INSERT INTO rulesets (id, name) VALUES (2, 'Normal') ON CONFLICT DO NOTHING");

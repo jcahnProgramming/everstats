@@ -1,7 +1,7 @@
 /**
  * Badges (0.7.0): what exists, from design/v2-badges (README.md index and badges/README.md). Definitions live in the
  * database (badge_definitions); these are the SEED rows the migration inserts once, plus the admin's templates for
- * new ones. Nothing here grants a permission: a badge is cosmetic, Dev Team included (the admin stays the separate
+ * new ones. Nothing here grants a permission: a badge is cosmetic, Everstats Staff included (the admin stays the separate
  * passkey-only identity).
  *
  * A definition: id, family, name, description, how (the "how it's earned" sentence every locked badge shows), art (a
@@ -45,12 +45,20 @@ const CLASSES = [
 ];
 
 export const SEED_BADGES = Object.freeze([
-  { id: 'dev-team', family: 'staff', name: 'Dev Team', art: 'staff/dev-team', sort: 10,
-    description: 'Builds Everstats. Cosmetic only: it grants no admin access.', how: 'Granted to people who build Everstats.' },
-  { id: 'moderator', family: 'staff', name: 'Moderator', art: 'staff/moderator', sort: 20,
-    description: 'Moderates Everstats content.', how: 'Granted to the content moderation team.' },
+  // 0.8.1: 'Dev Team' became 'Everstats Staff' and 'Moderator' 'Everstats Moderator' (owner's decision: "Dev Team" could be
+  // read as Blizzard's developers). The ids stay, so awards, pins and /badges/dev-team keep working; migration 018 renames
+  // the stored rows. STAFF_NAMES below is the one place the words live.
+  { id: 'dev-team', family: 'staff', name: 'Everstats Staff', art: 'staff/dev-team', sort: 10,
+    description: 'Works on Everstats. Cosmetic only: it grants no admin access.', how: 'Granted to the people who build and run Everstats.' },
+  { id: 'moderator', family: 'staff', name: 'Everstats Moderator', art: 'staff/moderator', sort: 20,
+    description: 'Moderates content on Everstats.', how: 'Granted to the Everstats content moderation team.' },
   { id: 'community-partner', family: 'partner', name: 'Community Partner', art: 'partner/community-partner', sort: 110,
     description: 'A partner community, Discord server or site.', how: 'Granted to verified partner communities, Discord servers and sites.' },
+  // 0.8.1: TEMPORARY ART (badges/art/partner/verified-creator*.svg, from the platform-employee template; a Claude Design
+  // pass will replace it). Granted by hand after the code check in badges/creators.js; the platforms come from CREATOR_PLATFORMS.
+  { id: 'verified-creator', family: 'partner', name: 'Verified Content Creator', art: 'partner/verified-creator', sort: 115, artTemporary: true,
+    description: 'A content creator on Twitch, YouTube, Kick or TikTok, verified by Everstats.',
+    how: 'Granted by Everstats staff after the creator shows a code from Everstats on their channel.' },
   { id: 'blizzard-employee', family: 'partner', name: 'Blizzard Employee', art: 'partner/blizzard-employee', template: 'platform-employee', monogram: 'B', sort: 120,
     description: 'Works at Blizzard Entertainment.', how: 'Granted by Everstats staff after checking employment. Work-email verification comes later.' },
   { id: 'discord-employee', family: 'partner', name: 'Discord Employee', art: 'partner/discord-employee', template: 'platform-employee', monogram: 'D', sort: 130,
@@ -90,5 +98,8 @@ export const TEMPLATES = Object.freeze([
   { id: 'class', family: 'class', art: 'templates/class-template', label: 'Class', award: 'automatic', needs: ['class'] },
   { id: 'achievement', family: 'achievement', art: 'templates/achievement-template', label: 'Achievement', award: 'manual', needs: [] },
 ]);
+/** Old or friendlier addresses for a badge page → its id (0.8.1: the staff badges' new names). */
+export const BADGE_ALIASES = Object.freeze({ 'everstats-staff': 'dev-team', 'everstats-moderator': 'moderator' });
+
 export const templateById = (id) => TEMPLATES.find((t) => t.id === id) ?? null;
 export const familyOf = (id) => FAMILIES.find((f) => f.id === id) ?? null;

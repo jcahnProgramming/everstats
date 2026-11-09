@@ -329,3 +329,53 @@ test('transmog: the parser keeps the transmog item’s id and name only; none is
   const { gearItemIds } = await import('../crawler/items.js');
   assert.deepEqual(gearItemIds([a, b]).sort(), [9201, 9301]);
 });
+
+test('0.8.1 "Show Blizzard renders" off: no render URL anywhere, cards use the crest, the note shows; the change is logged and empties the card cache', async () => {
+  const { sha256Hex } = await import('../credentials/crypto.js');
+  const token = randomBytes(32).toString('base64url');
+  await t.db.query("INSERT INTO admin_sessions (id_hash, expires_at) VALUES ($1, now() + interval '1 hour')", [sha256Hex(token)]);
+  const admin = { Cookie: `es_admin=${token}` };
+  const a = t.client({ ip: '203.0.113.70' });
+  const v = t.client({ ip: '203.0.113.71' });
+  // A card with the render, cached.
+  const url = `/card.png?type=character&c=carde-fixture&o=${b64({ format: 'square', layout: 'b' })}`;
+  renders.length = 0;
+  assert.equal((await v.get(url)).status, 200);
+  assert.ok(renders.at(-1).data.render?.startsWith('data:image/'), 'the render is on the card while renders are on');
+  assert.ok((await t.db.one('SELECT count(*)::int AS n FROM share_card_images')).n > 0);
+  assert.equal((await v.get('/api/characters/carde-fixture')).json.character.media.state, 'ok');
+
+  assert.equal((await a.put('/api/admin/settings/renders.show', { value: false }, admin)).status, 200);
+  assert.equal((await t.db.one('SELECT count(*)::int AS n FROM share_card_images')).n, 0, 'every cached card is cleared');
+  const logged = (await t.db.query("SELECT type, detail FROM admin_events WHERE type IN ('setting.changed', 'cards.cache_cleared') ORDER BY id DESC LIMIT 2")).map((e) => e.type);
+  assert.deepEqual(logged.sort(), ['cards.cache_cleared', 'setting.changed']);
+  const media = (await v.get('/api/characters/carde-fixture')).json.character.media;
+  assert.deepEqual(media, { state: 'paused', render: null, avatar: null, fetchedAt: null, note: 'Character renders are paused while Blizzard fixes an issue with them' });
+  renders.length = 0;
+  assert.equal((await v.get(url)).status, 200);
+  assert.equal(renders.at(-1).data.render, null, 'the card is the crest version');
+  assert.equal((await owner.c.get('/api/cards/maker?type=character&c=carde-fixture')).json.rendersPaused, 'Character renders are paused while Blizzard fixes an issue with them');
+  // The note is the admin's to word; plain text only.
+  assert.equal((await a.put('/api/admin/settings/renders.pausedNote', { value: 'Renders are off <b>for now</b>' }, admin)).status, 400);
+  assert.equal((await a.put('/api/admin/settings/renders.pausedNote', { value: 'Renders are off for now, sorry about that' }, admin)).status, 200);
+  assert.equal((await v.get('/api/characters/carde-fixture')).json.character.media.note, 'Renders are off for now, sorry about that');
+  // Back on: renders return.
+  assert.equal((await a.put('/api/admin/settings/renders.show', { value: true }, admin)).status, 200);
+  assert.equal((await v.get('/api/characters/carde-fixture')).json.character.media.state, 'ok');
+});
+
+test('0.8.1: a render is cut to the figure (its opaque pixels) before it goes on a card; an image with no transparency is left as it is', async () => {
+  const sharp = (await import('sharp')).default;
+  const { figureCrop } = await import('../cards/images.js');
+  // 400×300 transparent, with an opaque 40×120 block at (180, 120): a stand-in figure, not a picture of anyone.
+  const base = await sharp({ create: { width: 400, height: 300, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+    .composite([{ input: await sharp({ create: { width: 40, height: 120, channels: 4, background: { r: 200, g: 50, b: 50, alpha: 1 } } }).png().toBuffer(), left: 180, top: 120 }])
+    .png().toBuffer();
+  const out = await figureCrop(`data:image/png;base64,${base.toString('base64')}`);
+  const meta = await sharp(Buffer.from(out.split(',')[1], 'base64')).metadata();
+  assert.ok(meta.height >= 120 && meta.height <= 130, `height ${meta.height}`);
+  assert.ok(meta.width >= 40 && meta.width <= 50, `width ${meta.width}`);
+  const jpeg = await sharp({ create: { width: 20, height: 20, channels: 3, background: { r: 1, g: 2, b: 3 } } }).jpeg().toBuffer();
+  const j = `data:image/jpeg;base64,${jpeg.toString('base64')}`;
+  assert.equal(await figureCrop(j), j);
+});

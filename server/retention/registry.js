@@ -257,6 +257,8 @@ export const OURS = {
   // 0.8.0: a share-card default is the owner's (or a guild editor's) choice of layout, theme, accent, toggles and
   // statistic ids. Keyed on a Blizzard character or guild id (allowed); no Blizzard value is stored in it.
   share_card_defaults: 'Share-card designs saved as the default by a character’s owner or a guild’s editors: options and ids (0.8.0)',
+  creator_verifications: 'A creator verification: the code Everstats made for the account and where the check stands (0.8.1)',
+  creator_handles: 'Social handles the admin checked for a Verified Content Creator, as they were when checked (0.8.1)',
   character_render_hidden: 'Characters whose owner chose “Hide my render” (character id, who, when) (0.7.1)',
   feedback_threads: 'Feedback players sent: type, the Everstats page it was about, an optional Discord name (0.7.1)',
   feedback_messages: 'Feedback messages and Everstats’ replies, plain text (0.7.1)',

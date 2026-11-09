@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
+import { Icon } from '../chrome/Icon.jsx';
 import { EmptyState, Provenance } from '../components/EmptyState.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
 import { RenderFrame } from '../components/Stats.jsx';
@@ -114,22 +115,29 @@ export function ProfilePage() {
   );
 }
 
-/** The social links: handles only, each link built by Everstats. (The bio is plain text: nothing in it is a link.) */
+/**
+ * The social links: handles only, each link built by Everstats. (The bio is plain text: nothing in it is a link.)
+ * 0.8.1: a handle Everstats checked for a Verified Content Creator carries a "Verified" mark (text and a check, never a
+ * platform logo), only while the handle is exactly the one checked; every other handle keeps the "not verified" note.
+ */
 function SocialLinks({ links }) {
   return (
     <div className="stack gap-6">
       {links.length > 0 && (
         <ul className="plain row gap-10 profile-links" aria-label="Elsewhere">
           {links.map((l) => (
-            <li key={l.platform}>
+            <li key={l.platform} className="row gap-6">
               <a className="btn sm ghost" href={l.url} target="_blank" rel="noopener noreferrer nofollow">
                 <b>{l.label}</b><span className="mono profile-handle">{l.platform === 'discord' ? `discord.gg/${l.handle}` : `@${l.handle}`}</span>
               </a>
+              {l.verified && <span className="verified-mark" title="Everstats checked this handle (Verified Content Creator)"><Icon name="check" size="sm" />Verified</span>}
             </li>
           ))}
         </ul>
       )}
-      <span className="muted xsmall">Links are the player’s own and aren’t verified by Everstats.</span>
+      <span className="muted xsmall">{links.some((l) => l.verified)
+        ? (links.some((l) => !l.verified) ? 'Handles marked Verified were checked by Everstats. The others are the player’s own and aren’t verified.' : 'Handles marked Verified were checked by Everstats.')
+        : 'Links are the player’s own and aren’t verified by Everstats.'}</span>
     </div>
   );
 }
@@ -165,7 +173,9 @@ function FeaturedSection({ section }) {
     <section className="panel pad-20 stack gap-14" aria-labelledby="featured-h">
       <span className="eyebrow" id="featured-h">Featured character</span>
       <div className="grid-auto col-lg gap-18 align-start-grid">
-        {c.renderHidden
+        {c.renderPaused
+          ? <RenderFrame><span className="render-crest disp" aria-hidden="true">{(c.name?.[0] ?? '') + (c.surname?.[0] ?? '')}</span><span className="small t2 render-paused-note" role="note">{c.renderPaused}</span></RenderFrame>
+          : c.renderHidden
           ? <RenderFrame><span className="h3">Render hidden by its owner</span></RenderFrame>
           : <RenderFrame src={c.render} alt={`${c.name} ${c.surname}, as Blizzard renders them`} pending={!c.render} />}
         <div className="stack gap-8">

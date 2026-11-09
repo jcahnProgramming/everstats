@@ -17,7 +17,7 @@ import { FAMILIES, FAMILY_IDS, FEATURED_MAX, FIRST_FAMILIES, familyOf } from './
  *             the first featured badge; nothing featured → the first public badge; nothing public → no inline badge.
  */
 const DEF_COLUMNS = `d.id, d.family, d.name, d.description, d.how, d.art, d.template, d.monogram, d.award, d.rule, d.kept_while_held,
-  d.time_limited, d.verified, d.verification, d.sort, d.mark_sha, d.mark_set_at, d.created_at, d.created_by`;
+  d.time_limited, d.verified, d.verification, d.sort, d.mark_sha, d.mark_set_at, d.created_at, d.created_by, d.art_temporary`;
 
 export async function loadDefinitions(db) {
   return db.query(`SELECT ${DEF_COLUMNS} FROM badge_definitions d ORDER BY d.sort, d.id LIMIT 500`);
@@ -93,6 +93,8 @@ export function publicBadge(def, ctx = null) {
     verified: def.verified,
     timeLimited: def.time_limited,
     keptWhileHeld: def.kept_while_held,
+    // 0.8.1: art a Claude Design pass will replace (shown to the admin only; players see the badge as it is)
+    artTemporary: Boolean(def.art_temporary),
     window: def.rule?.type === 'early-supporter' && ctx?.early?.set ? { start: ctx.early.start, end: ctx.early.end, closed: ctx.early.closed } : null,
   };
 }

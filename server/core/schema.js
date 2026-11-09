@@ -1387,4 +1387,69 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.8.1: staff badge names, and Verified Content Creators (badges/creators.js).
+    //   badge_definitions      'dev-team' is now named "Everstats Staff" and 'moderator' "Everstats Moderator" (owner's
+    //                          decision: "Dev Team" could be read as Blizzard's developers). Ids stay, so every award,
+    //                          pin and /badges/{id} address carries over. art_temporary marks art a design pass will
+    //                          replace (shown on /admin/badges). The Verified Content Creator definition is added.
+    //   badge_events           new types for the creator flow and the rename; a 'migration' actor for the rename.
+    //   creator_verifications  (ours) one per account: the short code the creator puts in their channel bio, and where
+    //                          it stands (pending → verified → revoked). handle_alert_at: a verified handle changed and
+    //                          the admin hasn't looked yet.
+    //   creator_handles        (ours) the handles the admin ticked as verified, AS THEY WERE: a Verified mark shows only
+    //                          while the profile still has exactly that handle; changing it deletes the row (logged).
+    id: '018_staff_names_creators',
+    async up(q) {
+      await q.query(`
+        -- Found in 0.8.1: the platform id check needed two characters, so an X handle (platform 'x') could never be saved.
+        ALTER TABLE account_social_links DROP CONSTRAINT IF EXISTS account_social_links_platform_check;
+        ALTER TABLE account_social_links ADD CONSTRAINT account_social_links_platform_check CHECK (platform ~ '^[a-z][a-z0-9_]{0,30}$');
+        ALTER TABLE badge_definitions ADD COLUMN art_temporary boolean NOT NULL DEFAULT false;
+        ALTER TABLE badge_events DROP CONSTRAINT IF EXISTS badge_events_type_check;
+        ALTER TABLE badge_events ADD CONSTRAINT badge_events_type_check CHECK (type IN ('granted', 'earned', 'revoked', 'removed', 'restored',
+          'mark_uploaded', 'mark_saved', 'created', 'backfill', 'renamed', 'creator_started', 'creator_verified', 'creator_handle_changed', 'creator_revoked',
+          'creator_alert_checked'));
+        ALTER TABLE badge_events DROP CONSTRAINT IF EXISTS badge_events_actor_check;
+        ALTER TABLE badge_events ADD CONSTRAINT badge_events_actor_check CHECK (actor IN ('admin', 'rule', 'backfill', 'migration', 'player'));
+
+        CREATE TABLE creator_verifications (
+          account_id       bigint PRIMARY KEY REFERENCES accounts (id) ON DELETE CASCADE,
+          code             text NOT NULL CHECK (code ~ '^ES-[A-Z0-9]{4}-[A-Z0-9]{4}$'),
+          state            text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'verified', 'revoked')),
+          started_at       timestamptz NOT NULL DEFAULT now(),
+          verified_at      timestamptz,
+          revoked_at       timestamptz,
+          handle_alert_at  timestamptz,
+          handle_alert     jsonb
+        );
+        CREATE INDEX creator_verifications_alert ON creator_verifications (handle_alert_at) WHERE handle_alert_at IS NOT NULL;
+        CREATE TABLE creator_handles (
+          account_id   bigint NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+          platform     text NOT NULL,
+          handle       text NOT NULL,
+          verified_at  timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (account_id, platform)
+        );
+      `);
+      const { SEED_BADGES } = await import('../badges/catalog.js');
+      const OLD = { 'dev-team': 'Dev Team', moderator: 'Moderator' };
+      for (const id of Object.keys(OLD)) {
+        const b = SEED_BADGES.find((x) => x.id === id);
+        const was = await q.one('SELECT name FROM badge_definitions WHERE id = $1', [id]);
+        if (!was) continue;
+        await q.query('UPDATE badge_definitions SET name = $2, description = $3, how = $4 WHERE id = $1', [id, b.name, b.description, b.how]);
+        if (was.name !== b.name) {
+          await q.query("INSERT INTO badge_events (type, badge_id, actor, reason, detail) VALUES ('renamed', $1, 'migration', $2, $3::jsonb)",
+            [id, '“Dev Team” could be read as Blizzard’s developers', JSON.stringify({ from: was.name, to: b.name })]);
+        }
+      }
+      const c = SEED_BADGES.find((x) => x.id === 'verified-creator');
+      await q.query(
+        `INSERT INTO badge_definitions (id, family, name, description, how, art, award, verified, sort, art_temporary)
+         VALUES ($1, 'partner', $2, $3, $4, $5, 'manual', true, $6, true) ON CONFLICT (id) DO UPDATE SET art_temporary = true`,
+        [c.id, c.name, c.description, c.how, c.art, c.sort],
+      );
+    },
+  },
 ];

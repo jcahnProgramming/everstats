@@ -18,6 +18,8 @@ import { pinCards, pinsOf } from '../stats/pins.js';
 import { lettersFor } from '../tiers/store.js';
 import { characterTierView, tierBrief } from '../tiers/view.js';
 import { badgeContext, publicBadgesOf } from '../badges/store.js';
+import { CREATOR_BADGE, creatorLines, verifiedHandles } from '../badges/creators.js';
+import { renderSwitch } from './renders.js';
 import { countActivity, looksAutomated } from '../activity/count.js';
 import { whySignIn } from '../signin/benefits.js';
 import { PROVIDERS } from '../auth/providers.js';
@@ -88,6 +90,9 @@ export function createPublicRouter({ db, limits, networkOf }) {
       trackedCharacters: (await db.one('SELECT count(*)::int AS n FROM characters WHERE stats_fetched_at IS NOT NULL AND NOT hidden')).n,
       minPopulation: await getSetting(db, 'grading.minPopulation'),
       tierShares: await getSetting(db, 'tiers.shares'),
+      // 0.8.1: how many days of Blizzard data Everstats keeps (the retention window minus a day): the home page's
+      // "Daily snapshots" pillar says it, from here, never typed in.
+      keepDays: (await retentionPolicy(db)).keepDays,
     });
   }));
 
@@ -144,16 +149,21 @@ export function createPublicRouter({ db, limits, networkOf }) {
     );
     const letters = await lettersFor(db, chars.map((c) => c.id));
     const noRender = await hiddenRenders(db, chars.map((c) => Number(c.id)));
+    const switched = await renderSwitch(db);
     const view = (c) => ({
       slug: c.slug, name: c.name, surname: c.surname, level: c.level, race: c.race, class: c.class, faction: c.faction,
       tier: letters.get(Number(c.id)) ?? null,
       ruleset: c.ruleset_id !== null ? { id: c.ruleset_id, name: c.ruleset_name } : null,
       // 0.7.1: a render its owner hid is never sent.
-      render: c.media_state === 'ok' && !noRender.has(Number(c.id)) ? c.media?.['main-raw'] ?? null : null,
+      render: !switched.paused && c.media_state === 'ok' && !noRender.has(Number(c.id)) ? c.media?.['main-raw'] ?? null : null,
       renderHidden: noRender.has(Number(c.id)), fetchedAt: c.last_fetched_at,
+      // 0.8.1: the admin switched Blizzard renders off (characters/renders.js): no URL, the admin's note instead
+      renderPaused: !noRender.has(Number(c.id)) && switched.paused ? switched.note : null,
     });
     const featured = chars.find((c) => c.id === a.featured_character_id) ?? chars[0] ?? null;
     const links = await db.query('SELECT platform, handle FROM account_social_links WHERE account_id = $1 ORDER BY platform LIMIT 20', [a.id]);
+    // 0.8.1: handles Everstats verified (Verified Content Creator), still exactly on the profile, badge held.
+    const verifiedNow = (await verifiedHandles(db, [a.id])).get(Number(a.id)) ?? new Map();
     // Guilds of the characters shown here (hidden characters are already left out, so their guilds never appear).
     const guilds = new Map();
     for (const c of chars) {
@@ -168,7 +178,7 @@ export function createPublicRouter({ db, limits, networkOf }) {
       id: 'about',
       bio: a.profile_bio,
       links: links.filter((l) => getPlatform(l.platform)).sort((x, y) => order.indexOf(x.platform) - order.indexOf(y.platform))
-        .map((l) => ({ platform: l.platform, label: getPlatform(l.platform).label, handle: l.handle, url: linkFor(l.platform, l.handle) })),
+        .map((l) => ({ platform: l.platform, label: getPlatform(l.platform).label, handle: l.handle, url: linkFor(l.platform, l.handle), verified: verifiedNow.get(l.platform) === l.handle })),
     };
     if (about.bio || about.links.length) sections.push(about);
     if (featured && a.profile_show_pins) {
@@ -185,7 +195,8 @@ export function createPublicRouter({ db, limits, networkOf }) {
     const badges = await publicBadgesOf(db, a.id, ctx);
     const own = viewerOf(req) === a.id;
     const unseen = own ? new Set((await db.query("SELECT badge_id FROM badge_awards WHERE account_id = $1 AND state = 'held' AND seen_at IS NULL LIMIT 500", [a.id])).map((x) => x.badge_id)) : new Set();
-    const mark = (b) => ({ ...b, isNew: unseen.has(b.id) });
+    const lines = badges.featured.concat(badges.more).some((b) => b.id === CREATOR_BADGE) ? await creatorLines(db, a.id) : [];
+    const mark = (b) => ({ ...b, isNew: unseen.has(b.id), ...(b.id === CREATOR_BADGE ? { creator: lines } : {}) });
     res.json({
       badges: badges.featured.length || badges.more.length ? { featured: badges.featured.map(mark), more: badges.more.map(mark), own } : null,
       status: 'ok',

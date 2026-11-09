@@ -133,6 +133,27 @@ export const SETTINGS = [
     default: 8,
   },
   {
+    // 0.8.1: Blizzard's Forever render service drew the wrong race for every character (characters/renders.js). Off:
+    // the crest everywhere (pages, share cards, link previews) and the note below. Changing either clears the
+    // share-card image cache (admin/routes.js), so no picture made the other way is served.
+    key: 'renders.show',
+    section: 'renders',
+    label: 'Show Blizzard renders',
+    help: 'Off: character pages, profiles, share cards and link previews use the crest instead of Blizzard’s character render, and pages show the note below. Use it while Blizzard’s render service draws characters wrong. Cached share cards are cleared when this changes.',
+    type: 'boolean',
+    default: true,
+  },
+  {
+    key: 'renders.pausedNote',
+    section: 'renders',
+    label: 'Note shown while renders are off',
+    help: 'Plain text, shown next to the crest wherever a render would be.',
+    type: 'text',
+    min: 10,
+    max: 160,
+    default: 'Character renders are paused while Blizzard fixes an issue with them',
+  },
+  {
     key: 'crawler.paused',
     section: 'crawler',
     label: 'Pause the background crawl',
@@ -191,6 +212,10 @@ export const SETTINGS = [
 
 const byKey = new Map(SETTINGS.map((s) => [s.key, s]));
 
+// A text setting (0.8.1): one line of plain text. Built without backslash escapes in the source on purpose.
+const BS = String.fromCharCode(92);
+const TEXT_REFUSED = new RegExp(`[${BS}p{Cc}${BS}p{Cf}<>]`, "u");
+
 function check(def, value) {
   if (def.type === 'integer') {
     if (!Number.isInteger(value)) throw new HttpError(400, `${def.label} must be a whole number`, 'invalid');
@@ -206,6 +231,13 @@ function check(def, value) {
     const problem = sharesProblem(value);
     if (problem) throw new HttpError(400, problem, 'invalid');
     return Object.fromEntries(TIER_LETTERS.map((l) => [l, value[l]]));
+  }
+  if (def.type === 'text') {
+    const raw = String(value ?? '').normalize('NFC');
+    if (TEXT_REFUSED.test(raw)) throw new HttpError(400, `${def.label} is plain text on one line: no line breaks, control characters or angle brackets`, 'invalid');
+    const v = raw.split(' ').filter(Boolean).join(' ');
+    if (v.length < def.min || v.length > def.max) throw new HttpError(400, `${def.label}: ${def.min}–${def.max} characters`, 'invalid');
+    return v;
   }
   if (def.type === 'boolean') {
     if (typeof value !== 'boolean') throw new HttpError(400, `${def.label} must be on or off`, 'invalid');

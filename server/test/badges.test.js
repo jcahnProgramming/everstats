@@ -53,12 +53,12 @@ async function addCharacter(owner, { cls, faction = 'Horde', level = 20, hidden 
 
 const held = async (accountId) => (await t.db.query("SELECT badge_id FROM badge_awards WHERE account_id = $1 AND state = 'held' ORDER BY badge_id", [accountId])).map((r) => r.badge_id);
 
-test('the seeded definitions match the design export: 22 badges, staff and partner verified, only S-Tier kept while held', async () => {
+test('the seeded definitions: the design export’s 22 plus Verified Content Creator (0.8.1); staff and partner verified; only S-Tier kept while held', async () => {
   const defs = await t.db.query('SELECT id, family, award, verified, kept_while_held FROM badge_definitions ORDER BY sort');
-  assert.equal(defs.length, 22);
+  assert.equal(defs.length, 23);
   assert.deepEqual(defs.filter((d) => d.kept_while_held).map((d) => d.id), ['s-tier']);
   for (const d of defs) assert.equal(d.verified, ['staff', 'partner'].includes(d.family), d.id);
-  assert.deepEqual(defs.filter((d) => d.award === 'manual').map((d) => d.id), ['dev-team', 'moderator', 'community-partner', 'blizzard-employee', 'discord-employee']);
+  assert.deepEqual(defs.filter((d) => d.award === 'manual').map((d) => d.id), ['dev-team', 'moderator', 'community-partner', 'verified-creator', 'blizzard-employee', 'discord-employee']);
 });
 
 test('automatic badges: beta at sign-in; class, faction, Envoy from level 10+ owned characters (hidden ones too); never from under 10', async () => {
@@ -178,7 +178,7 @@ async function admin_grant(accountId, badgeId, reason, notify = false) {
   return t.client({ ip: '203.0.113.200' }).post(`/api/admin/badges/accounts/${accountId}/grant`, { badgeId, reason, notify }, admin);
 }
 
-test('admin: grants need a reason and a manual badge; revoking is a logged state, never a delete; Dev Team grants no admin access', async () => {
+test('admin: grants need a reason and a manual badge; revoking is a logged state, never a delete; Everstats Staff grants no admin access', async () => {
   const p = await newPlayer('grantee');
   const a = t.client({ ip: '203.0.113.201' });
   assert.equal((await a.post(`/api/admin/badges/accounts/${p.id}/grant`, { badgeId: 'dev-team', reason: '' }, admin)).json.code, 'reason_required');
@@ -189,7 +189,7 @@ test('admin: grants need a reason and a manual badge; revoking is a logged state
   assert.equal(g.status, 200);
   // Beta Tester's "earned" toast from the sign-in, then the grant's "granted" toast (the admin ticked "notify").
   assert.deepEqual((await p.c.get('/api/account/badges/toasts')).json.toasts.map((x) => [x.kind, x.badge.id]), [['earned', 'beta-tester'], ['granted', 'dev-team']]);
-  // Dev Team is cosmetic: the admin API still answers 404 to this player.
+  // Everstats Staff is cosmetic: the admin API still answers 404 to this player.
   assert.equal((await p.c.get('/api/admin/state')).status, 404);
   const rv = await a.post(`/api/admin/badges/accounts/${p.id}/revoke`, { badgeId: 'dev-team', reason: 'Fixture: left the team' }, admin);
   assert.equal(rv.status, 200);
@@ -290,4 +290,69 @@ test('a merge moves badges to the kept account (earlier date wins) without touch
   assert.deepEqual(await held(dst.id), ['beta-tester', 'moderator']);
   const m = await t.db.one("SELECT featured, pinned FROM badge_awards WHERE account_id = $1 AND badge_id = 'moderator'", [dst.id]);
   assert.deepEqual(m, { featured: false, pinned: false });
+});
+
+test('0.8.1: the staff badges are Everstats Staff and Everstats Moderator, same ids, old and new addresses work; only the creator badge has temporary art', async () => {
+  const names = await t.db.query("SELECT id, name, art_temporary FROM badge_definitions WHERE id IN ('dev-team', 'moderator', 'verified-creator') ORDER BY sort");
+  assert.deepEqual(names.map((n) => [n.id, n.name, n.art_temporary]), [['dev-team', 'Everstats Staff', false], ['moderator', 'Everstats Moderator', false], ['verified-creator', 'Verified Content Creator', true]]);
+  const c = t.client({ ip: '203.0.113.90' });
+  assert.equal((await c.get('/api/badges/dev-team')).json.badge.name, 'Everstats Staff');
+  assert.equal((await c.get('/api/badges/everstats-staff')).json.badge.id, 'dev-team');
+  assert.equal((await c.get('/api/badges/everstats-moderator')).json.badge.id, 'moderator');
+  const old = await t.db.query("SELECT name FROM badge_definitions WHERE name IN ('Dev Team', 'Moderator') LIMIT 5");
+  assert.equal(old.length, 0, 'no stored definition keeps an old name');
+});
+
+test('Verified Content Creator: code → admin checks by hand → handles verified; a changed handle loses its mark and tells the admin; revoking removes every mark', async () => {
+  const p = await newPlayer('creatorfixture');
+  const a = t.client({ ip: '203.0.113.202' });
+  const path = (x) => `/api/admin/badges/accounts/${p.id}/${x}`;
+  assert.equal((await p.c.put('/api/account/profile', { bio: '', links: { twitch: 'fixturecaster', youtube: 'fixturecaster', x: 'fixturecaster' }, showPins: true })).status, 200);
+  // The generic grant refuses it (the creator form needs the handles); no verification yet → can't grant.
+  assert.equal((await a.post(path('grant'), { badgeId: 'verified-creator', reason: 'x' }, admin)).json.code, 'use_creator_form');
+  assert.equal((await a.post(path('creator/grant'), { platforms: ['twitch'], reason: 'r', codeChecked: true }, admin)).json.code, 'no_verification');
+  const started = (await a.post(path('creator/start'), {}, admin)).json.account.creator;
+  assert.match(started.code, /^ES-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+  assert.equal(started.state, 'pending');
+  // The creator sees the code in Settings (never the admin's alerts).
+  const mine = (await p.c.get('/api/account')).json.account.profile.creator;
+  assert.deepEqual([mine.state, mine.code, mine.verified], ['pending', started.code, []]);
+  assert.equal((await a.post(path('creator/start'), {}, admin)).json.account.creator.code, started.code, 'starting again keeps the code');
+  // Grant: "I saw the code" ticked, a reason, creator platforms only, handles the profile has.
+  assert.equal((await a.post(path('creator/grant'), { platforms: ['twitch'], reason: 'r' }, admin)).json.code, 'code_unchecked');
+  assert.equal((await a.post(path('creator/grant'), { platforms: ['twitch'], reason: '', codeChecked: true }, admin)).json.code, 'reason_required');
+  assert.equal((await a.post(path('creator/grant'), { platforms: ['x'], reason: 'r', codeChecked: true }, admin)).json.code, 'invalid');
+  assert.equal((await a.post(path('creator/grant'), { platforms: ['kick'], reason: 'r', codeChecked: true }, admin)).json.code, 'stale');
+  const g = await a.post(path('creator/grant'), { platforms: ['twitch', 'youtube'], reason: 'Saw the code in both channel bios (fixture)', codeChecked: true }, admin);
+  assert.equal(g.status, 200);
+  assert.ok((await held(p.id)).includes('verified-creator'));
+  // The profile: Verified marks on exactly those handles; the popover lines name the platforms as text.
+  const prof = async () => (await t.client({ ip: '203.0.113.91' }).get('/api/users/creatorfixture')).json;
+  const earned = (await p.c.get('/api/account/badges')).json.earned.map((b) => b.id);
+  await p.c.put('/api/account/badges', { shown: earned, featured: ['verified-creator'], pinned: null });
+  let pr = await prof();
+  const linksOf = (x) => x.sections.find((s) => s.id === 'about').links.map((l) => [l.platform, l.verified]);
+  assert.deepEqual(linksOf(pr), [['twitch', true], ['youtube', true], ['x', false]]);
+  assert.deepEqual(pr.badges.featured.find((b) => b.id === 'verified-creator').creator, [{ platform: 'Twitch', handle: '@fixturecaster' }, { platform: 'YouTube', handle: '@fixturecaster' }]);
+  // The creator changes the Twitch handle: that mark goes at once, the admin is told, the badge stays.
+  await p.c.put('/api/account/profile', { bio: '', links: { twitch: 'newfixturename', youtube: 'fixturecaster' }, showPins: true });
+  pr = await prof();
+  assert.deepEqual(linksOf(pr), [['twitch', false], ['youtube', true]]);
+  assert.ok((await held(p.id)).includes('verified-creator'), 'the badge stays until the admin decides');
+  const alert = (await a.get('/api/admin/badges', admin)).json.creator.alerts.find((x) => x.accountId === Number(p.id));
+  assert.deepEqual(alert.changes.map((c) => [c.platform, c.from, c.to]), [['twitch', 'fixturecaster', 'newfixturename']]);
+  assert.ok((await a.get('/api/admin/state', admin)).json.creatorAlerts >= 1);
+  // Changing it BACK doesn't restore the mark: the mark belonged to the check, which is gone.
+  await p.c.put('/api/account/profile', { bio: '', links: { twitch: 'fixturecaster', youtube: 'fixturecaster' }, showPins: true });
+  assert.deepEqual(linksOf(await prof()), [['twitch', false], ['youtube', true]]);
+  assert.equal((await a.post(path('creator/checked'), {}, admin)).status, 200);
+  assert.equal((await a.get('/api/admin/badges', admin)).json.creator.alerts.some((x) => x.accountId === Number(p.id)), false);
+  // Revoke: the badge and every remaining mark go, with the reason, logged.
+  assert.equal((await a.post(path('revoke'), { badgeId: 'verified-creator', reason: 'Fixture: stopped streaming' }, admin)).status, 200);
+  assert.ok(linksOf(await prof()).every(([, v]) => !v));
+  assert.equal((await t.db.one('SELECT count(*)::int AS n FROM creator_handles WHERE account_id = $1', [p.id])).n, 0);
+  assert.equal((await t.db.one('SELECT state FROM creator_verifications WHERE account_id = $1', [p.id])).state, 'revoked');
+  assert.equal((await p.c.get('/api/account')).json.account.profile.creator, null);
+  const log = (await t.db.query("SELECT type FROM badge_events WHERE account_id = $1 AND badge_id = 'verified-creator' ORDER BY id", [p.id])).map((e) => e.type);
+  assert.deepEqual(log, ['creator_started', 'granted', 'creator_verified', 'creator_handle_changed', 'creator_alert_checked', 'revoked', 'creator_revoked']);
 });

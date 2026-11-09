@@ -2,7 +2,9 @@ import express from 'express';
 import { isProfaneText } from '../accounts/names.js';
 import { HttpError, route } from '../core/errors.js';
 import { FAMILIES, TEMPLATES, templateById } from './catalog.js';
+import { CREATOR_BADGE, CREATOR_PLATFORMS, clearAlert, creatorAlerts, creatorState, grantCreator, revokeCreator, startVerification } from './creators.js';
 import { MAX_BYTES, processMark } from './marks.js';
+import { getPlatform } from '../accounts/socials.js';
 import { classList, evaluateAccount } from './rules.js';
 import {
   award, badgeContext, definitionById, definitionId, holderCounts, loadDefinitions, logEvent, markUrl, publicBadge, revoke, sha256,
@@ -54,7 +56,16 @@ async function accountBadges(db, accountId) {
        FROM badge_awards aw JOIN badge_definitions d ON d.id = aw.badge_id WHERE aw.account_id = $1 ORDER BY aw.state, d.sort LIMIT 500`,
     [accountId],
   );
+  // 0.8.1: the creator verification, and the profile's handles with which can be ticked (creator platforms only)
+  const links = await db.query('SELECT platform, handle FROM account_social_links WHERE account_id = $1 ORDER BY platform LIMIT 50', [accountId]);
+  const creator = await creatorState(db, accountId);
+  const verified = new Map((creator?.handles ?? []).map((h) => [h.platform, h.handle]));
   return {
+    creator,
+    socials: links.filter((l) => getPlatform(l.platform)).map((l) => ({
+      platform: l.platform, label: getPlatform(l.platform).label, handle: l.handle,
+      creatorPlatform: CREATOR_PLATFORMS.includes(l.platform), verified: verified.get(l.platform) === l.handle,
+    })),
     id: a.id, createdAt: a.created_at, username: a.username, claimed: a.username_claimed, displayName: a.display_name, providers: a.providers ?? [],
     beta: { member: a.beta_member, since: a.beta_since, grantable: !a.beta_member && await betaGrantable(db, a.created_at) },
     badges: rows.map((r) => ({
@@ -91,6 +102,7 @@ export function createAdminBadgeRouter({ db, writes }) {
       })),
       // Blizzard class names on stored characters that no class badge names yet (make one from the class template).
       classesWithoutBadge: classes.filter((c) => !named.has(c)),
+      creator: { badgeId: CREATOR_BADGE, platforms: CREATOR_PLATFORMS.map((p) => ({ id: p, label: getPlatform(p)?.label ?? p })), alerts: await creatorAlerts(db) },
       backfill: backfill ? { at: backfill.at, accounts: backfill.detail.accounts ?? null, awarded: backfill.detail.awarded ?? {} } : null,
       log: log.map((e) => ({
         id: e.id, at: e.at, type: e.type, badgeId: e.badge_id, accountId: e.account_id, actor: e.actor, reason: e.reason, detail: e.detail,
@@ -108,6 +120,7 @@ export function createAdminBadgeRouter({ db, writes }) {
     if (!def) throw new HttpError(404, 'No such badge.');
     if (def.award !== 'manual') throw new HttpError(409, `${def.name} is automatic: it follows its rule and can’t be granted by hand.`, 'automatic');
     if (def.template === 'partner-pro' && !def.mark_sha) throw new HttpError(409, `Upload and save ${def.name}’s mark before granting it.`, 'needs_mark');
+    if (def.id === CREATOR_BADGE) throw new HttpError(409, 'Verified Content Creator is granted from the creator form: it needs the handles you checked.', 'use_creator_form');
     await db.tx(async (q) => {
       if (!(await q.one('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [accountId]))) throw new HttpError(404, 'No such account.');
       const changed = await award(q, { accountId, def, source: 'admin', reason, notify: req.body?.notify === true, actor: 'admin' });
@@ -126,6 +139,7 @@ export function createAdminBadgeRouter({ db, writes }) {
     await db.tx(async (q) => {
       const changed = await revoke(q, { accountId, badgeId: def.id, by: 'admin', reason, notify: false, actor: 'admin' });
       if (!changed) throw new HttpError(409, 'That account doesn’t hold this badge.', 'not_held');
+      if (def.id === CREATOR_BADGE) await revokeCreator(q, { accountId, reason });
       await q.query("INSERT INTO admin_events (type, detail) VALUES ('badge.revoked', $1::jsonb)", [JSON.stringify({ account: accountId, badge: def.id })]);
     });
     res.json({ account: await accountBadges(db, accountId) });
@@ -234,6 +248,35 @@ export function createAdminBadgeRouter({ db, writes }) {
       await q.query("INSERT INTO admin_events (type, detail) VALUES ('beta.granted', $1::jsonb)", [JSON.stringify({ account: accountId, reason })]);
     });
     await evaluateAccount(db, accountId);
+    res.json({ account: await accountBadges(db, accountId) });
+  }));
+
+  // ---- Verified Content Creators (0.8.1, badges/creators.js). Everstats never fetches the channel: the admin checks
+  // the code by hand, then ticks the handles. Every step is logged.
+  r.post('/badges/accounts/:id/creator/start', writes, route(async (req, res) => {
+    const accountId = idParam(req.params.id);
+    await db.tx(async (q) => {
+      if (!(await q.one('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [accountId]))) throw new HttpError(404, 'No such account.');
+      const { started } = await startVerification(q, accountId);
+      if (started) await q.query("INSERT INTO admin_events (type, detail) VALUES ('badge.creator_started', $1::jsonb)", [JSON.stringify({ account: accountId })]);
+    });
+    res.json({ account: await accountBadges(db, accountId) });
+  }));
+
+  r.post('/badges/accounts/:id/creator/grant', writes, route(async (req, res) => {
+    const accountId = idParam(req.params.id);
+    const reason = reasonOf(req.body?.reason);
+    if (req.body?.codeChecked !== true) throw new HttpError(400, 'Tick “I saw the code on their channel” first.', 'code_unchecked');
+    await db.tx(async (q) => {
+      if (!(await q.one('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [accountId]))) throw new HttpError(404, 'No such account.');
+      await grantCreator(q, { accountId, platforms: req.body?.platforms, reason, notify: req.body?.notify !== false });
+    });
+    res.json({ account: await accountBadges(db, accountId) });
+  }));
+
+  r.post('/badges/accounts/:id/creator/checked', writes, route(async (req, res) => {
+    const accountId = idParam(req.params.id);
+    await db.tx((q) => clearAlert(q, accountId));
     res.json({ account: await accountBadges(db, accountId) });
   }));
 

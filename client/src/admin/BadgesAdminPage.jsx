@@ -9,7 +9,7 @@ import { formatDate, formatDateTime, formatNumber } from '../format.js';
 
 /**
  * /admin/badges (0.7.0, design/v2-badges/pages/admin-badges), linked only from /admin; its API sits behind the admin
- * 404 gate. The admin is not a player and holds no badge; Dev Team (and every badge) is cosmetic.
+ * 404 gate. The admin is not a player and holds no badge; Everstats Staff (and every badge) is cosmetic.
  *
  * Different from the design, on purpose:
  *   - No native <select> (CLAUDE.md): the manual badges are a radio group of pills.
@@ -23,6 +23,7 @@ export function BadgesAdminPage() {
   const navigate = useNavigate();
   const [state, setState] = useState(undefined);
   const [problem, setProblem] = useState(null);
+  const [openId, setOpenId] = useState(null);
   const load = useCallback(async () => {
     try {
       setState(await api('/api/admin/badges'));
@@ -48,7 +49,8 @@ export function BadgesAdminPage() {
         <span className="spacer" />
         <span className="muted xsmall">Every grant and revoke needs a reason and is logged</span>
       </div>
-      <AccountPanel state={state} onChanged={load} />
+      <CreatorAlerts state={state} onOpen={setOpenId} />
+      <AccountPanel state={state} onChanged={load} openId={openId} />
       <MarkPanel state={state} onChanged={load} />
       <TemplatePanel state={state} onChanged={load} />
       <WindowPanel state={state} onChanged={load} />
@@ -58,7 +60,7 @@ export function BadgesAdminPage() {
   );
 }
 
-function AccountPanel({ state, onChanged }) {
+function AccountPanel({ state, onChanged, openId }) {
   const toast = useToasts();
   const [q, setQ] = useState('');
   const [found, setFound] = useState([]);
@@ -69,7 +71,7 @@ function AccountPanel({ state, onChanged }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [revoking, setRevoking] = useState(null);
-  const manual = state.definitions.filter((d) => d.award === 'manual');
+  const manual = state.definitions.filter((d) => d.award === 'manual' && d.id !== state.creator?.badgeId);
 
   const search = async (e) => {
     e.preventDefault();
@@ -78,6 +80,9 @@ function AccountPanel({ state, onChanged }) {
     if (r.players.length === 1) pick(r.players[0].id);
   };
   const pick = async (id) => setAccount((await api(`/api/admin/badges/accounts/${id}`)).account);
+  useEffect(() => {
+    if (openId) pick(openId);
+  }, [openId]); // eslint-disable-line react-hooks/exhaustive-deps
   const grant = async () => {
     setError(null);
     if (!reason.trim()) {
@@ -137,6 +142,8 @@ function AccountPanel({ state, onChanged }) {
           </div>
 
           <BetaGrant account={account} onDone={(a) => { setAccount(a); onChanged(); }} />
+
+          {state.creator && <CreatorGrant key={account.id} account={account} creator={{ ...state.creator, definition: state.definitions.find((d) => d.id === state.creator.badgeId) ?? null }} onDone={(a) => { setAccount(a); onChanged(); }} />}
 
           <div className="stack gap-12">
             <h3 className="h3">Grant a badge</h3>
@@ -233,9 +240,134 @@ function RevokeModal({ account, badge, onClose, onDone }) {
         <Button className="btn danger" loading={busy} disabled={!reason.trim()} onClick={go}>Revoke</Button>
       </>
     )}>
-      <p className="t2">It leaves {account.claimed ? `@${account.username}` : `account #${account.id}`}’s profile at once. The award is kept as revoked, with your reason, in the log.</p>
+      <p className="t2">It leaves {account.claimed ? `@${account.username}` : `account #${account.id}`}’s profile at once{badge.id === 'verified-creator' ? ', and so does every Verified mark on its handles' : ''}. The award is kept as revoked, with your reason, in the log.</p>
       <Field label="Reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} error={error} />
     </Modal>
+  );
+}
+
+/**
+ * Verified Content Creator (0.8.1, server/badges/creators.js). The method, shown to the admin each time: Everstats makes
+ * a short code for this account; the creator puts it in their channel bio or a panel (they see it in Settings → Profile);
+ * you look at the channel yourself (Everstats never fetches it) and, once you've seen the code, tick the handles you
+ * checked. Reason required; every step is logged. A handle the creator later changes loses its mark by itself.
+ */
+function CreatorGrant({ account, creator: info, onDone }) {
+  const toast = useToasts();
+  const c = account.creator;
+  const eligible = account.socials.filter((s) => s.creatorPlatform);
+  const [ticked, setTicked] = useState(() => new Set(eligible.filter((s) => s.verified).map((s) => s.platform)));
+  const [codeChecked, setCodeChecked] = useState(false);
+  const [reason, setReason] = useState('');
+  const [notify, setNotify] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const holds = account.badges.some((b) => b.id === info.badgeId && b.state === 'held');
+  const call = async (path, body, done) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const a = (await api(`/api/admin/badges/accounts/${account.id}/creator/${path}`, { method: 'POST', body })).account;
+      onDone(a);
+      if (done) toast.ok(...done);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const def = state0(info);
+  const names = info.platforms.map((p) => p.label);
+  return (
+    <div className="stack gap-12 creator-grant" id="creator-grant">
+      <div className="row gap-10 wrap-row">
+        <h3 className="h3 row gap-8">{def && <BadgeIcon badge={def} size="inline" labelled={false} />}Verified Content Creator</h3>
+        <span className="tag">Temporary art: a Claude Design pass will replace it</span>
+      </div>
+      <ol className="small t2 creator-steps">
+        <li>Start a verification: Everstats makes a short code for this account.</li>
+        <li>The creator sees the code in Settings → Profile and puts it in the bio or a panel of their {names.slice(0, -1).join(', ')} or {names.at(-1)} channel.</li>
+        <li>Open their channel yourself and look for the code. Everstats never fetches or scrapes it.</li>
+        <li>Tick the handles you checked, give a reason, grant. Every step is logged.</li>
+      </ol>
+      {!c || c.state === 'revoked' ? (
+        <div className="row gap-10 wrap-row">
+          <Button className="btn" loading={busy} onClick={() => call('start', {}, ['Verification started', 'The creator now sees the code in Settings → Profile.'])}>Start a verification</Button>
+          {c?.state === 'revoked' && <span className="muted xsmall">Revoked {formatDate(c.revokedAt)}. Starting again makes a new code.</span>}
+          {error && <span className="help err" role="alert">{error}</span>}
+        </div>
+      ) : (
+        <>
+          <div className="row gap-10 wrap-row">
+            <span className="small">Code for this account</span>
+            <code className="code-chip mono">{c.code}</code>
+            <span className="tag">{c.state === 'pending' ? `Pending since ${formatDate(c.startedAt)}` : `Verified ${formatDate(c.verifiedAt)}`}</span>
+          </div>
+          {c.alert && (
+            <div className="note warn small" role="status">
+              <Icon name="warning" />
+              <span className="flex-fill">Changed since it was verified: {c.alert.changes.map((x) => `${x.platform} ${x.from} → ${x.to ?? 'removed'}`).join(' · ')}. That handle’s Verified mark is already off; the badge stays until you decide.</span>
+              <Button className="btn sm" loading={busy} onClick={() => call('checked', {}, ['Marked as checked'])}>Mark as checked</Button>
+            </div>
+          )}
+          <fieldset className="plain-fieldset stack gap-6">
+            <legend className="small t2">Handles on this profile you checked</legend>
+            {eligible.length === 0 && <span className="muted small">This profile has no {names.join(', ')} handle. The creator adds it in Settings → Profile first.</span>}
+            {eligible.map((s) => (
+              <label key={s.platform} className="check">
+                <input type="checkbox" checked={ticked.has(s.platform)} onChange={(e) => setTicked((t) => {
+                  const n = new Set(t);
+                  if (e.target.checked) n.add(s.platform);
+                  else n.delete(s.platform);
+                  return n;
+                })} />
+                {s.label} · <span className="mono">{s.handle}</span>{s.verified && <span className="tag gold xs">Verified</span>}
+              </label>
+            ))}
+            {account.socials.some((s) => !s.creatorPlatform) && <span className="muted xsmall">Other handles ({account.socials.filter((s) => !s.creatorPlatform).map((s) => s.label).join(', ')}) can’t be verified with this badge.</span>}
+          </fieldset>
+          <label className="check"><input type="checkbox" checked={codeChecked} onChange={(e) => setCodeChecked(e.target.checked)} /> I saw <span className="mono">{c.code}</span> on their channel myself</label>
+          <div className="field">
+            <label htmlFor="creator-reason">Reason <span className="muted">(required, saved to the log)</span></label>
+            <textarea id="creator-reason" className={`inp${error ? ' is-error' : ''}`} rows={2} maxLength={500} value={reason} placeholder="Where you saw the code, and when" onChange={(e) => setReason(e.target.value)} />
+            {error && <span className="help err" role="alert">{error}</span>}
+          </div>
+          {!holds && <label className="check"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Notify the player with a “Badge granted” toast</label>}
+          <div className="row gap-10 wrap-row">
+            <Button className="btn gold" loading={busy} disabled={!ticked.size || !codeChecked || !reason.trim()}
+              onClick={() => call('grant', { platforms: [...ticked], reason, codeChecked, notify }, [holds ? 'Verified handles updated' : 'Verified Content Creator granted'])}>
+              {holds ? 'Update verified handles' : 'Grant Verified Content Creator'}
+            </Button>
+            {holds && <span className="muted xsmall">Revoke it from the table above: that removes every Verified mark too.</span>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+const state0 = (info) => info.definition ?? null;
+
+/** Creator handles that changed since they were verified: the mark is already off; the admin decides about the badge. */
+function CreatorAlerts({ state, onOpen }) {
+  const alerts = state.creator?.alerts ?? [];
+  return (
+    <section className="panel pad-24 stack gap-12" aria-labelledby="creators-h" id="creators">
+      <div className="row gap-10 wrap-row">
+        <h2 className="h2" id="creators-h">Creator handle changes</h2>
+        <span className="muted small">{alerts.length ? `${alerts.length} to check` : 'Nothing to check'}</span>
+      </div>
+      {alerts.length === 0 ? <span className="muted small">When a verified creator changes or removes a verified handle, its Verified mark comes off at once and it’s listed here.</span> : (
+        <ul className="plain stack gap-8">
+          {alerts.map((a) => (
+            <li key={a.accountId} className="row gap-10 wrap-row">
+              <b>{a.username ? `@${a.username}` : `#${a.accountId}`}</b>
+              <span className="small t2 flex-fill">{a.changes.map((x) => `${x.platform}: ${x.from} → ${x.to ?? 'removed'}`).join(' · ')} · {formatDateTime(a.at)}</span>
+              <button type="button" className="btn sm" onClick={() => onOpen(a.accountId)}>Open</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -445,7 +577,7 @@ function CountsPanel({ state }) {
           <tbody>
             {state.definitions.map((d) => (
               <tr key={d.id}>
-                <td><span className="row gap-8"><BadgeIcon badge={d} size="inline" /><Link to={`/badges/${d.id}`}>{d.name}</Link></span></td>
+                <td><span className="row gap-8"><BadgeIcon badge={d} size="inline" /><Link to={`/badges/${d.id}`}>{d.name}</Link>{d.artTemporary && <span className="tag xs">Temporary art</span>}</span></td>
                 <td className="t2">{d.familyLabel}</td>
                 <td className="t2">{d.award === 'automatic' ? 'Automatic' : d.grantable ? 'Granted' : 'Granted (needs a mark first)'}{d.createdBy === 'admin' ? ' · made here' : ''}</td>
                 <td className="r num">{formatNumber(d.heldBy)}</td>
@@ -458,7 +590,11 @@ function CountsPanel({ state }) {
   );
 }
 
-const ACTIONS = { granted: 'Granted', revoked: 'Revoked', mark_uploaded: 'Mark uploaded', mark_saved: 'Mark updated', created: 'Badge created', backfill: 'Back-fill' };
+const ACTIONS = {
+  granted: 'Granted', revoked: 'Revoked', mark_uploaded: 'Mark uploaded', mark_saved: 'Mark updated', created: 'Badge created', backfill: 'Back-fill',
+  renamed: 'Renamed', creator_started: 'Creator verification started', creator_verified: 'Creator handles verified',
+  creator_handle_changed: 'Creator changed a verified handle', creator_revoked: 'Creator marks removed', creator_alert_checked: 'Handle change checked',
+};
 
 function LogPanel({ state }) {
   return (

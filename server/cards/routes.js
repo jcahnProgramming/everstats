@@ -14,6 +14,7 @@ import { guildPeriodStart } from '../stats/guildBoards.js';
 import { ACCENTS, BOARD_PERIODS, CARD_TYPES, FORMATS, MAX_STATS, THEMES, THEME_LABELS, cleanOptions, defaultOptions, decodeOptions, optionsKey, statsShown } from './catalog.js';
 import { buildCard, characterStatChoices, defaultStatIds, periodLabel } from './data.js';
 import { fetchImages, fetchRender } from './images.js';
+import { renderSwitch } from '../characters/renders.js';
 import { RendererBusy } from './render.js';
 import { cacheKey, cachedImage, previewOptions, saveDefault, savedDefault, storeImage } from './store.js';
 
@@ -259,6 +260,8 @@ export function createCardApiRouter({ db, limits, networkOf }) {
       initial,
       choices: await makerChoices(db, type, params),
       linkPreview: card.status === 'ok' ? ogPath(type, params) : null,
+      // 0.8.1: Blizzard renders switched off by the admin: cards use the crest; the maker says why
+      rendersPaused: await (async () => { const r = await renderSwitch(db); return r.paused ? r.note : null; })(),
     });
   }));
 

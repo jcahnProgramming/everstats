@@ -6,7 +6,8 @@ import { isProfaneText } from './names.js';
  *
  * HANDLE ONLY, never a URL: the player types a handle, it is checked against that platform's handle format, and the
  * link is built here from the platform's own URL. A pasted link ("https://…", anything with a slash) is refused with a
- * plain reason. Nothing is marked verified, because nothing is.
+ * plain reason. Nothing here marks a handle verified: since 0.8.1 only staff can, for a Verified Content Creator, by hand
+ * (badges/creators.js).
  */
 const data = JSON.parse(readFileSync(new URL('./socials.json', import.meta.url), 'utf8'));
 export const PLATFORMS = data.platforms.map((p) => ({ ...p, re: new RegExp(p.pattern) }));

@@ -6,6 +6,7 @@ import { Icon } from '../chrome/Icon.jsx';
 import { Field } from '../components/Controls.jsx';
 import { TierBadge } from '../components/Tier.jsx';
 import { useSession } from '../session.jsx';
+import { useCoverage } from '../useCoverage.js';
 import { DashboardPage } from './DashboardPage.jsx';
 import { WhySignIn } from '../chrome/SignInNudge.jsx';
 
@@ -25,7 +26,11 @@ import { WhySignIn } from '../chrome/SignInNudge.jsx';
 const PILLARS = [
   ['I', 'Hundreds of statistics', 'Deaths, kills, social numbers, times camped — the whole in-game statistics pane, grouped and searchable.'],
   ['II', 'A board for each one', 'Every statistic ranks separately on each ruleset. A new ruleset gets its own boards the day Blizzard lists it.'],
-  ['III', 'Daily snapshots, kept', 'A fresh look-up when you search someone, plus a daily crawl — so every number has a history.'],
+  // 0.8.1: was "Daily snapshots, kept … so every number has a history", written before the 30-day rule (0.4.2). Blizzard's
+  // terms allow keeping its data 30 days at most, so the history covers the live window (keepDays from /api/coverage).
+  ['III', 'Daily snapshots', (days) => (days
+    ? `A fresh look-up when you search someone, plus a daily crawl. Progress, rank movement and the “Last ${days} days” boards cover the last ${days} days: Blizzard’s rules don’t let Everstats keep its data longer.`
+    : 'A fresh look-up when you search someone, plus a daily crawl. Blizzard’s rules let Everstats keep its data for 30 days at most, so history covers that window.')],
 ];
 
 export function HomePage() {
@@ -36,6 +41,7 @@ export function HomePage() {
 
 function VisitorHome() {
   const navigate = useNavigate();
+  const { coverage } = useCoverage();
   const [name, setName] = useState('');
   const [surname, setSurname] = useState('');
   const [problem, setProblem] = useState(null);
@@ -90,7 +96,7 @@ function VisitorHome() {
         {PILLARS.map(([numeral, title, text]) => (
           <div key={numeral} className="row gap-14 pillar">
             <span className="disp pillar-numeral" aria-hidden="true">{numeral}</span>
-            <div className="stack gap-4"><h2 className="h3">{title}</h2><span className="t2">{text}</span></div>
+            <div className="stack gap-4"><h2 className="h3">{title}</h2><span className="t2">{typeof text === 'function' ? text(coverage?.keepDays ?? null) : text}</span></div>
           </div>
         ))}
       </section>

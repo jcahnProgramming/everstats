@@ -2,7 +2,7 @@ import express from 'express';
 import { requireAccount } from '../auth/sessions.js';
 import { HttpError, route } from '../core/errors.js';
 import { limitBy } from '../core/rateLimit.js';
-import { FAMILIES, FEATURED_MAX } from './catalog.js';
+import { BADGE_ALIASES, FAMILIES, FEATURED_MAX } from './catalog.js';
 import {
   availabilityFor, badgeContext, clearToasts, definitionById, heldAwards, holderCounts, isHidden, loadDefinitions, pendingToasts, publicBadge,
   rowOrder, setDisplay,
@@ -31,7 +31,8 @@ export function createBadgeRouter({ db, limits, networkOf }) {
   const writes = limitBy(limits.writes, networkOf);
 
   r.get('/badges/:id', route(async (req, res) => {
-    const def = await definitionById(db, idOf(req.params.id));
+    const asked = idOf(req.params.id);
+    const def = await definitionById(db, BADGE_ALIASES[asked] ?? asked);
     const ctx = await badgeContext(db);
     if (!def || isHidden(def, ctx)) throw new HttpError(404, 'No such badge.', 'no_badge');
     const viewer = viewerOf(req);

@@ -174,6 +174,12 @@ function PopoverCard({ badge, earnedAt = null, heldBy = null, whose = null, popR
           </span>
         </div>
       </div>
+      {/* 0.8.1: a Verified Content Creator's checked handles (platform as text, never a logo), one line each */}
+      {badge.creator?.length > 0 && (
+        <ul className="plain stack gap-2 creator-lines">
+          {badge.creator.map((c) => <li key={c.platform} className="small">Verified creator on {c.platform} · <span className="mono">{c.handle}</span></li>)}
+        </ul>
+      )}
       <span className="how">{badge.how}</span>
       {(earnedAt || heldBy !== null) && (
         <span className="meta">

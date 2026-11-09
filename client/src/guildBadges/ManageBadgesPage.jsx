@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { parseGuildSlug } from '../../../server/stats/slug.js';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Toggle } from '../components/Controls.jsx';
+import { Sortable } from '../components/Sortable.jsx';
 import { EmptyState } from '../components/EmptyState.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
 import { useToasts } from '../components/Toasts.jsx';
@@ -16,19 +17,14 @@ import { GuildBadgeIcon, GuildBadgeToasts, GuildPill, guildBadgeName } from './G
  * and the officers they add. NOBODY can award a badge here: they choose which unlocked badges show on the guild page,
  * their order, and the one pinned badge. Each change saves at once.
  *
- *   Shown on the guild page   drag to reorder (the grip; keyboard: Space picks up, arrows move, Space drops, Esc
- *                             cancels), Show toggle, Pin radio (exactly one). The dragged row stays where it is until
- *                             the drop; end-of-drag listeners live on the window (CLAUDE.md "Bugs that cost us").
+ *   Shown on the guild page   drag a row to reorder (components/Sortable.jsx, 0.8.1: live, Saved + Undo; keyboard on
+ *                             its grip), Show toggle, Pin radio (exactly one).
  *   Unlocked, hidden          unlocked but not shown; LOST standing badges sit here, "Lost [date]", and can't be shown
  *                             or pinned until regained.
  *   Not yet                   standing badges not held now, with the reason; heritage this guild can't get any more.
  *
  * The side nav's "Guild profile & links" and "Officers" are the 0.7.0 Manage guild panel on the guild page.
  */
-const GRIP = (
-  <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="3" r="1.4" /><circle cx="11" cy="3" r="1.4" /><circle cx="5" cy="8" r="1.4" /><circle cx="11" cy="8" r="1.4" /><circle cx="5" cy="13" r="1.4" /><circle cx="11" cy="13" r="1.4" /></svg>
-);
-
 function statusOf(b) {
   if (b.state === 'lost') return `Lost ${formatDate(b.lostAt)} · can’t be shown until it’s regained`;
   if (b.expired) return `Shown until ${b.event?.until} has passed · still held`;
@@ -69,8 +65,10 @@ export function ManageBadgesPage() {
     setBusy(true);
     try {
       setData(await api(`/api/guilds/${encodeURIComponent(slug)}/badges/manage`, { method: 'PUT', body: next }));
+      return true;
     } catch (err) {
       toast.err('Couldn’t save that', err.message);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -130,7 +128,7 @@ export function ManageBadgesPage() {
           </div>
           {data.shown.length === 0 ? <div className="pad-20"><span className="muted small">Nothing shown. Turn a badge on below.</span></div> : (
             <SortableRows items={data.shown} pinned={pinned} disabled={busy}
-              onOrder={(order) => save(body({ order }))} onShown={setShown} onPin={(id) => save(body({ pinned: id }))} />
+              onOrder={async (order) => { if (!(await save(body({ order })))) throw new Error('not saved'); }} onShown={setShown} onPin={(id) => save(body({ pinned: id }))} />
           )}
         </section>
 
@@ -171,89 +169,22 @@ export function ManageBadgesPage() {
   );
 }
 
-/**
- * The shown rows, reorderable by pointer or keyboard. Nothing moves while dragging: the target slot is marked, and the
- * order changes once, on drop.
- */
+/** The shown rows: the shared drag-and-drop list (components/Sortable.jsx, 0.8.1). The whole row is the handle;
+ *  its Show toggle and Pin radio keep working. Saved on drop, with Undo. */
 function SortableRows({ items, pinned, disabled, onOrder, onShown, onPin }) {
-  const [drag, setDragState] = useState(null); // { from, to, keyboard }
-  const live = useRef(null); // the same, for the window listeners (never read from inside a state updater)
-  const setDrag = (v) => {
-    const next = typeof v === 'function' ? v(live.current) : v;
-    live.current = next;
-    setDragState(next);
-  };
-  const rows = useRef([]);
-  const order = items.map((b) => b.id);
-  const commit = (from, to) => {
-    setDrag(null);
-    if (from === to || to === null) return;
-    const next = [...order];
-    const [id] = next.splice(from, 1);
-    next.splice(to, 0, id);
-    onOrder(next);
-  };
-  const startPointer = (e, i) => {
-    if (disabled || e.button !== 0) return;
-    e.preventDefault();
-    e.currentTarget.focus(); // preventDefault stops the click focusing it; keyboard moves must still work after a click
-    setDrag({ from: i, to: i, keyboard: false });
-    const move = (ev) => {
-      const y = ev.clientY;
-      let to = items.length - 1;
-      for (const [j, el] of rows.current.entries()) {
-        if (!el) continue;
-        const r = el.getBoundingClientRect();
-        if (y < r.top + r.height / 2) { to = j; break; }
-      }
-      setDrag((d) => (d ? { ...d, to } : d));
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', cancel);
-      const d = live.current;
-      if (d) commit(d.from, d.to);
-    };
-    const cancel = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', cancel);
-      setDrag(null);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', cancel);
-  };
-  const onKey = (e, i) => {
-    if (disabled) return;
-    if (e.key === ' ' || e.key === 'Enter') {
-      e.preventDefault();
-      if (drag?.keyboard) commit(drag.from, drag.to);
-      else setDrag({ from: i, to: i, keyboard: true });
-    } else if (drag?.keyboard && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-      e.preventDefault();
-      setDrag((d) => ({ ...d, to: Math.max(0, Math.min(items.length - 1, d.to + (e.key === 'ArrowUp' ? -1 : 1))) }));
-    } else if (e.key === 'Escape' && drag) {
-      setDrag(null);
-    }
-  };
   return (
-    <div className="mrows" role="list" aria-label="Shown badges, in order">
-      {drag?.keyboard && <span className="sr-only" role="status">{`${guildBadgeName(items[drag.from])}: position ${drag.to + 1} of ${items.length}. Arrow keys move, Space drops, Escape cancels.`}</span>}
-      {items.map((b, i) => (
-        <div key={b.id} role="listitem" ref={(el) => { rows.current[i] = el; }}
-          className={`mrow${drag?.from === i ? ' dragging' : ''}${drag && drag.to === i && drag.from !== i ? ' drop-target' : ''}`}>
-          <button type="button" className="drag btn ghost sm icon" aria-label={`Move ${guildBadgeName(b)} (position ${i + 1} of ${items.length})`} aria-pressed={drag?.from === i && drag.keyboard ? 'true' : undefined}
-            onPointerDown={(e) => startPointer(e, i)} onKeyDown={(e) => onKey(e, i)} disabled={disabled}>{GRIP}</button>
+    <Sortable items={items} labelOf={guildBadgeName} className="mrows" itemClassName="mrow-item" ariaLabel="Shown badges, in order"
+      disabled={disabled} onReorder={onOrder}
+      renderItem={(b, { grip }) => (
+        <div className="mrow">
+          {grip}
           <span><GuildPill badge={b} small pinned={b.id === pinned} ribbon={false} /></span>
-          <span className="st">{statusOf(b)}{b.progress && <span className="gprog sm"><span style={{ width: `${(b.progress.pct * 100).toFixed(1)}%` }} /></span>}</span>
+          <span className="st">{statusOf(b)}{b.progress && <span className="gprog sm"><span style={{ width: (b.progress.pct * 100).toFixed(1) + '%' }} /></span>}</span>
           <Toggle checked disabled={disabled} onChange={() => onShown(b, false)}><span className="sr-only">Show {guildBadgeName(b)}</span></Toggle>
           <label className="pinradio">
             <input type="radio" name="guild-pin" checked={b.id === pinned} disabled={disabled} onChange={() => onPin(b.id)} />Pin
           </label>
         </div>
-      ))}
-    </div>
+      )} />
   );
 }

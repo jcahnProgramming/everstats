@@ -19,6 +19,7 @@ import { PLATFORMS, checkBio, checkHandle, linkFor } from '../accounts/socials.j
 import { checkDisplayName, reservedSet } from '../accounts/names.js';
 import { availability, changeUsername, holdName } from '../accounts/usernames.js';
 import { inlineBadges } from '../badges/store.js';
+import { CREATOR_PLATFORMS, creatorState, handlesChanged, shownHandle } from '../badges/creators.js';
 
 /** The three themes. Logged-out visitors always get Forever; a signed-in account's choice is stored on it. */
 export const THEMES = ['forever', 'alliance', 'horde'];
@@ -38,6 +39,10 @@ async function accountView(db, accountId) {
     [accountId, MAX_PASSKEYS],
   );
   const totp = await totpState(db, accountId);
+  // 0.8.1: creator verification, as the player sees it: the code while it matters, and which handles carry a Verified
+  // mark right now (only ones still exactly on the profile). Admin notes and alerts are never sent here.
+  const creator = await creatorState(db, accountId);
+  const current = new Map(links.map((l) => [l.platform, l.handle]));
   return {
     id: account.id,
     createdAt: account.created_at,
@@ -54,6 +59,14 @@ async function accountView(db, accountId) {
       showPins: account.profile_show_pins,
       links: Object.fromEntries(links.map((l) => [l.platform, l.handle])),
       platforms: PLATFORMS.map((p) => ({ id: p.id, label: p.label, help: p.help, example: linkFor(p.id, 'yourname') })),
+      creator: creator && creator.state !== 'revoked' ? {
+        state: creator.state,
+        code: creator.code,
+        platforms: CREATOR_PLATFORMS.map((p) => PLATFORMS.find((x) => x.id === p)?.label ?? p),
+        verified: creator.state === 'verified'
+          ? creator.handles.filter((h) => current.get(h.platform) === h.handle).map((h) => ({ platform: h.platform, label: h.label, handle: shownHandle(h.platform, h.handle) }))
+          : [],
+      } : null,
     },
     identities: identities.map((i) => ({
       id: i.id,
@@ -237,6 +250,8 @@ export function createAccountRouter({ db, limits, networkOf }) {
       await q.query('UPDATE accounts SET profile_bio = $2, profile_show_pins = $3 WHERE id = $1', [accountId, bio.value, body.showPins !== false]);
       await q.query('DELETE FROM account_social_links WHERE account_id = $1', [accountId]);
       for (const [platform, handle] of links) await q.query('INSERT INTO account_social_links (account_id, platform, handle) VALUES ($1, $2, $3)', [accountId, platform, handle]);
+      // 0.8.1: a verified creator handle that changed (or went) loses its Verified mark now; the admin is told.
+      await handlesChanged(q, accountId, new Map(links));
       await logAccountEvent(q, accountId, 'profile.changed', {});
     });
     res.json({ account: await accountView(db, accountId) });

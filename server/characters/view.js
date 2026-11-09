@@ -2,6 +2,7 @@ import { boardCounts, characterRanks } from '../stats/boards.js';
 import { categoryKey, loadCatalog } from '../stats/catalog.js';
 import { inlineBadges } from '../badges/store.js';
 import { gearItemIds } from '../crawler/items.js';
+import { renderSwitch } from './renders.js';
 
 /**
  * A tracked character as the public API shows it. Everything carries its freshness: fetchedAt (the last full fetch:
@@ -47,6 +48,7 @@ export async function characterView(db, row, { mine = false } = {}) {
     ? await db.one('SELECT username FROM accounts WHERE id = $1 AND username_claimed', [row.owner_account_id])
     : null;
   const renderHidden = await renderHiddenFor(db, row.id);
+  const switched = await renderSwitch(db);
   return {
     id: row.id,
     slug: row.slug,
@@ -67,8 +69,10 @@ export async function characterView(db, row, { mine = false } = {}) {
     // 0.7.1: "Hide my render". Blizzard's render server sometimes draws a character wrong (a different race, sex or
     // build) while our data and the URL are right; its owner can hide the render and avatar everywhere on Everstats.
     // Hidden: neither URL is sent at all (state 'hidden'), the owner included, so nothing can show it by mistake.
+    // 0.8.1: renders switched off by the admin (characters/renders.js): state 'paused', no URL, the admin's note.
     media: renderHidden
       ? { state: 'hidden', render: null, avatar: null, fetchedAt: null }
+      : switched.paused ? { state: 'paused', render: null, avatar: null, fetchedAt: null, note: switched.note }
       : {
         state: row.media_state ?? 'not_ready',
         render: row.media?.['main-raw'] ?? null,

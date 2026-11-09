@@ -272,7 +272,20 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   file once and draws it as React elements (styles via the CSSOM). The export's template files open with a comment
   containing `--` (not well-formed XML): comments are stripped before parsing. Letters in badges use the self-hosted
   Cinzel; an SVG ever served standalone must have its text converted to outlines.
-- **Cosmetic only.** No badge grants anything; Dev Team is not the admin.
+- **Cosmetic only.** No badge grants anything; Everstats Staff is not the admin.
+- **Names (0.8.1):** 'dev-team' is named **Everstats Staff** and 'moderator' **Everstats Moderator** ("Dev Team" read as
+  Blizzard's developers). Ids never change (awards, pins, `/badges/dev-team` carry over); `BADGE_ALIASES` in catalog.js
+  makes `/badges/everstats-staff` and `/badges/everstats-moderator` work too. The staff art has no baked-in text.
+- **Verified Content Creator (0.8.1, `badges/creators.js`):** a staff-granted Partner badge for Twitch, YouTube, Kick and
+  TikTok (`CREATOR_PLATFORMS`). The admin starts a verification on /admin/badges → a code (`ES-XXXX-XXXX`,
+  `creator_verifications`) the creator sees in Settings → Profile and puts on their channel → the admin checks the channel
+  BY HAND (**Everstats never fetches or scrapes a channel**), ticks the handles checked, reason required, grants (the
+  generic grant refuses this badge). `creator_handles` stores each ticked handle AS IT WAS: a "Verified" mark shows only
+  while the profile has exactly that handle, the badge is held and the state is 'verified'. Changing or removing a verified
+  handle deletes its row at once, logs it and raises an admin alert (/admin and /admin/badges, "Mark as checked"); the
+  badge stays until the admin decides. Revoking removes every mark. Platform names are text, **never a platform logo**.
+  Its art (`partner/verified-creator*.svg`, from the platform-employee template) is TEMPORARY (`art_temporary`), shown so
+  on /admin/badges, until a Claude Design pass replaces it.
 - Definitions are DATA (`badge_definitions`, seeded once by migration 015); awards are `badge_awards`, one row per
   (account, badge): when, how (automatic, or admin with a reason), and the Blizzard id of the character that earned a
   class/faction badge, never a Blizzard value. **Revoking is a state with a reason, never a delete**; every grant, earn,
@@ -333,6 +346,11 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   field `website` (answered "sent", stored nowhere), 5/15 min per network AND 10/hour per account, no CAPTCHA, NOT
   profanity-filtered (owner's choice). Replies show as from "Everstats". Signed-out drafts live in localStorage until sent;
   sign-in returns to `/feedback?restore=1`. Logs never contain a message.
+- **"Show Blizzard renders" (0.8.1, admin settings `renders.show` + `renders.pausedNote`, `characters/renders.js`):** off →
+  media state 'paused' (no render or avatar URL sent anywhere), share cards and link previews use the crest, pages show the
+  admin's note (plain text, one line). Changing either is logged (`setting.changed`) and empties `share_card_images` and
+  the card data memo (`cards.cache_cleared` in admin_events). Reason: Blizzard's Forever render service drew the wrong race
+  for every character while our URLs and data were right.
 - **Render controls**: `character_render_hidden` (ours). A hidden render sends no render/avatar URL to anyone (owner
   included); the frame says "Render hidden by its owner". "Report a wrong render" opens the feedback form pre-filled. Never
   detect wrong renders automatically.
@@ -392,6 +410,12 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 - Destructive account actions (unlink, remove passkey, turn 2FA off) confirm in a `<Modal>` first; async results
   use toasts (`components/Toasts.jsx`); errors that belong to a form stay in the form.
 - **No native `<select>`** (its popup ignores the theme); the theme picker is a radio group of buttons.
+- **One drag-and-drop list (0.8.1, `components/Sortable.jsx`)** for every order: featured badges, guild badges, the card
+  maker's statistics, dashboard pins. Never add Move up / Move down buttons or a second drag implementation. Whole item
+  grabbed (mouse after 5 px; touch long-press, or the grip at once); others slide by transform; DOM order changes only on
+  drop; keyboard on the grip (Space, arrows, Space, Esc), announced; save on drop with Undo; locked items (staff/partner)
+  lead with a lock; no slide under reduced motion. Items in one list must be the SAME SIZE (they slide into each other's
+  slots): variable-width pills overlapped mid-drag until `.feat-list` got equal slots.
 - New pages open at the top with the heading focused; Back restores the position (`client/src/chrome/scrollMemory.js`,
   positions keyed by history entry AND path; see "Bugs that cost us").
 - Phones (390 px): no horizontal scroll; top-bar labels collapse to icons; forms stack.
@@ -421,8 +445,11 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
     (0.7.1). Reason: feedback is kept until the owner deletes it (the privacy page says so); `admin_events` logs it.
   - **Deleting an account** (Settings, `DELETE /api/account`) deletes the account row and everything that cascades from
     it (sign-in links, passkeys, 2FA, recovery codes, sessions, flows, pins, events, character checks; 0.7.0: badge
-    awards and guild officer roles; 0.7.1: feedback threads and their replies, guild badge toast marks; 0.8.0: the share-card defaults it saved; `badge_events` and `guild_events` keep the bare account id). Reason: the
+    awards and guild officer roles; 0.7.1: feedback threads and their replies, guild badge toast marks; 0.8.0: the share-card defaults it saved; 0.8.1: its creator verification and verified handles; `badge_events` and `guild_events` keep the bare account id). Reason: the
     person asked. Its characters stay (public data); ownership is cleared, a hidden one stays hidden.
+  - **A verified creator handle that changes** deletes its `creator_handles` row, and **revoking Verified Content
+    Creator** deletes them all (0.8.1). Reason: the mark belongs to the handle the admin checked, not to whatever is typed
+    later; `badge_events` logs every change. Restarting a revoked verification replaces its code (the old one is void).
   - **Username holds expire** (`username_holds.held_until`): the row stays as history; an expired hold simply stops
     counting. Not a deletion, listed here because a held name becomes claimable again by design.
   - **Discovery Battle.net tokens** (`discovery_grants`) are deleted when they expire (hourly sweep), when the admin
@@ -477,7 +504,8 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 
 - Bio (280, plain text, profanity-checked, never linkified), social HANDLES (`server/accounts/socials.json`: platform
   list, handle patterns, URL templates; links are built by us, opened with rel="noopener noreferrer nofollow"; nothing
-  marked verified), "Show my pinned stats" (default on). Icons: text labels only; no brand assets are shipped.
+  marked verified except a Verified Content Creator's checked handles, 0.8.1), "Show my pinned stats" (default on).
+  Icons: text labels only; no brand assets are shipped.
 - Sections sent only when non-empty: about, pins, featured, characters, guilds (from non-hidden characters only).
 
 ## Share cards and link previews (0.8.0: `server/cards/`, `client/src/share/`, `/c/{slug}/share` …)
@@ -487,6 +515,13 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   `server/test/cards.test.js` fails if one differs. Card tokens are appended VERBATIM to `theme/tokens.css`, the maker's
   CSS is `theme/card-maker.css` (VERBATIM; overrides in app.css). The six `board/*-guild.html` templates draw a guild on
   a guild board (owner's decision).
+- **Layout pass (0.8.1, `server/cards/layout/`):** the kit stays verbatim; the renderer injects `cards-layout.css` after
+  the kit's CSS and runs `cards-layout.js` (`window.everstatsLayout()`) after fill.js: names one line first (shrink to
+  60%, then two lines at a stepped-down size), tiles centre an odd last row, the figure and ring are sized from the render
+  panel, the gear strip balances its rows, the footer is a band inside the frame, story character cards give the render
+  ≥ 40% of the height. The render handed to Chromium is cut to the figure's opaque outline (`images.js figureCrop`;
+  main-raw is 1600×1200, mostly transparent). `LAYOUT_VERSION` (render.js) is in every image cache key and `og ?v=`:
+  bump it whenever the layout changes. Check layout with REAL renders and real names (the fixture-only pass missed all of it).
 - **Rendered on the server only**, never in a browser: headless Chromium (playwright-core, pinned exactly, + Playwright's
   chromium headless shell in the image at `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`), one browser in the WEB process,
   launched on first use, closed after 5 idle minutes. The card page makes NO network request: kit files are served
@@ -603,6 +638,11 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
   0.7.0: a hidden table header widened /admin/guild-links to 831px at phone width). `.tblbox` is `position: relative`.
 - **"Open on keyboard focus" must mean a Tab press**, not `:focus-visible` alone: a dialog focusing its first control
   opened a popover over itself (0.7.0, `badges/Badges.jsx`).
+- **A one-letter platform id failed the database check** (found here, 0.8.1): `account_social_links.platform` needed two
+  characters, so an X handle (`x`) could never be saved (500) since 0.4.2, and the test saved X as empty. Migration 018
+  fixed the check. Test every registry entry with a real value, not just the ones that look interesting.
+- **Tool and shell layers eat backslashes** (found here): regex escapes written through heredocs or the editor's escape
+  decoding came out as plain letters (`\s` → `s`). Build such regexes from `String.fromCharCode(92)` and test them.
 - **The design draws things the rules forbid** (found here, design v1): an admin link for the owner, a last-four of
   each API key, a hardcoded "Hardcore · soon" ruleset, and a merge that runs the wrong way round. This file wins; say
   so in the component's header comment.

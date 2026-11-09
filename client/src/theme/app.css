@@ -214,9 +214,6 @@ body { background-color: var(--es-bg); color: var(--es-text); }
 .profile-chars .panel { display: flex; gap: var(--es-space-12); align-items: center; padding: var(--es-space-12) var(--es-space-14); min-width: 0; }
 
 /* Settings → Badges (badge-picker.md). */
-.slot-b { padding: 0; color: inherit; font: inherit; }
-.slot-b.is-picked { border-color: var(--es-focus); box-shadow: var(--es-shadow-toast); transform: rotate(-3deg); }
-.slot-b:focus-visible { outline: var(--es-border-2) solid var(--es-focus); outline-offset: var(--es-space-2); }
 .bcard { grid-template-columns: minmax(0, 1fr) auto; }
 .bcard .bcard-main { display: flex; flex-direction: column; gap: var(--es-space-4); min-width: 0; }
 .bcard .bcard-ctl { display: flex; flex-direction: column; align-items: flex-end; gap: var(--es-space-6); }
@@ -286,8 +283,6 @@ a.gbdg { text-decoration: none; }
 /* Manage guild → Badges */
 .manage-badges .side { position: sticky; top: calc(var(--es-sticky-top, 0px) + var(--es-space-16)); }
 .manage-badges .is-current { border-color: var(--es-accent); color: var(--es-text); background: var(--es-raised); }
-.mrow .drag.btn { min-height: 0; padding: var(--es-space-4); cursor: grab; touch-action: none; }
-.mrow.drop-target { box-shadow: inset 0 var(--es-border-2) 0 var(--es-focus); }
 .mrow.notyet { grid-template-columns: var(--es-space-24) minmax(0, 1.4fr) minmax(0, 2fr); }
 .pinradio.is-disabled { opacity: 0.5; cursor: default; }
 
@@ -369,11 +364,6 @@ form.panel { position: relative; }
 .swatch i.acc-c5 { background: var(--es-c5); }
 .stage .mk-blank { display: block; width: min(100%, var(--es-card-preview-w)); aspect-ratio: 1; }
 .stage .mk-failed { max-width: var(--es-card-preview-w); padding: var(--es-space-24); background: var(--es-raised); color: var(--es-text); border: var(--es-border-1) solid var(--es-line-strong); border-radius: var(--es-radius-md); }
-.sp .mk-moves { display: flex; flex-direction: column; }
-.sp .mk-move { background: none; border: 0; padding: 0; color: var(--es-muted); cursor: pointer; display: grid; place-items: center; line-height: 1; }
-.sp .mk-move:hover:not(:disabled) { color: var(--es-text); }
-.sp .mk-move:disabled { opacity: var(--es-opacity-disabled); cursor: default; }
-.sp .mk-move:focus-visible { outline: var(--es-border-2) solid var(--es-focus); }
 .statpick .mk-empty { padding: var(--es-space-10); }
 .linkprev .mk-url { overflow-wrap: anywhere; }
 /* Board rows: the share icon shows on row hover and focus, always on touch (share-button.md). */
@@ -385,3 +375,77 @@ form.panel { position: relative; }
 .ranklist li.has-share > .share-row { position: absolute; right: var(--es-space-8); top: 50%; transform: translateY(-50%); opacity: 1; }
 .why-list li { flex-wrap: nowrap; }
 .tier-card .tier-card-weight { display: block; }
+
+/* ================================================================ Sortable (0.8.1, components/Sortable.jsx)
+   One drag-and-drop list for every order: the lifted item follows the pointer, the rest slide (transform), a dashed
+   gap marks where it lands. No slide under reduced motion. */
+.sortable { position: relative; }
+.sort-item { position: relative; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.sort-item.is-movable { cursor: grab; }
+.sortable.is-dragging .sort-item { transition: transform var(--es-motion-fast) var(--es-motion-ease); }
+.sortable.is-dragging .sort-item.is-lifted { transition: none; z-index: 5; cursor: grabbing; }
+.sort-item.is-lifted > * { box-shadow: var(--es-shadow-toast); outline: var(--es-border-2) solid var(--es-focus); outline-offset: var(--es-space-2); }
+.sortable:not(.is-dragging) .sort-item.is-lifted > * { transform: scale(1.02); }
+.sort-gap { position: absolute; z-index: 0; border: var(--es-border-2) dashed var(--es-focus); border-radius: var(--es-radius-md); background: color-mix(in oklab, var(--es-focus) 10%, transparent); pointer-events: none; }
+.sortable.is-dragging .sort-item:not(.is-lifted) { z-index: 1; }
+body.is-sorting, body.is-sorting * { cursor: grabbing !important; -webkit-user-select: none; user-select: none; }
+.sort-grip { display: inline-grid; place-items: center; flex: none; width: var(--es-space-24); height: var(--es-space-24); padding: 0; border: 0; border-radius: var(--es-radius-sm); background: none; color: var(--es-muted); cursor: grab; touch-action: none; }
+.sort-grip svg { width: var(--es-space-14); height: var(--es-space-14); fill: currentColor; }
+.sort-grip:hover:not(:disabled) { color: var(--es-text); background: var(--es-sunken); }
+.sort-grip:focus-visible { outline: var(--es-border-2) solid var(--es-focus); outline-offset: var(--es-space-1); }
+.sort-grip[aria-pressed="true"] { color: var(--es-accent-ink); background: var(--es-focus); }
+.sort-lock { display: inline-flex; align-items: center; gap: var(--es-space-4); flex: none; color: var(--es-accent); font-size: var(--es-fs-11); white-space: nowrap; }
+.sort-lock-note { color: var(--es-muted); }
+.sort-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--es-space-8) var(--es-space-14); min-height: var(--es-space-28); margin-top: var(--es-space-6); }
+.sort-status { display: inline-flex; align-items: center; gap: var(--es-space-6); color: var(--es-text-2); }
+.sort-status svg { color: var(--es-success); }
+@media (prefers-reduced-motion: reduce) {
+  .sortable.is-dragging .sort-item, .sortable:not(.is-dragging) .sort-item.is-lifted > * { transition: none; transform: none; }
+}
+
+/* Sortable in its four places (0.8.1) */
+/* Settings → Badges: the featured badges as pills, grabbed whole */
+/* equal slots: the others slide into each other's places while one is dragged, so the places must be the same size */
+.feat-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--es-size-col-min)), 1fr)); gap: var(--es-space-10); }
+.feat-list > .sort-item { display: grid; min-width: 0; }
+.feat-pill { display: inline-flex; align-items: center; gap: var(--es-space-8); min-height: var(--es-size-control); padding: var(--es-space-4) var(--es-space-14) var(--es-space-4) var(--es-space-6);
+  border-radius: var(--es-radius-pill); background: var(--es-surface); color: var(--es-text); border: var(--es-border-1) solid var(--es-line-strong); }
+.feat-pill.is-locked-first { border-color: color-mix(in oklab, var(--es-accent) 55%, var(--es-line)); }
+.feat-pill .n { font: var(--es-weight-semibold) var(--es-fs-11) var(--es-font-mono); color: var(--es-muted); }
+.feat-pill .bdg.std { width: var(--es-space-32); height: var(--es-space-32); }
+.feat-pill { box-sizing: border-box; width: 100%; min-width: 0; }
+.feat-pill .feat-name { font-weight: var(--es-weight-semibold); font-size: var(--es-fs-13-5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.feat-pill .feat-pin { display: inline-flex; color: var(--es-accent); }
+.feat-pill .sort-lock-note { display: none; }
+.feat-list .sort-gap { border-radius: var(--es-radius-pill); }
+/* Manage guild → Badges: the rows (each row is in its own list item now) */
+.mrows > .mrow-item > .mrow { border-bottom: var(--es-border-1) solid var(--es-row-sep); background: var(--es-surface); }
+.mrows > .mrow-item:last-child > .mrow { border-bottom: 0; }
+.mrow-item .mrow .sort-grip { justify-self: center; }
+.mrows .sort-gap { border-radius: 0; }
+.mrows + .sort-foot { padding: 0 var(--es-space-16) var(--es-space-10); }
+/* card maker statistics */
+.statpick > .sp-item > .sp { background: var(--es-surface); }
+.statpick > .sp-item:last-child > .sp { border-bottom: 0; }
+.sp .sort-grip { width: var(--es-space-20); height: var(--es-space-20); }
+.statpick .sort-gap { border-radius: 0; }
+/* dashboard pins: the grip sits above the card's link (CLAUDE.md "Bugs that cost us": controls above the click target) */
+.pin-item { display: grid; }
+.pin-item > .statcard { height: 100%; padding-right: var(--es-space-40); }
+.pin-item > .pin-grip { position: absolute; top: var(--es-space-8); right: var(--es-space-8); z-index: 2; }
+
+/* Verified Content Creator (0.8.1): the mark on a checked handle (text + check, never a platform logo), the code */
+.verified-mark { display: inline-flex; align-items: center; gap: var(--es-space-4); color: var(--es-success); font: var(--es-weight-semibold) var(--es-fs-11) var(--es-font-body); letter-spacing: var(--es-tracking-tag); text-transform: uppercase; white-space: nowrap; }
+.verified-mark svg { width: var(--es-space-14); height: var(--es-space-14); }
+li.verified-mark { padding: var(--es-space-4) var(--es-space-8); border: var(--es-border-1) solid color-mix(in oklab, var(--es-success) 45%, var(--es-line)); border-radius: var(--es-radius-pill); background: var(--es-surface); }
+li.verified-mark .mono { text-transform: none; letter-spacing: 0; color: var(--es-text); }
+.code-chip { display: inline-block; padding: var(--es-space-4) var(--es-space-10); border-radius: var(--es-radius-sm); background: var(--es-sunken); color: var(--es-text); border: var(--es-border-1) solid var(--es-line-strong); font-size: var(--es-fs-14); letter-spacing: 0.06em; user-select: all; }
+.creator-steps { margin: 0; padding-left: var(--es-space-20); display: flex; flex-direction: column; gap: var(--es-space-4); }
+.creator-box { background: var(--es-surface); color: var(--es-text); }
+.creator-grant { border-top: var(--es-border-1) solid var(--es-row-sep); padding-top: var(--es-space-16); }
+.bdg-pop .creator-lines { color: var(--es-text); }
+
+/* 0.8.1: renders paused by the admin: the crest (initials) and the admin's note where the render would be */
+.render-crest { font-size: var(--es-fs-48); font-weight: var(--es-weight-bold); color: var(--es-text); letter-spacing: var(--es-tracking-display); }
+.render-paused-note { max-width: 32ch; text-align: center; color: var(--es-text-2); }
+.mk-main .render-paused-note, .render-paused-note:has(svg) { display: inline-flex; gap: var(--es-space-6); align-items: center; max-width: none; text-align: left; }

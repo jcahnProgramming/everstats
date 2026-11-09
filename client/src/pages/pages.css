@@ -23,6 +23,9 @@
 .home-emblem .emblem { width: var(--es-size-emblem-hero); max-width: 100%; }
 .home-tier-card { position: absolute; right: 4%; bottom: 8%; padding: var(--es-space-10) var(--es-space-14); }
 .home-pillars { padding-bottom: var(--es-space-72); }
+/* 0.8.1: "Why sign in?" (0.8.0) sits between the hero and the pillars. The pillars relied on the hero's bottom padding,
+   so the panel's bottom edge touched the pillar row and read as an overlap: the section now has its own band. */
+.why-sign-in { padding-top: var(--es-space-40); padding-bottom: var(--es-space-64); }
 .pillar { align-items: flex-start; flex-wrap: nowrap; }
 .pillar-numeral { font-size: var(--es-fs-30); color: var(--es-accent); line-height: var(--es-lh-none); }
 .home-featured { padding-bottom: var(--es-space-96); }
@@ -30,6 +33,7 @@
 @media (max-width: 719px) {
   .home-hero { padding-top: var(--es-space-32); padding-bottom: var(--es-space-40); gap: var(--es-space-24); }
   .home-pillars { padding-bottom: var(--es-space-40); }
+  .why-sign-in { padding-top: var(--es-space-24); padding-bottom: var(--es-space-40); }
   .home-featured { padding-bottom: var(--es-space-48); }
 }
 

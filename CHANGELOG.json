@@ -1,6 +1,28 @@
 {
   "releases": [
     {
+      "version": "0.8.1",
+      "date": "2026-11-09",
+      "title": "Better share cards, drag-and-drop ordering and Verified Content Creators",
+      "sections": {
+        "New": [
+          "Drag to reorder, everywhere you choose an order: your featured badges, a guild’s badges, the statistics on a share card and your pinned statistics. Grab the whole item and the others slide out of the way as you move it, with a clear gap where it will land. Each move saves when you drop it, with a few seconds to undo. On a phone, press and hold to pick an item up; with a keyboard, use its grip: Space to pick up, the arrow keys to move, Space to drop, Escape to cancel.",
+          "Verified Content Creators. Twitch, YouTube, Kick and TikTok creators can be verified: Everstats gives you a short code (in Settings → Profile), you put it on your channel, and staff check it by hand. Verified handles get a “Verified” mark on your profile, and the new Verified Content Creator badge lists them. If you change a verified handle, its mark comes off until staff check the new one. The badge’s artwork is temporary and will be redrawn.",
+          "Everstats can switch Blizzard’s character renders off while Blizzard’s render service draws characters wrong. When they’re off, character pages, profiles, share cards and link previews show a crest with the character’s initials and a short note instead."
+        ],
+        "Improved": [
+          "Share cards look right with real characters: the character fills its frame instead of standing small at the bottom, story cards give the character the top of the card, names stay on one line unless they’re very long, the tier label no longer wraps, the website and data credit sit in their own band inside the gold frame, and a card with an odd number of statistics centres its last row.",
+          "The Dev Team badge is now called Everstats Staff, and Moderator is now Everstats Moderator, so nobody mistakes them for Blizzard’s team. Anyone who had them still has them, and old badge links still work.",
+          "The home page now says plainly that history covers the last 29 days. Blizzard’s rules don’t let Everstats keep its data longer."
+        ],
+        "Fixed": [
+          "On the home page, the “Why sign in?” panel no longer runs into the row below it.",
+          "Gear icons on share cards were all drawn on top of each other in the middle of the character’s frame. They now line up in rows.",
+          "An X (Twitter) handle couldn’t be saved on a profile: saving failed with an error. It saves now."
+        ]
+      }
+    },
+    {
       "version": "0.8.0",
       "date": "2026-11-09",
       "title": "Share cards, link previews, transmog and weighted tiers",

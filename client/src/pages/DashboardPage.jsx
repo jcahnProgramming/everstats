@@ -5,6 +5,7 @@ import { authError } from '../authMessages.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Button, Modal } from '../components/Controls.jsx';
 import { EmptyState, Fresh } from '../components/EmptyState.jsx';
+import { Sortable } from '../components/Sortable.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
 import { useToasts } from '../components/Toasts.jsx';
 import { TierBadge, TierBrief } from '../components/Tier.jsx';
@@ -87,7 +88,7 @@ export function DashboardPage() {
         <>
           <CheckState data={data} providers={providers} linkedReader={linkedReader} />
           {data.featured ? (
-            <Featured data={data} onPick={() => setPicking(true)} />
+            <Featured data={data} onPick={() => setPicking(true)} onReordered={load} />
           ) : data.characters.length > 0 ? (
             <EmptyState kind="nodata" title="No tracked character to feature yet">
               <span>None of your characters has a public profile at Blizzard yet. Each one's state is below.</span>
@@ -150,8 +151,19 @@ function CheckState({ data, providers, linkedReader }) {
   return <span className="muted xsmall">Character list read from {linkedReader.label} {timeAgo(c.at)}: {formatNumber(c.characters)} character{c.characters === 1 ? '' : 's'}.</span>;
 }
 
-function Featured({ data, onPick }) {
+function Featured({ data, onPick, onReordered }) {
   const f = data.featured;
+  const toast = useToasts();
+  // 0.8.1: the pins reorder by drag (components/Sortable.jsx); the order is saved at once (PUT /api/account/pins), with Undo.
+  const reorder = async (ids) => {
+    try {
+      await api('/api/account/pins', { method: 'PUT', body: { statisticIds: ids } });
+      onReordered();
+    } catch (err) {
+      toast.err("Couldn't save the new order", err.message);
+      throw err;
+    }
+  };
   return (
     <section className="sheet sheet-pad stack gap-20" aria-labelledby="featured-h">
       <div className="row gap-16">
@@ -165,20 +177,25 @@ function Featured({ data, onPick }) {
         <button type="button" className="btn sm ghost" onClick={onPick}><Icon name="plus" size="sm" />Choose pins</button>
       </div>
       {f.hidden && <EmptyState kind="hidden" compact title="Hidden, so it isn't ranked"><span>Show it again in <Link to="/settings#characters">Settings</Link> to see its ranks.</span></EmptyState>}
-      <div className="grid-auto col-sm gap-14">
-        {data.pins.map((p) => (
-          <Link key={p.id} className="panel statcard" to={`/leaderboards/${f.ruleset.id}/${p.id}`}>
-            <span className="eyebrow ellipsis">{p.name ?? 'Statistic no longer available'}</span>
-            <span className="big">{p.text ? <span className="small muted">{p.text} · </span> : null}{formatNumber(p.value)}</span>
-            <span className="row gap-8 small">
-              {p.rank !== null ? <span className="t2"><b className="strong-text">#{formatNumber(p.rank)}</b> of {formatNumber(p.withAny)} with any</span> : <span className="muted">Not ranked</span>}
-              <span className={p.move > 0 ? 'up' : p.move < 0 ? 'down' : 'muted'} title={p.move === null ? 'Movement shows once there is a week of rank history' : `Since ${formatDate(p.since)}`}>
-                {p.move === null ? '—' : p.move > 0 ? `▲ ${p.move}` : p.move < 0 ? `▼ ${-p.move}` : '± 0'}
+      {data.pins.length > 0 && (
+        <Sortable items={data.pins} labelOf={(p) => p.name ?? 'Statistic no longer available'} className="grid-auto col-sm gap-14" itemClassName="pin-item"
+          ariaLabel="Pinned statistics, in order" onReorder={reorder}
+          renderItem={(p, { grip }) => (
+            <>
+              <span className="pin-grip">{grip}</span>
+              <Link className="panel statcard" draggable={false} to={`/leaderboards/${f.ruleset.id}/${p.id}`}>
+              <span className="eyebrow ellipsis">{p.name ?? 'Statistic no longer available'}</span>
+              <span className="big">{p.text ? <span className="small muted">{p.text} · </span> : null}{formatNumber(p.value)}</span>
+              <span className="row gap-8 small">
+                {p.rank !== null ? <span className="t2"><b className="strong-text">#{formatNumber(p.rank)}</b> of {formatNumber(p.withAny)} with any</span> : <span className="muted">Not ranked</span>}
+                <span className={p.move > 0 ? 'up' : p.move < 0 ? 'down' : 'muted'} title={p.move === null ? 'Movement shows once there is a week of rank history' : `Since ${formatDate(p.since)}`}>
+                  {p.move === null ? '—' : p.move > 0 ? `▲ ${p.move}` : p.move < 0 ? `▼ ${-p.move}` : '± 0'}
+                </span>
               </span>
-            </span>
-          </Link>
-        ))}
-      </div>
+            </Link>
+            </>
+          )} />
+      )}
       {data.pins.length === 0 && <EmptyState kind="nodata" compact title="No pinned statistics"><span>Pin statistics from any character page, or with “Choose pins”.</span></EmptyState>}
       <span className="muted xsmall">{data.pinsAreDefault ? 'These are the default pins. ' : ''}Rank movement compares with a week ago; it shows “—” until a week of history exists.</span>
     </section>

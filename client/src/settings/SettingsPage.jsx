@@ -302,6 +302,53 @@ function ProfileSection({ account, onChange }) {
   );
 }
 
+const verifiedHere = (prof, platform) => Boolean(prof.creator?.verified?.some((v) => v.platform === platform));
+
+/**
+ * Verified Content Creator (0.8.1): while a verification is pending, the code and what to do with it; once verified,
+ * which handles carry the mark. Everstats never reads the channel: staff look at it by hand.
+ */
+function CreatorBox({ creator }) {
+  const toast = useToasts();
+  const names = creator.platforms;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(creator.code);
+      toast.ok('Code copied');
+    } catch {
+      toast.err('Couldn’t copy', 'Select the code and copy it by hand.');
+    }
+  };
+  return (
+    <div className="panel pad-16 stack gap-10 creator-box" role="group" aria-labelledby="creator-box-h">
+      <span className="eyebrow" id="creator-box-h">{creator.state === 'pending' ? 'Creator verification: waiting for your code' : 'Verified Content Creator'}</span>
+      {creator.state === 'pending' ? (
+        <>
+          <div className="row gap-10 wrap-row">
+            <span className="small">Your code</span>
+            <code className="code-chip mono">{creator.code}</code>
+            <button type="button" className="btn ghost sm" onClick={copy}><Icon name="copy" size="sm" />Copy</button>
+          </div>
+          <ol className="small t2 creator-steps">
+            <li>Make sure the channel’s handle is in the {names.slice(0, -1).join(', ')} or {names.at(-1)} box below, and save.</li>
+            <li>Put the code in that channel’s bio, description or a panel, where anyone can see it.</li>
+            <li>Everstats staff look at your channel by hand (nothing reads it automatically) and verify the handles they checked. You can take the code down once they show Verified.</li>
+          </ol>
+        </>
+      ) : (
+        <>
+          {creator.verified.length > 0 ? (
+            <ul className="plain row gap-8 wrap-row">
+              {creator.verified.map((v) => <li key={v.platform} className="verified-mark"><Icon name="check" size="sm" />{v.label} · <span className="mono">{v.handle}</span></li>)}
+            </ul>
+          ) : <span className="small t2">None of your handles carries a Verified mark right now: a verified handle was changed. Staff can check the new one.</span>}
+          <span className="muted xsmall">Changing a verified handle removes its Verified mark until staff check it again. If they ask, your code is <span className="mono">{creator.code}</span>.</span>
+        </>
+      )}
+    </div>
+  );
+}
+
 /**
  * Bio, social handles and "Show my pinned stats". Handles only: Everstats builds each link itself, so there's no box
  * for a URL anywhere. Saved together; a field that isn't valid is named in the error and nothing is saved.
@@ -339,7 +386,8 @@ function ProfileDetails({ account, onChange }) {
       </div>
       <fieldset className="plain-fieldset stack gap-8">
         <legend className="eyebrow">Elsewhere</legend>
-        <span className="muted xsmall">Type just your handle; Everstats builds the link. Links show as yours and aren't verified.</span>
+        <span className="muted xsmall">Type just your handle; Everstats builds the link. Links show as yours and aren't verified{prof.creator?.verified?.length ? ', except the ones Everstats checked (below)' : ''}.</span>
+        {prof.creator && <CreatorBox creator={prof.creator} />}
         <div className="grid-auto col-md gap-10">
           {prof.platforms.map((pl) => (
             <Field
@@ -352,7 +400,7 @@ function ProfileDetails({ account, onChange }) {
               spellCheck="false"
               autoCapitalize="none"
               maxLength={253}
-              help={pl.help}
+              help={verifiedHere(prof, pl.id) && (links[pl.id] ?? '') === prof.links[pl.id] ? 'Verified by Everstats. Changing it removes the Verified mark until staff check it again.' : verifiedHere(prof, pl.id) ? 'This was your verified handle: saving a change removes its Verified mark until staff check it again.' : pl.help}
               onChange={(e) => setLinks((l) => ({ ...l, [pl.id]: e.target.value }))}
             />
           ))}

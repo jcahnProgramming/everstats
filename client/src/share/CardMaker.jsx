@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
+import { Sortable } from '../components/Sortable.jsx';
 import { Segmented, Toggle } from '../components/Controls.jsx';
 import { EmptyState } from '../components/EmptyState.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
@@ -22,8 +23,8 @@ import { formatDateTime, formatNumber } from '../format.js';
  * Choices live in this page only; "Save as my default" (the owner, or the guild's Guild Master and officers) is the only
  * way any choice is stored, and it becomes the card everyone sees first and the link preview.
  *
- * Different from the design, on purpose: statistics reorder with Move up / Move down buttons (the mockup's drag grip is
- * drawn but "not interactive"; buttons work with a keyboard and on a phone); the maker is a page, not also a modal.
+ * Statistics reorder with the shared drag-and-drop list (components/Sortable.jsx, 0.8.1; the preview re-renders on drop,
+ * with Undo); the maker is a page, not also a modal (owner's decision, 0.8.0).
  */
 const SHOW_LABELS = {
   render: 'Render', tier: 'Overall tier', badge: 'Pinned badge', guild: 'Guild', gear: 'Gear strip',
@@ -232,6 +233,7 @@ function Maker({ type, state, back, period, onPeriod, onSaved }) {
               ) : <span className="mk-blank" />}
               {busy && !failed && <div className="busy"><span role="status">Generating your card…</span></div>}
             </div>
+            {state.rendersPaused && <span className="small t2 render-paused-note" role="note"><Icon name="info" size="sm" /> {state.rendersPaused}. Cards use the crest for now.</span>}
             {state.linkPreview && (
               <div className="panel linkprev">
                 <img src={`${state.linkPreview}${state.linkPreview.includes('?') ? '&' : '?'}v=${encodeURIComponent(state.saved?.savedAt ?? 'default')}`} alt="Link preview card" />
@@ -332,20 +334,12 @@ function StatPicker({ state, opts, set, shown }) {
   const [q, setQ] = useState('');
   const byId = useMemo(() => new Map(state.choices.stats.map((s) => [s.id, s])), [state.choices.stats]);
   const chosen = (opts.stats ?? []).filter((id) => byId.has(id));
-  const move = (i, d) => {
-    const next = [...chosen];
-    [next[i], next[i + d]] = [next[i + d], next[i]];
-    set({ stats: next });
-  };
   const toggle = (id) => set({ stats: chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id].slice(0, state.maxStats) });
   const needle = q.trim().toLowerCase();
   const more = state.choices.stats.filter((s) => !chosen.includes(s.id) && (!needle || s.name.toLowerCase().includes(needle))).slice(0, needle ? 40 : 8);
-  const row = (s, i) => (
+  const row = (s, i, grip = null) => (
     <div key={s.id} className={`sp${s.available ? '' : ' is-disabled'}`}>
-      <span className="mk-moves">
-        {i !== null && <button type="button" className="mk-move" aria-label={`Move ${s.name} up`} disabled={i === 0} onClick={() => move(i, -1)}><Icon name="chevron-up" size="sm" /></button>}
-        {i !== null && <button type="button" className="mk-move" aria-label={`Move ${s.name} down`} disabled={i === chosen.length - 1} onClick={() => move(i, 1)}><Icon name="chevron-down" size="sm" /></button>}
-      </span>
+      {grip ?? <span />}
       <input type="checkbox" aria-label={s.name} checked={chosen.includes(s.id)} disabled={!s.available || (!chosen.includes(s.id) && chosen.length >= state.maxStats)} onChange={() => toggle(s.id)} />
       <span className={`ellipsis${i !== null && i >= shown ? ' muted' : ''}`}>{s.name}</span>
       <span className="val">{s.available ? `${formatNumber(s.value)}${s.rank ? ` · #${formatNumber(s.rank)}` : ''}` : 'Not enough data yet'}</span>
@@ -354,7 +348,11 @@ function StatPicker({ state, opts, set, shown }) {
   return (
     <div className="mk-sec">
       <div className="hd"><span className="eyebrow">Statistics</span><span className="muted xsmall">{chosen.length} of {state.maxStats} · defaults to the owner’s pins</span></div>
-      <div className="statpick">{chosen.length ? chosen.map((id, i) => row(byId.get(id), i)) : <span className="muted xsmall mk-empty">Pick at least one.</span>}</div>
+      {chosen.length ? (
+        <Sortable items={chosen.map((id) => byId.get(id))} labelOf={(x) => x.name} className="statpick" itemClassName="sp-item" ariaLabel="Statistics on the card, in order"
+          doneText="Moved: the preview is updating" undoText="Order restored" onReorder={(ids) => set({ stats: ids })}
+          renderItem={(x, { grip, index }) => row(x, index, grip)} />
+      ) : <div className="statpick"><span className="muted xsmall mk-empty">Pick at least one.</span></div>}
       <span className="muted xsmall">This format and layout show the first {shown}.</span>
       <label className="field"><span className="xsmall t2">Add a statistic</span><input className="inp" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search this character’s statistics" /></label>
       {more.length > 0 && <div className="statpick">{more.map((s) => row(s, null))}</div>}

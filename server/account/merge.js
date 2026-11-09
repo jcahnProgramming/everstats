@@ -110,6 +110,20 @@ export const MERGE_STEPS = [
     },
   },
   {
+    id: 'creator',
+    describe: 'Creator verification: if only this account was verified as a content creator, the account you keep takes it over. A Verified mark moves only where the kept account’s profile has exactly the same handle.',
+    async run(q, from, to) {
+      // creator_verifications / creator_handles (0.8.1). The kept account's own verification wins.
+      if (await q.one('SELECT 1 AS x FROM creator_verifications WHERE account_id = $1', [to])) return;
+      await q.query('UPDATE creator_verifications SET account_id = $2 WHERE account_id = $1', [from, to]);
+      await q.query(
+        `UPDATE creator_handles h SET account_id = $2 WHERE h.account_id = $1
+            AND EXISTS (SELECT 1 FROM account_social_links l WHERE l.account_id = $2 AND l.platform = h.platform AND l.handle = h.handle)`,
+        [from, to],
+      );
+    },
+  },
+  {
     id: 'guild_officers',
     describe: 'Guild officer roles move to the account you keep.',
     run: (q, from, to) => q.query(

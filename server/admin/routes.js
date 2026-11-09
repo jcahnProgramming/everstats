@@ -8,6 +8,8 @@ import { clearCookie, COOKIE, readCookie, setCookie } from '../auth/cookies.js';
 import { startFlow, takeFlow } from '../auth/flows.js';
 import { authenticationOptions, claimedCredentialId, registrationOptions, verifyAuthentication, verifyRegistration } from '../auth/passkeys.js';
 import { listSettings, setSetting } from './settings.js';
+import { RENDER_SETTING_KEYS } from '../characters/renders.js';
+import { clearCardMemo } from '../cards/routes.js';
 import { crawlerStatus } from './crawler.js';
 import { backupStatus } from '../core/backup.js';
 import { betaState, setBetaOpen } from '../beta.js';
@@ -111,6 +113,8 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
       beta: await betaState(db),
       // Blizzard's 30-day rule: the window, the last sweep and the oldest Blizzard data still stored (retention/).
       retention: await retentionStatus(db),
+      // 0.8.1: verified creator handles that changed and the admin hasn't checked yet (badges/creators.js)
+      creatorAlerts: (await db.one('SELECT count(*)::int AS n FROM creator_verifications WHERE handle_alert_at IS NOT NULL')).n,
     });
   }));
 
@@ -145,7 +149,14 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
   }));
 
   r.put('/settings/:key', writes, route(async (req, res) => {
-    await setSetting(db, req.params.key, req.body?.value);
+    await setSetting(db, req.params.key, req.body?.value); // logged in admin_events ('setting.changed')
+    // 0.8.1: turning Blizzard renders off or on (or changing the note) clears every cached share card, so no image made
+    // the other way is served (the 60-second card data memo too); the clear is logged with how many went.
+    if (RENDER_SETTING_KEYS.includes(req.params.key)) {
+      const gone = await db.query('DELETE FROM share_card_images RETURNING 1');
+      clearCardMemo();
+      await db.query("INSERT INTO admin_events (type, detail) VALUES ('cards.cache_cleared', $1::jsonb)", [JSON.stringify({ reason: req.params.key, images: gone.length })]);
+    }
     res.json({ settings: await listSettings(db) });
   }));
 
