@@ -14,6 +14,7 @@ import { PlayersSection, ReservedSection } from './PlayersSection.jsx';
 import { RetentionSection } from './RetentionSection.jsx';
 import { ActivitySection } from './ActivitySection.jsx';
 import { CardsSection } from './CardsSection.jsx';
+import { CollectionsSection } from './CollectionsSection.jsx';
 import { PRIORITY, PRIORITY_VALUES } from '../../../server/crawler/queue.js';
 
 /**
@@ -84,6 +85,7 @@ export function AdminPage() {
         <RetentionSection retention={state.retention} setting={state.settings.find((st) => st.key === 'retention.window')} onSaved={load} />
         <RendersSection settings={state.settings} onSaved={(settings) => setState((st) => ({ ...st, settings }))} />
         <CardsSection settings={state.settings} onSaved={(settings) => setState((st) => ({ ...st, settings }))} />
+        <CollectionsSection />
         <BackupsSection backups={state.backups} />
         <ProxiesSection proxies={state.proxies} />
         <PlayersSection />

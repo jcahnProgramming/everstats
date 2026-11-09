@@ -27,6 +27,7 @@ import { ProfilePage } from './pages/ProfilePage.jsx';
 import { SearchPage } from './pages/SearchPage.jsx';
 import { SecondFactorPage, SignInPage } from './pages/SignInPages.jsx';
 import { StatLeaderboardPage } from './pages/StatLeaderboardPage.jsx';
+import { GoldBoardPage } from './pages/GoldBoardPage.jsx';
 import { HowTiersPage, TierBoardPage } from './pages/TiersPages.jsx';
 import { SessionProvider } from './session.jsx';
 import { MergePage } from './settings/MergePage.jsx';
@@ -45,13 +46,18 @@ export function App() {
             {/* The signed-in dashboard IS the home page; /dashboard is a natural guess, so it goes there. */}
             <Route path="dashboard" element={<Navigate to="/" replace />} />
             <Route path="c/:slug" element={<CharacterPage />} />
+            {/* 0.9.0: the Collections tab and its screens (design/v4-collections). */}
+            <Route path="c/:slug/collections" element={<CharacterPage tab="collections" />} />
+            <Route path="c/:slug/collections/:screen" element={<CharacterPage tab="collections" />} />
             {/* 0.8.0: the card maker, at the designed routes (design/v3-share-cards). */}
             <Route path="c/:slug/share" element={<CardMakerPage type="character" />} />
             <Route path="c/:slug/tier/share" element={<CardMakerPage type="tier" />} />
+            <Route path="c/:slug/collections/share" element={<CardMakerPage type="collections" />} />
             <Route path="g/:slug/share" element={<CardMakerPage type="guild" />} />
             <Route path="leaderboards/:ruleset/:statistic/share" element={<CardMakerPage type="board" />} />
             <Route path="leaderboards/guilds/:ruleset/:statistic/share" element={<CardMakerPage type="board" />} />
             <Route path="leaderboards" element={<LeaderboardsPage />} />
+            <Route path="leaderboards/gold/:ruleset/:field" element={<GoldBoardPage />} />
             <Route path="leaderboards/:ruleset/:statistic" element={<StatLeaderboardPage />} />
             <Route path="leaderboards/guilds/:ruleset/:statistic" element={<GuildBoardPage />} />
             <Route path="tiers" element={<TierBoardPage />} />

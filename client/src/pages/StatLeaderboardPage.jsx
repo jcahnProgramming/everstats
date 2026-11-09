@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { EmptyState, Provenance } from '../components/EmptyState.jsx';
+import { GLYPHS } from '../collections/glyphs.js';
 import { Segmented } from '../components/Controls.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
 import { RankedTable, RulesetSwitcher } from '../components/Stats.jsx';
@@ -102,6 +103,7 @@ export function StatLeaderboardPage() {
           </nav>
           <h1 className="h1">{s.name ?? 'Statistic no longer available'}</h1>
           <span className="t2 small">{grading}.{s.named ? ' Ranked by the number; the name beside it is what this character did most.' : ''}</span>
+          <CollectionBoardNote collection={data.collection} />
         </div>
         <RulesetSwitcher rulesets={data.rulesets} value={data.ruleset.id} onChange={(id) => navigate(`/leaderboards/${id}/${s.id}${period === 'overall' ? '' : `?period=${period}`}`)} />
       </div>
@@ -152,7 +154,7 @@ export function StatLeaderboardPage() {
               </>
             )}
             {data.data?.newest ? (
-              <Provenance source="Blizzard achievement statistics, refreshed daily for every tracked character" fetchedAt={data.data.newest}>
+              <Provenance source={data.collection ? 'Counted by Everstats from Blizzard’s character collections, refreshed weekly (and at sign-in, or when the Collections tab is opened)' : 'Blizzard achievement statistics, refreshed daily for every tracked character'} fetchedAt={data.data.newest}>
                 <span className="muted">Oldest on this board: {timeAgo(data.data.oldest)}</span>
               </Provenance>
             ) : null}
@@ -176,6 +178,7 @@ export function StatLeaderboardPage() {
             <div className="kv"><span className="t2">Category</span><span>{s.category}</span></div>
             <div className="kv"><span className="t2">Ruleset</span><span>{data.ruleset.name}</span></div>
             <div className="kv"><span className="t2">Ties</span><span>share a rank</span></div>
+            {data.collection && <div className="kv"><span className="t2">Scope</span><span>{scopeText(data.collection)}</span></div>}
             {!data.collecting && <div className="kv"><span className="t2">Above zero</span><span>{formatNumber(data.nonzero)}</span></div>}
           </section>
           <section className="panel pad-20 stack gap-12" aria-labelledby="guilds-h">
@@ -187,4 +190,26 @@ export function StatLeaderboardPage() {
       </div>
     </div>
   );
+}
+
+/**
+ * 0.9.0: collection boards rank CHARACTERS, not accounts: Everstats can't link a stranger's characters into one account,
+ * so where a collection is shared across a Battle.net account, an account's alts can sit side by side. Said only from
+ * what's known: detected on accounts Everstats has seen, or stated by Blizzard.
+ */
+function scopeText(c) {
+  if (c.how === 'detected') return c.shared ? 'Shared across an account (detected)' : 'Per character';
+  if (c.how === 'stated') return c.partial ? 'Partly account-wide (Blizzard)' : c.accountWide ? 'Shared across an account (Blizzard)' : 'Per character';
+  return 'Per character';
+}
+function CollectionBoardNote({ collection: c }) {
+  if (!c) return null;
+  let text = null;
+  if (c.how === 'detected' && c.shared) text = `On ${formatNumber(c.shared)} of ${formatNumber(c.accounts)} accounts Everstats has seen with two or more characters, every character has the identical collection: it looks shared across a Battle.net account, so an account's alts can sit side by side here. This board ranks characters.`;
+  else if (c.how === 'detected' && c.accounts) text = `Checked on ${formatNumber(c.accounts)} account${c.accounts === 1 ? '' : 's'} with two or more characters: not identical, so this looks per character.`;
+  else if (c.how === 'detected') text = 'Whether this is shared across a Battle.net account isn’t known yet: Everstats needs an account with two or more fetched characters to compare.';
+  else if (c.how === 'stated' && c.partial) text = `Blizzard marks ${formatNumber(c.wide)} of its ${formatNumber(c.total)} achievements as account-wide, so part of every count is shared by an account's characters.`;
+  else if (c.how === 'stated' && c.accountWide) text = 'Blizzard marks every achievement that grants Legacy Points as account-wide, so an account’s characters share this total and can sit side by side here. This board ranks characters.';
+  if (!text) return null;
+  return <p className="boardnote small t2"><span className="acct"><svg viewBox="0 0 24 24" aria-hidden="true" dangerouslySetInnerHTML={{ __html: GLYPHS.acct }} /><span>Account-wide</span></span><span>{text}</span></p>;
 }

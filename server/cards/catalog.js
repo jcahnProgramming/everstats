@@ -52,7 +52,17 @@ export const CARD_TYPES = Object.freeze({
     toggles: { cats: true, next: true },
     template: (format, layout) => `tier/${format}-${layout}.html`,
   },
+  // 0.9.0: design/v4-collections/cards (kit/v4-collections/cards/collections/*.html, verbatim). One layout per format.
+  collections: {
+    label: 'Collections card',
+    root: 'v4-collections/cards',
+    layouts: { a: 'Counts and showcase' },
+    toggles: { transmog: true, guild: true, showcase: true },
+    template: (format) => `collections/${format}.html`,
+  },
 });
+/** Where a type's templates live in the kit (v3 for the 0.8.0 types). */
+export const templateRoot = (type) => CARD_TYPES[type]?.root ?? 'v3-share-cards/cards';
 
 /** How many statistics a character card's format and layout show (README "Format rules"). */
 export function statsShown(format, layout) {

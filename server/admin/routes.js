@@ -143,6 +143,32 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
     const defaults = await db.query('SELECT kind, count(*)::int AS n FROM share_card_defaults GROUP BY kind ORDER BY kind LIMIT 10');
     res.json({ renderer: cardStats(), cache: { ...cache, bytes: Number(cache.bytes) }, defaults });
   }));
+  // 0.9.0: collections. Each catalog's state and MEASURED cost (requests and bytes counted as they were asked), the
+  // Legacy reward texts found in the achievement catalog (counted vs not), account-wide evidence, and the per-character
+  // refresh cost measured from the last hour's finished refreshes. Nothing here is estimated except where it says so.
+  r.get('/collections', route(async (req, res) => {
+    const { catalogStatus, catalogMap } = await import('../collections/catalog.js');
+    const { legacyPatterns } = await import('../collections/legacy.js');
+    const { sharingEvidence } = await import('../collections/store.js');
+    const { KINDS } = await import('../collections/registry.js');
+    const ach = [...(await catalogMap(db, 'achievement', { limit: 20_000 })).values()];
+    const outcomes = await db.query("SELECT outcome FROM crawl_queue WHERE kind = 'collections' AND state = 'done' AND outcome LIKE 'collections:%' LIMIT 5000");
+    const parsed = outcomes.map((o) => /(\d+) of (\d+) returned, (\d+) KB/.exec(o.outcome)).filter(Boolean).map((m) => ({ returned: Number(m[1]), asked: Number(m[2]), kb: Number(m[3]) }));
+    const tracked = await db.one(`SELECT count(*)::int AS n, count(*) FILTER (WHERE class = 'Hunter')::int AS hunters, count(*) FILTER (WHERE collections_fetched_at IS NOT NULL)::int AS with_collections
+                                    FROM characters WHERE profile_state = 'ok' AND level >= 10 AND stats_fetched_at IS NOT NULL`);
+    res.json({
+      catalogs: await catalogStatus(db),
+      legacy: { ...legacyPatterns(ach), achievements: ach.length, withDetails: ach.filter((a) => a.reward !== undefined || a.description !== undefined).length },
+      sharing: await sharingEvidence(db),
+      refreshes: {
+        lastHour: parsed.length,
+        requestsEach: parsed.length ? Math.round(parsed.reduce((n, p) => n + p.asked, 0) / parsed.length * 10) / 10 : null,
+        kbEach: parsed.length ? Math.round(parsed.reduce((n, p) => n + p.kb, 0) / parsed.length) : null,
+        endpoints: KINDS.length,
+      },
+      tracked,
+    });
+  }));
   r.use('/', createAdminFeedbackRouter({ db, writes }));
   r.use('/', createAdminActivityRouter({ db, writes }));
 

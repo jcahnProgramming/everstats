@@ -104,6 +104,21 @@ export function createCollectionsRouter({ db, limits, networkOf }) {
     res.json({ public: on });
   }));
 
+  // The owner's own gold, for the dashboard: every owned character Everstats has gold for (private unless shared).
+  r.get('/account/gold', route(async (req, res) => {
+    const viewer = viewerOf(req);
+    if (!viewer) throw new HttpError(401, 'Sign in first.', 'signed_out');
+    const rows = await db.query(
+      `SELECT c.id, c.slug, c.name, c.surname, g.money, g.gold_gained, g.gold_lost, g.item_value_gained, g.fetched_at,
+              EXISTS (SELECT 1 FROM character_gold_public p WHERE p.character_id = c.id AND p.account_id = $1) AS public
+         FROM characters c JOIN character_gold g ON g.character_id = c.id AND g.account_id = $1
+        WHERE c.owner_account_id = $1 ORDER BY g.money DESC NULLS LAST, c.id LIMIT 50`,
+      [viewer],
+    );
+    const n = (v) => (v === null ? null : Number(v));
+    res.json({ characters: rows.map((r) => ({ id: Number(r.id), slug: r.slug, name: r.name, surname: r.surname, public: r.public, fetchedAt: r.fetched_at, fields: { money: n(r.money), gained: n(r.gold_gained), lost: n(r.gold_lost), items: n(r.item_value_gained) } })) });
+  }));
+
   r.get('/gold-boards', route(async (req, res) => {
     const rulesets = await rulesetList(db);
     const asked = req.query.ruleset !== undefined ? Number(req.query.ruleset) : null;

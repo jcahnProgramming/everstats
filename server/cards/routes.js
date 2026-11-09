@@ -46,7 +46,7 @@ const str = (v, max = 200) => (typeof v === 'string' && v.length <= max ? v : nu
 /** The subject's parameters from a query string, validated. → { type, params } or throws 404. */
 export function subjectFrom(type, q) {
   if (!CARD_TYPES[type]) throw new HttpError(404, 'No such card.', 'no_card');
-  if (type === 'character' || type === 'tier') {
+  if (type === 'character' || type === 'tier' || type === 'collections') {
     const c = parseSlug(str(q.c) ?? '');
     if (!c) throw new HttpError(404, 'No such character.', 'not_found');
     return { type, params: { c: c.slug } };
@@ -93,13 +93,14 @@ export const clearCardMemo = () => memo.clear();
 
 /** Blizzard's images in the data → data: URIs (images.js). A render that can't be fetched → the crest version. */
 async function withImages(data, fetch) {
-  const urls = (data.gear ?? []).map((g) => g.icon).filter(Boolean);
+  const urls = [...(data.gear ?? []), ...(data.showcase ?? [])].map((g) => g.icon).filter(Boolean);
   if (!urls.length && !data.render) return data;
   const [got, render] = await Promise.all([fetchImages(urls, { fetch }), data.render ? fetchRender(data.render, { fetch }) : null]);
   return {
     ...data,
     render: data.render ? render ?? null : data.render,
     ...(data.gear ? { gear: data.gear.map((g) => ({ ...g, icon: g.icon ? got.get(g.icon) ?? null : null })) } : {}),
+    ...(data.showcase ? { showcase: data.showcase.map((g) => ({ ...g, icon: g.icon ? got.get(g.icon) ?? null : null })) } : {}),
   };
 }
 
@@ -231,7 +232,7 @@ export function createCardApiRouter({ db, limits, networkOf }) {
     const id = await subjectId(db, type, params);
     const role = await saveRole(db, req, type, params);
     const saved = id && ['character', 'tier', 'guild'].includes(type) ? await savedDefault(db, type, id) : null;
-    const MAKER_FORMAT = { character: 'square', guild: 'square', board: 'story', tier: 'wide' };
+    const MAKER_FORMAT = { character: 'square', guild: 'square', board: 'story', tier: 'wide', collections: 'square' };
     const initial = saved?.options ?? cleanOptions(type, { ...defaultOptions(type), format: MAKER_FORMAT[type] });
     const card = await built(db, type, params, initial);
     const head = {

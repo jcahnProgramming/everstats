@@ -20,6 +20,7 @@ import { characterTierView, tierBrief } from '../tiers/view.js';
 import { badgeContext, publicBadgesOf } from '../badges/store.js';
 import { CREATOR_BADGE, creatorLines, verifiedHandles } from '../badges/creators.js';
 import { renderSwitch } from './renders.js';
+import { boardSharing } from '../collections/view.js';
 import { countActivity, looksAutomated } from '../activity/count.js';
 import { whySignIn } from '../signin/benefits.js';
 import { PROVIDERS } from '../auth/providers.js';
@@ -333,6 +334,8 @@ export function createPublicRouter({ db, limits, networkOf }) {
     const head = {
       statistic: { id: stat.id, name: stat.name, category: stat.category, categoryKey: categoryKey(stat.category), grading: stat.grading, named: stat.named, valueType: stat.valueType, farmable: stat.farmable, tierRole: stat.tierRole ?? 'undecided', countsOverall: Boolean(stat.countsOverall) },
       ruleset, rulesets, period, periods,
+      // 0.9.0: a count Everstats makes from collections: where it comes from and what's known about it being shared.
+      collection: stat.derived ? await boardSharing(db, stat.id) : null,
     };
     if (period !== 'overall' && !periods[period].open) return res.json({ ...head, collecting: true, rows: [], next: null });
 

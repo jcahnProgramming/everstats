@@ -47,7 +47,7 @@ export async function collectionsOverview(db, ch) {
     const value = known ? values.get(c.id) ?? 0 : null;
     const rk = ranked && known && value > 0 ? await rankOn(db, { characterId: ch.id, statisticId: c.id, rulesetId: ch.ruleset_id }) : null;
     counts.push({
-      key: c.key, id: c.id, name: c.name, kind: c.kind, value, total: c.catalog ? totals[c.catalog] ?? null : null,
+      key: c.key, id: c.id, name: c.name, short: c.short, kind: c.kind, value, total: c.catalog ? totals[c.catalog] ?? null : null,
       rank: rk?.rank ?? null, withAny: rk?.withAny ?? null, fetchedAt: row?.fetchedAt ?? null,
       shared: sharedFor(c, { sharedKinds, achievements: earned, legacyWide }),
     });

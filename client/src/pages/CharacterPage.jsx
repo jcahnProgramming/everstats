@@ -18,6 +18,7 @@ import { useSession } from '../session.jsx';
 import { feedbackHref } from '../feedback/FeedbackPages.jsx';
 import { ShareButton } from '../share/ShareButtons.jsx';
 import { SignInNudge } from '../chrome/SignInNudge.jsx';
+import { CollectionsView } from '../collections/CollectionsView.jsx';
 
 /**
  * The character page (design/v1/pages/character): the gilt character sheet, then every statistic.
@@ -34,8 +35,8 @@ import { SignInNudge } from '../chrome/SignInNudge.jsx';
  *     has none. No Progress chart yet; the Refresh button is the page reload (a lookup refreshes).
  *   - Gear slots are split in two columns as Blizzard lists them (no fixed slot list: whatever the API returns).
  */
-export function CharacterPage() {
-  const { slug } = useParams();
+export function CharacterPage({ tab = 'stats' }) {
+  const { slug, screen = '' } = useParams();
   const parsed = parseSlug(slug);
   const [result, setResult] = useState(null); // null = waiting · body · { error }
 
@@ -115,7 +116,7 @@ export function CharacterPage() {
       </section>
     );
   } else {
-    body = <CharacterSheet data={result} onReload={load} />;
+    body = <CharacterSheet data={result} onReload={load} tab={tab} screen={screen} />;
   }
   return <div className="wrap page-pad stack gap-40">{body}</div>;
 }
@@ -127,7 +128,7 @@ const NOTICES = {
   not_configured: 'Look-ups are switched off, so this is what Everstats already had.',
 };
 
-function CharacterSheet({ data, onReload }) {
+function CharacterSheet({ data, onReload, tab = 'stats', screen = '' }) {
   const c = data.character;
   const stats = data.statistics;
   const line = [c.level !== null ? `Level ${c.level}` : null, c.race, c.class].filter(Boolean).join(' · ');
@@ -156,25 +157,33 @@ function CharacterSheet({ data, onReload }) {
             <div className="row gap-14 small">
               <span className="t2">Last seen in game: <b className="strong-text">{c.lastLoginAt ? timeAgo(c.lastLoginAt) : 'not reported'}</b></span>
               <Fresh at={c.fetchedAt} prefix="Data as of " />
-              <button type="button" className="btn ghost sm" onClick={onReload}><Icon name="refresh" size="sm" />Refresh</button>
+              {/* 0.9.0: a manual Refresh also refreshes collections (at lookup priority, same per-network limit). */}
+              <button type="button" className="btn ghost sm" onClick={() => { api(`/api/characters/${encodeURIComponent(c.slug)}/collections/refresh`, { method: 'POST' }).catch(() => {}); onReload(); }}><Icon name="refresh" size="sm" />Refresh</button>
               {!c.hidden && <ShareButton to={`/c/${encodeURIComponent(c.slug)}/share`} />}
             </div>
           </div>
           <OverallTier tiers={data.tiers} />
         </div>
-        <div className="stack gap-20 sheet-body">
+        {/* 0.9.0: "Statistics & gear" | "Collections" (design/v4-collections, the character header's tabs). */}
+        <nav className="char-tabs" aria-label="Character sections">
+          <Link to={`/c/${encodeURIComponent(c.slug)}`} aria-current={tab === 'stats' ? 'page' : undefined}>Statistics &amp; gear<span className="muted">{formatNumber(statCount)}</span></Link>
+          <Link to={`/c/${encodeURIComponent(c.slug)}/collections`} aria-current={tab === 'collections' ? 'page' : undefined}>Collections</Link>
+        </nav>
+        {tab === 'stats' && <div className="stack gap-20 sheet-body">
           <GearSheet
             equipment={c.equipment}
             render={<CharacterRender c={c} onReload={onReload} />}
           />
           {!c.equipment?.length && <span className="muted xsmall">No equipment on the last fetch.</span>}
           <CoreStats attributes={c.attributes} equipment={c.equipment} />
-        </div>
-        <Provenance source="Blizzard Entertainment’s game data API: profile, equipment, statistics" fetchedAt={c.fetchedAt}>
+        </div>}
+        {tab === 'stats' && <Provenance source="Blizzard Entertainment’s game data API: profile, equipment, statistics" fetchedAt={c.fetchedAt}>
           <span className="muted">Render: {c.media.state === 'paused' ? 'paused on Everstats' : c.media.state === 'hidden' ? 'hidden by its owner' : c.media.state === 'ok' ? <>fetched {timeAgo(c.media.fetchedAt)} (renders lag the profile by hours)</> : 'not ready yet at Blizzard'}</span>
-        </Provenance>
+        </Provenance>}
       </section>
 
+      {tab === 'collections' && <CollectionsView character={c} screen={screen} />}
+      {tab === 'stats' && <>
       <WhyThisTier tiers={data.tiers} name={c.name} shareTo={c.hidden ? null : `/c/${encodeURIComponent(c.slug)}/tier/share`} />
 
       <Statistics stats={stats} character={c} count={statCount} tiers={data.tiers} />
@@ -185,6 +194,7 @@ function CharacterSheet({ data, onReload }) {
           <span>Everstats keeps a snapshot of {c.name}'s statistics every day, forever (tracked since {formatDateTime(c.trackedSince)}). The charts that draw them come in a later build.</span>
         </EmptyState>
       </section>
+      </>}
     </>
   );
 }

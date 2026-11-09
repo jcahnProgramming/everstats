@@ -30,8 +30,9 @@ import { useEditing } from '../chrome/updates.js';
 const SHOW_LABELS = {
   render: 'Render', tier: 'Overall tier', badge: 'Pinned badge', guild: 'Guild', gear: 'Gear strip',
   recruiting: 'Recruiting ribbon', tierbar: 'Tier bar', cats: 'Category letters', next: 'Distance to next letter',
+  transmog: 'Transmog completion', showcase: 'Mount and pet showcase',
 };
-const TYPE_LABELS = { character: 'Character card', guild: 'Guild card', board: 'Leaderboard card', tier: 'Tier card' };
+const TYPE_LABELS = { character: 'Character card', guild: 'Guild card', board: 'Leaderboard card', tier: 'Tier card', collections: 'Collections card' };
 const ACCENT_LABELS = { accent: 'Theme accent', c2: 'Accent 2', c3: 'Accent 3', c4: 'Accent 4', c5: 'Accent 5' };
 
 /** base64url of the options' JSON (UTF-8 safe): the server decodes and re-checks every value. */
@@ -47,7 +48,7 @@ function useSubject(type) {
   const [params] = useSearchParams();
   const location = useLocation();
   return useMemo(() => {
-    if (type === 'character' || type === 'tier') return { c: slug };
+    if (type === 'character' || type === 'tier' || type === 'collections') return { c: slug };
     if (type === 'guild') return { g: slug };
     const guilds = location.pathname.startsWith('/leaderboards/guilds/');
     return {

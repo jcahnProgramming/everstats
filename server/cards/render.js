@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
-import { CARD_TYPES, FORMATS } from './catalog.js';
+import { CARD_TYPES, FORMATS, templateRoot } from './catalog.js';
 
 /**
  * The share-card renderer (0.8.0): headless Chromium (playwright-core + Playwright's chromium headless shell) at
@@ -163,7 +163,7 @@ export function createCardRenderer({ maxConcurrent = () => 2, maxQueue = 8, laun
         const f = await kitFile(url.pathname);
         return f ? route.fulfill({ status: 200, contentType: f.type, body: f.body }) : route.abort('blockedbyclient');
       });
-      await page.goto(`${CARD_ORIGIN}/v3-share-cards/cards/${template}`, { timeout: RENDER_TIMEOUT_MS, waitUntil: 'load' });
+      await page.goto(`${CARD_ORIGIN}/${templateRoot(type)}/${template}`, { timeout: RENDER_TIMEOUT_MS, waitUntil: 'load' });
       await page.waitForSelector('html[data-ready="1"]', { timeout: RENDER_TIMEOUT_MS, state: 'attached' });
       if (!(await page.evaluate(() => typeof window.everstatsLayout === 'function' && window.everstatsLayout()))) throw new Error('the layout pass did not run');
       // The card's own box, as a page screenshot: no scrolling or 'stable element' waits (fill.js has finished by now).

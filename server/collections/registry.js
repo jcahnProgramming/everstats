@@ -21,6 +21,7 @@ import {
  * zero and freshness rules. They are listed on the Discovery page as statistics like any other: none counts toward a
  * tier until the owner approves it there (tiers count decisions only, never a suggestion).
  *   `count(data, ctx)` → a number, or null when it can't be counted (Legacy Points before the achievement catalog).
+ *   `short`: the label on a share card (where the full name doesn't fit).
  *   `shared`: how "Shared across this account" is known: 'detected' (identical on every fetched character of a
  *   signed-in account: collection_sharing), 'stated' (Blizzard says so per achievement), or none.
  */
@@ -53,18 +54,18 @@ export const kindById = new Map(KINDS.map((k) => [k.id, k]));
 const uniqueAppearances = (d) => new Set(d.slots.flatMap((s) => s.ids)).size;
 
 export const COUNTS = Object.freeze([
-  { key: 'appearances', n: 7, name: 'Appearances collected', kind: 'transmog', shared: 'detected', count: uniqueAppearances, catalog: 'appearance' },
-  { key: 'mounts', n: 1, name: 'Mounts collected', kind: 'mounts', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.id)).size, catalog: 'mount' },
-  { key: 'pets', n: 2, name: 'Pets collected', kind: 'pets', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.speciesId)).size, catalog: 'pet' },
-  { key: 'toys', n: 3, name: 'Toys collected', kind: 'toys', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.id)).size, catalog: 'toy' },
-  { key: 'heirlooms', n: 10, name: 'Heirlooms collected', kind: 'heirlooms', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.id)).size, catalog: 'heirloom' },
-  { key: 'titles', n: 4, name: 'Titles earned', kind: 'titles', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.id)).size, catalog: 'title' },
-  { key: 'achievements', n: 5, name: 'Achievements earned', kind: 'achievements', shared: 'stated', count: (d) => d.items.filter((a) => a.completedAt).length, catalog: 'achievement' },
+  { key: 'appearances', short: 'Appearances', n: 7, name: 'Appearances collected', kind: 'transmog', shared: 'detected', count: uniqueAppearances, catalog: 'appearance' },
+  { key: 'mounts', short: 'Mounts', n: 1, name: 'Mounts collected', kind: 'mounts', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.id)).size, catalog: 'mount' },
+  { key: 'pets', short: 'Pets', n: 2, name: 'Pets collected', kind: 'pets', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.speciesId)).size, catalog: 'pet' },
+  { key: 'toys', short: 'Toys', n: 3, name: 'Toys collected', kind: 'toys', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.id)).size, catalog: 'toy' },
+  { key: 'heirlooms', short: 'Heirlooms', n: 10, name: 'Heirlooms collected', kind: 'heirlooms', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.id)).size, catalog: 'heirloom' },
+  { key: 'titles', short: 'Titles', n: 4, name: 'Titles earned', kind: 'titles', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.id)).size, catalog: 'title' },
+  { key: 'achievements', short: 'Achievements', n: 5, name: 'Achievements earned', kind: 'achievements', shared: 'stated', count: (d) => d.items.filter((a) => a.completedAt).length, catalog: 'achievement' },
   // Blizzard's own standing name, never a tier number we'd have to interpret.
-  { key: 'exalted', n: 6, name: 'Exalted reputations', kind: 'reputations', count: (d) => d.items.filter((r) => r.standing === 'Exalted').length },
+  { key: 'exalted', short: 'Exalted', n: 6, name: 'Exalted reputations', kind: 'reputations', count: (d) => d.items.filter((r) => r.standing === 'Exalted').length },
   // Named apart from Blizzard's own "Quests completed" statistic: this one counts Blizzard's completed-quest list.
-  { key: 'quests', n: 8, name: 'Completed quests (quest log)', kind: 'quests-completed', count: (d) => d.items.length },
-  { key: 'legacy', n: 9, name: 'Legacy Points', kind: 'achievements', shared: 'stated', count: (d, ctx) => (ctx.achievementCatalog?.size ? legacyOf(d.items, ctx.achievementCatalog).points : null) },
+  { key: 'quests', short: 'Quests', n: 8, name: 'Completed quests (quest log)', kind: 'quests-completed', count: (d) => d.items.length },
+  { key: 'legacy', short: 'Legacy Points', n: 9, name: 'Legacy Points', kind: 'achievements', shared: 'stated', count: (d, ctx) => (ctx.achievementCatalog?.size ? legacyOf(d.items, ctx.achievementCatalog).points : null) },
 ].map((c) => Object.freeze({ ...c, id: derivedId(c.n) })));
 export const countById = new Map(COUNTS.map((c) => [c.id, c]));
 export const countByKey = new Map(COUNTS.map((c) => [c.key, c]));

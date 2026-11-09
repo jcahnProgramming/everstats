@@ -539,3 +539,34 @@ li.verified-mark .mono { text-transform: none; letter-spacing: 0; color: var(--e
   .tbl.probe-stack td.probe-fields:empty { display: none; }
   .tbl.probe-stack td > div { min-width: 0; }
 }
+
+/* 0.9.0 Collections (design/v4-collections; its CSS is theme/collections.css, verbatim). App additions only:
+   the character page tabs, the collections sub-navigation (links that look like the segmented control), a tracker with
+   no slot picker (pets: grid | detail pane), and small helpers the screens use. */
+.char-tabs { display: flex; gap: var(--es-space-4); border-bottom: var(--es-border-1) solid var(--es-line); overflow-x: auto; }
+.char-tabs a { padding: var(--es-space-10) var(--es-space-14); color: var(--es-text-2); text-decoration: none; font-weight: var(--es-weight-semibold); font-size: var(--es-fs-14); border-bottom: var(--es-border-2) solid transparent; margin-bottom: calc(var(--es-border-1) * -1); white-space: nowrap; }
+.char-tabs a:hover { color: var(--es-text); }
+.char-tabs a[aria-current="page"] { color: var(--es-text); border-bottom-color: var(--es-accent); }
+.char-tabs a .muted { margin-left: var(--es-space-6); font-weight: var(--es-weight-medium); }
+.coll-nav .seg { max-width: 100%; }
+.seg .seg-link { min-height: var(--es-size-control-md); padding: 0 var(--es-space-14); border-radius: var(--es-radius-md); color: var(--es-text-2); font: var(--es-weight-medium) var(--es-fs-13) var(--es-font-body); display: inline-flex; align-items: center; white-space: nowrap; text-decoration: none; }
+.seg .seg-link:hover { color: var(--es-text); background: color-mix(in oklab, var(--es-raised) 60%, transparent); }
+.seg .seg-link.is-current { background: var(--es-raised); color: var(--es-text); box-shadow: 0 0 0 var(--es-border-1) var(--es-line-strong); }
+.pad-14 { padding: var(--es-space-14); }
+details.panel > summary { cursor: pointer; font-weight: var(--es-weight-semibold); }
+.tracker.no-picker { grid-template-columns: minmax(0, 1fr) var(--es-coll-detail-w); }
+.tracker.no-picker.no-detail { grid-template-columns: minmax(0, 1fr); }
+.tracker > .picker { min-width: 0; }
+.slotpick .slot-group { display: contents; }
+.cg.sm-glyph { width: var(--es-size-icon-sm); height: var(--es-size-icon-sm); color: var(--es-muted); }
+.tag.sm { padding: 0 var(--es-space-6); font-size: var(--es-fs-11); margin-left: var(--es-space-6); }
+.ccount .pinbtn { justify-self: end; }
+.gold-panel .kvgrid .cell b { font-size: var(--es-fs-18); }
+.cdetail .item .nm.q-common, .cdetail .item .nm.q-poor { color: var(--es-text); }
+@media (max-width: 719px) {
+  .tracker.no-picker { grid-template-columns: minmax(0, 1fr); }
+  .slotpick .slot-group .grp { display: none; }
+}
+.gold-panel .kvgrid .cell b { white-space: nowrap; }
+.gold-panel .kvgrid { grid-template-columns: repeat(auto-fill, minmax(min(var(--es-size-col-min-sm), 100%), 1fr)); }
+.tm-allslots { flex: 1 1 var(--es-size-col-min); min-width: 0; }

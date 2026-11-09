@@ -86,7 +86,7 @@ export function CategoryHeader({ title, summary, letter = null, boardsTo = null,
  * (the last one names the statistic). With no rows it renders the header alone, for the caller to put an empty state
  * under, as design/v1/states/no-data-yet does.
  */
-export function RankedTable({ valueLabel = 'Value', rows = [], showTier = true, showGuild = true, showMove = true, share = null }) {
+export function RankedTable({ valueLabel = 'Value', rows = [], showTier = true, showGuild = true, showMove = true, share = null, formatValue = formatNumber }) {
   // 0.8.0: share(row) → { to, label } | null: an icon-only share link per row (share-button.md). On phones it sits
   // beside the row's own link (a sibling, never inside it), always visible.
   return (
@@ -119,7 +119,7 @@ export function RankedTable({ valueLabel = 'Value', rows = [], showTier = true, 
                 {showTier && <td><TierBadge letter={r.letter ?? null} size="sm" /></td>}
                 {showGuild && <td className="t2">{r.guild && r.guildSlug ? <Link to={`/g/${encodeURIComponent(r.guildSlug)}`}>{r.guild}</Link> : (r.guild ?? '')}</td>}
                 {showMove && <td className={`r ${r.move > 0 ? 'up' : r.move < 0 ? 'down' : 'muted'}`}>{r.move > 0 ? `▲ ${r.move}` : r.move < 0 ? `▼ ${-r.move}` : '–'}</td>}
-                <td className="r strong">{r.valueText && <span className="muted xsmall named">{r.valueText} · </span>}{formatNumber(r.value)}</td>
+                <td className="r strong">{r.valueText && <span className="muted xsmall named">{r.valueText} · </span>}{formatValue(r.value)}</td>
                 {share && <td className="r">{share(r) && <ShareRowButton {...share(r)} />}</td>}
               </tr>
             ))}
@@ -133,7 +133,7 @@ export function RankedTable({ valueLabel = 'Value', rows = [], showTier = true, 
               <Link to={`/c/${encodeURIComponent(r.slug)}`}>
                 <span className={`rk${r.rank <= 3 ? ` r${r.rank}` : ''}`}>{formatNumber(r.rank)}</span>
                 <span className="strong ellipsis">{r.name} {r.surname}</span>
-                <span className="strong">{r.valueText && <span className="muted xsmall">{r.valueText} · </span>}{formatNumber(r.value)}</span>
+                <span className="strong">{r.valueText && <span className="muted xsmall">{r.valueText} · </span>}{formatValue(r.value)}</span>
                 <span className="muted xsmall ellipsis">{r.detail}</span>
                 {showTier && <TierBadge letter={r.letter ?? null} size="sm" />}
               </Link>

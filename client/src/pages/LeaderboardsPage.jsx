@@ -6,6 +6,7 @@ import { EmptyState, UnrankedNote } from '../components/EmptyState.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
 import { Segmented } from '../components/Controls.jsx';
 import { RulesetSwitcher } from '../components/Stats.jsx';
+import { GoldBoardsSection } from './GoldBoardPage.jsx';
 import { TierLegend } from '../components/Tier.jsx';
 import { formatNumber } from '../format.js';
 import { useCoverage } from '../useCoverage.js';
@@ -165,6 +166,9 @@ export function LeaderboardsPage() {
           <span>A guild is ranked once {data.minMembers} of its members are tracked. {formatNumber(data.guildsWithMembers ?? 0)} guild{data.guildsWithMembers === 1 ? ' has' : 's have'} at least one so far.</span>
         </EmptyState>
       )}
+
+      {/* 0.9.0: gold boards (opt-in only). Characters view only: guilds have no gold. */}
+      {!guilds && rs && <GoldBoardsSection ruleset={rs.id} />}
 
       <section className="panel pad-24 stack gap-16" aria-labelledby="grading-h">
         <h2 className="h2 h2-panel" id="grading-h">Tiers</h2>

@@ -452,7 +452,65 @@ export async function boardCard(db, { rulesetId, statisticId, period, c: cSlug =
 }
 
 /** Dispatch by type. `params` are the subject's (slug, or board coordinates). */
+// ------------------------------------------------------------------------------------------------ collections
+
+/**
+ * 0.9.0 Collections card (design/v4-collections/cards): transmog completion (% with Blizzard's appearance catalog, the
+ * plain count without), up to 6 counts (only real values above zero; the account glyph only where "shared" is known),
+ * and up to 6 mount and pet icons from Blizzard's catalogs (no icon: the frame stays empty, never a stand-in).
+ */
+export async function collectionsCard(db, { slug, options }) {
+  const found = await characterBySlug(db, slug);
+  if (found.status !== 'ok') return found;
+  const row = found.row;
+  if (!row.collections_fetched_at) return { status: 'unavailable', reason: 'Everstats hasn’t fetched this character’s collections yet.' };
+  const { collectionsOverview, collectionSection } = await import('../collections/view.js');
+  const o = await collectionsOverview(db, row);
+  const c = await characterView(db, row);
+  const counts = o.counts.filter((k) => k.value > 0 && k.key !== 'appearances').sort((a, b) => b.value - a.value).slice(0, 6)
+    .map((k) => ({ label: k.short ?? k.name, value: num(k.value), cls: k.shared ? 'acct' : '' }));
+  const app = o.counts.find((k) => k.key === 'appearances');
+  if (!counts.length && !(app?.value > 0)) return { status: 'unavailable', reason: 'This character has no collection count above zero yet, and only real values go on a card.' };
+  const showcase = [];
+  for (const kind of ['mounts', 'pets']) {
+    const s = await collectionSection(db, row, kind);
+    for (const x of s?.collected ?? []) if (showcase.length < 6) showcase.push({ name: x.name ?? '', q: x.quality ? 'q-' + x.quality : '', icon: x.icon ?? null, glyph: '' });
+  }
+  const pct = app?.total ? Math.floor((app.value / app.total) * 100) : null;
+  const data = {
+    theme: options.theme,
+    accent: options.accent,
+    url: host() + '/c/' + row.slug + '/collections',
+    asof: asOf(row.collections_fetched_at),
+    first: row.name,
+    last: row.surname,
+    meta: [row.level !== null ? 'Level ' + row.level : null, row.race, row.class].filter(Boolean).join(' · '),
+    faction: row.faction ?? '',
+    ruleset: c.ruleset?.name ?? '',
+    guild: c.guild?.name ?? '',
+    transmog: app?.value > 0
+      ? (pct !== null ? { big: pct + '%', sub: num(app.value) + ' / ' + num(app.total) + ' appearances', w: pct } : { big: num(app.value), sub: 'appearances collected', w: null })
+      : { big: '–', sub: 'appearances', w: null },
+    counts,
+    showcase: options.show.showcase && showcase.length ? showcase : null,
+    show: { transmog: options.show.transmog && app?.value > 0, guild: options.show.guild && Boolean(c.guild), acct: counts.some((k) => k.cls === 'acct') },
+  };
+  return {
+    status: 'ok',
+    data,
+    dataAt: oldest(row.collections_fetched_at),
+    characterIds: [Number(row.id)],
+    guildIds: [],
+    title: row.name + ' ' + row.surname + ' · Collections',
+    description: counts.slice(0, 3).map((k) => k.value + ' ' + k.label.toLowerCase()).join(', ') + ' on Everstats, from Blizzard’s data as of ' + data.asof + '.',
+    page: '/c/' + row.slug + '/collections',
+    ownerAccountId: row.owner_account_id === null ? null : Number(row.owner_account_id),
+    subjectKey: 'k:' + row.id,
+  };
+}
+
 export function buildCard(db, type, params, options) {
+  if (type === 'collections') return collectionsCard(db, { slug: params.c, options });
   if (type === 'character') return characterCard(db, { slug: params.c, options });
   if (type === 'tier') return tierCard(db, { slug: params.c, options });
   if (type === 'guild') return guildCard(db, { slug: params.g, options });
