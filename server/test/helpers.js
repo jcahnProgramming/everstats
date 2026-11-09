@@ -17,9 +17,19 @@ export async function startDb() {
   const { createDb } = await import('../core/db.js');
   const { prepareDatabase } = await import('../core/prepare.js');
   const pglite = await PGlite.create();
-  const port = nextPort++;
-  const server = new PGLiteSocketServer({ db: pglite, port, host: '127.0.0.1', maxConnections: 16 });
-  await server.start();
+  // Test files run in parallel, each picking a random port: on a clash (EADDRINUSE), pick another.
+  let port;
+  let server;
+  for (let attempt = 0; ; attempt++) {
+    port = attempt === 0 ? nextPort++ : 15_400 + Math.floor(Math.random() * 20_000);
+    server = new PGLiteSocketServer({ db: pglite, port, host: '127.0.0.1', maxConnections: 16 });
+    try {
+      await server.start();
+      break;
+    } catch (err) {
+      if (err?.code !== 'EADDRINUSE' || attempt >= 10) throw err;
+    }
+  }
   const db = createDb({ url: `postgres://postgres@127.0.0.1:${port}/postgres`, max: 4 });
   await prepareDatabase(db, { processName: 'test', production: false });
   return {
