@@ -1,42 +1,40 @@
+import { formatCalendarDate } from '../format.js';
 import { APP_VERSION, RELEASES } from '../release.js';
-import './pages.css';
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-// "2026-11-08" → "8 Nov 2026", read as a calendar date (no time zone can shift it a day).
-function formatDate(iso) {
-  const [y, m, d] = iso.split('-').map(Number);
-  return `${d} ${MONTHS[m - 1]} ${y}`;
-}
-const SECTION_CHIP = { New: 'chip-accent', Improved: 'chip-success' };
-
-// Reached only from the version in the bottom bar. Rendered from CHANGELOG.json, bundled with this build.
+/**
+ * What's new (design/v1/pages/changelog): a diamond-rail timeline, newest first, from CHANGELOG.json (bundled with
+ * this build). Reached only from the version chip in the footer. The mockup's "Unreleased / Next" entry is left out:
+ * CHANGELOG.json records releases, and a list of what's coming would be a promise, not a record.
+ */
 export function ChangelogPage() {
   return (
-    <>
-      <div className="page-head">
-        <h1>What's new</h1>
-        <p className="muted">You're on v{APP_VERSION}.</p>
+    <div className="wrap narrow page-pad stack gap-32">
+      <div className="stack gap-8">
+        <span className="eyebrow">everstats.app</span>
+        <h1 className="h1">What's new</h1>
+        <span className="t2">Every release, newest first. You're on v{APP_VERSION}.</span>
       </div>
-      {RELEASES.map((release, i) => (
-        <article key={release.version} className="panel release" aria-labelledby={`v-${release.version}`}>
-          <div className="panel-head">
-            <h2 id={`v-${release.version}`} className="row">
-              <span className="mono">v{release.version}</span>
-              {i === 0 && <span className="chip chip-accent">Current</span>}
-            </h2>
-            <time className="faint" dateTime={release.date}>{formatDate(release.date)}</time>
-          </div>
-          <p className="release-title display">{release.title}</p>
-          {Object.entries(release.sections).map(([section, items]) => (
-            <div key={section} className="stack">
-              <h3><span className={`chip ${SECTION_CHIP[section] ?? ''}`}>{section}</span></h3>
-              <ul className="release-items">
-                {items.map((item) => <li key={item}>{item}</li>)}
-              </ul>
-            </div>
-          ))}
-        </article>
-      ))}
-    </>
+      <ol className="timeline">
+        {RELEASES.map((release, i) => (
+          <li key={release.version}>
+            <span className="rail" aria-hidden="true"><span className="gem" /><span className="line" /></span>
+            <article aria-labelledby={`v-${release.version}`}>
+              <div className="row gap-12 release-head">
+                <h2 className="mono release-version" id={`v-${release.version}`}>{release.version}</h2>
+                {i === 0 && <span className="tag gold">Current</span>}
+                <time className="muted small" dateTime={release.date}>{formatCalendarDate(release.date)}</time>
+              </div>
+              <p className="h3 release-title">{release.title}</p>
+              {Object.entries(release.sections).map(([section, items]) => (
+                <div key={section} className="stack gap-6">
+                  <h3 className="eyebrow">{section}</h3>
+                  <ul className="t2 stack gap-6 tips">{items.map((item) => <li key={item}>{item}</li>)}</ul>
+                </div>
+              ))}
+            </article>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }

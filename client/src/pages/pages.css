@@ -132,3 +132,9 @@ ol.codes { margin: 0; list-style: none; }
 .key-edit td { background: var(--es-sunken); }
 .align-start-grid { align-items: start; }
 @media (max-width: 719px) { .admin-title { font-size: var(--es-fs-30); } }
+
+/* ---------------------------------------------------------------- changelog */
+.release-head { align-items: baseline; }
+.release-version { font-size: var(--es-fs-22); font-weight: var(--es-weight-medium); margin: 0; }
+.release-title { text-wrap: balance; }
+.timeline li:last-child .rail .line { display: none; }
