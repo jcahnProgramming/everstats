@@ -1,6 +1,25 @@
 {
   "releases": [
     {
+      "version": "0.3.1",
+      "date": "2026-11-09",
+      "title": "Discovery: what the first run taught us",
+      "sections": {
+        "Improved": [
+          "For the site owner: discovery now records each character's ruleset from its profile, and the Answers tab says how many sampled characters are on each ruleset, since tiers are graded within a ruleset.",
+          "Suggestions follow the grading decisions made after the first run. Every statistic gets a leaderboard, ties and name-plus-number ones included. Deaths, mishaps, duels lost and quests abandoned are leaderboard-only. Emotes, times camped and hearthing get their own category tier on the character page but never count toward the overall tier. When two statistics are exact duplicates, both keep a leaderboard and only one is graded.",
+          "Suggestions say what each statistic counts toward: its category and the overall tier, its category only, or no tier.",
+          "A Re-analyse button rebuilds a finished run's catalog, suggestions and answers with the current rules, from the responses it already stored. It asks Blizzard nothing, and decisions already made still apply."
+        ],
+        "Fixed": [
+          "\"Average quests completed per day\" was taken for a duration; it's now recognised as a rate.",
+          "Statistics that come with a name beside their number (like \"Creature type killed the most: Undead, 979\") are now shown as name + number, ranked by the number.",
+          "\"Duels lost\" is now recognised as a bad statistic.",
+          "A discovery run no longer asks for the ruleset index twice: the index's link to itself was being followed as if it were a ruleset."
+        ]
+      }
+    },
+    {
       "version": "0.3.0",
       "date": "2026-11-08",
       "title": "Discovery: finding out what Blizzard's Forever API really returns",

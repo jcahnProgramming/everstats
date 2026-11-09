@@ -313,4 +313,15 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.3.1: the 'bad' suggestion became 'grading' (overall / category only / none). Earlier 'bad' decisions stay in
+    // the append-only history; new decisions use 'grading'.
+    id: '005_discovery_grading',
+    async up(q) {
+      await q.query(`
+        ALTER TABLE discovery_decisions DROP CONSTRAINT discovery_decisions_kind_check;
+        ALTER TABLE discovery_decisions ADD CONSTRAINT discovery_decisions_kind_check CHECK (kind IN ('category', 'bad', 'grading', 'leaderboard'));
+      `);
+    },
+  },
 ];

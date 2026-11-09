@@ -93,9 +93,15 @@ export function statisticsIn(json) {
   return out;
 }
 
-/** A value type guessed from the name. The basis says it's a guess, and from what. */
-export function guessValueType(name, { anyText = false, anyFraction = false } = {}) {
+/**
+ * A value type guessed from the name and the samples. The basis says it's a guess, and from what.
+ *   name-and-number  a number plus a text `description` naming what it counts ("979", "Undead"): ranked by the number
+ *   rate             an average per unit of time ("… per day"), checked before `time` so "day" doesn't make it a duration
+ */
+export function guessValueType(name, { anyText = false, anyFraction = false, namedExample = null } = {}) {
+  if (namedExample !== null) return { type: 'name-and-number', basis: `carries a name beside its number (e.g. "${namedExample.slice(0, 40)}")` };
   const rules = [
+    ['rate', /\bper (?:day|hour|minute|second|week)\b|\baverage\b/i],
     ['gold', /\bgold\b|\bcopper\b|\bmoney\b/i],
     ['time', /\btime\b|\bplayed\b|\bduration\b|\bseconds?\b|\bminutes?\b|\bhours?\b|\bdays?\b/i],
     ['distance', /\bdistance\b|\byards?\b|\btravel(?:l)?ed\b|\bmiles?\b|\bfallen\b/i],
@@ -209,14 +215,17 @@ export function createObserver() {
       sampled.add(subject);
       catalogSamples.set(endpoint, sampled);
       for (const s of statisticsIn(r.json)) {
-        const a = stats.get(s.id) ?? { id: s.id, name: s.name, endpoint, categoryPath: s.categoryPath, subjects: new Set(), values: [], nonzero: 0, anyText: false, anyFraction: false, names: new Set(), lastUpdated: [] };
+        const a = stats.get(s.id) ?? { id: s.id, name: s.name, endpoint, categoryPath: s.categoryPath, subjects: new Set(), values: [], bySubject: new Map(), nonzero: 0, anyText: false, anyFraction: false, namedExample: null, names: new Set(), lastUpdated: [] };
         if (a.subjects.has(subject)) continue;
         a.subjects.add(subject);
         a.names.add(s.name);
         if (s.quantity !== null) {
           a.values.push(s.quantity);
+          a.bySubject.set(subject, s.quantity);
           if (s.quantity !== 0) a.nonzero += 1;
           if (!Number.isInteger(s.quantity)) a.anyFraction = true;
+          // A number with a text description beside it ("979" + "Undead"): a name plus a number.
+          if (s.text !== null) a.namedExample ??= s.text;
         } else if (s.text !== null) {
           a.anyText = true;
         }
@@ -229,7 +238,7 @@ export function createObserver() {
     catalog() {
       return [...stats.values()].map((a) => {
         const sorted = [...a.values].sort((x, y) => x - y);
-        const vt = guessValueType(a.name, { anyText: a.anyText, anyFraction: a.anyFraction });
+        const vt = guessValueType(a.name, { anyText: a.anyText, anyFraction: a.anyFraction, namedExample: a.namedExample });
         return {
           statisticId: a.id,
           name: a.name,
@@ -245,8 +254,11 @@ export function createObserver() {
           minValue: sorted[0] ?? null,
           maxValue: sorted.at(-1) ?? null,
           medianValue: percentile(sorted, 0.5),
-          hasText: a.anyText,
+          hasText: a.anyText || a.namedExample !== null,
+          namedExample: a.namedExample,
           lastUpdated: a.lastUpdated,
+          // Per-character values, for finding exact duplicates (suggest.js). Not stored.
+          valuesBySubject: a.bySubject,
         };
       }).sort((x, y) => x.statisticId - y.statisticId);
     },

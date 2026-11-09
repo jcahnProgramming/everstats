@@ -229,6 +229,20 @@ function RunDetail({ runId, listedStatus }) {
   const [run, setRun] = useState(null);
   const [problem, setProblem] = useState(null);
   const [tab, setTab] = useState('overview');
+  const [reanalysing, setReanalysing] = useState(false);
+  const [version, setVersion] = useState(0); // bumps after a re-analysis, so the catalog tabs load afresh
+  const toast = useToasts();
+  const reanalyse = async () => {
+    setReanalysing(true);
+    try {
+      setRun((await api(`/api/admin/discovery/runs/${runId}/reanalyse`, { method: 'POST', body: {} })).run);
+      setVersion((v) => v + 1);
+      toast.ok(`Run #${runId} re-analysed`, 'Catalog, suggestions and answers now follow the current rules. Your decisions still apply.');
+    } catch (err) {
+      toast.err('Couldn’t re-analyse', err.message);
+    }
+    setReanalysing(false);
+  };
   useEffect(() => {
     let live = true;
     api(`/api/admin/discovery/runs/${runId}`).then((r) => {
@@ -272,17 +286,18 @@ function RunDetail({ runId, listedStatus }) {
     <section className="panel clip stack" aria-labelledby="detail-h">
       <div className="row gap-12 panel-head-row">
         <h2 className="h2 h2-panel" id="detail-h">Run #{run.id}</h2>
-        <span className="muted small">{run.options.primary.name} {run.options.primary.surname} · finished {formatDateTime(run.finishedAt)}</span>
+        <span className="muted small">{run.options.primary.name} {run.options.primary.surname} · finished {formatDateTime(run.finishedAt)} · analysed {run.summary.analysedWith ? `with v${run.summary.analysedWith}` : 'by v0.3.0'}</span>
         <span className="spacer" />
         <a className="btn sm" href={`/api/admin/discovery/runs/${run.id}/export.json`} download><Icon name="download" size="sm" />JSON</a>
         <a className="btn sm" href={`/api/admin/discovery/runs/${run.id}/export.csv`} download><Icon name="download" size="sm" />Catalog CSV</a>
+        <Button className="sm ghost" loading={reanalysing} onClick={reanalyse} title="Rebuild the catalog, suggestions and answers with the current rules, from the stored responses. Asks Blizzard nothing."><Icon name="refresh" size="sm" />Re-analyse</Button>
       </div>
       <div className="pad-x-20"><Tabs tabs={tabs} value={tab} onChange={setTab} label="Run details" idPrefix="disc" /></div>
       <div className="pad-20" role="tabpanel" id={`disc-panel-${tab}`} aria-labelledby={`disc-tab-${tab}`}>
         {tab === 'overview' && <Answers run={run} />}
         {tab === 'endpoints' && <Endpoints summary={run.summary} />}
-        {tab === 'catalog' && <Catalog runId={run.id} />}
-        {tab === 'suggestions' && <Suggestions runId={run.id} />}
+        {tab === 'catalog' && <Catalog key={version} runId={run.id} />}
+        {tab === 'suggestions' && <Suggestions key={version} runId={run.id} />}
         {tab === 'responses' && <Responses runId={run.id} />}
       </div>
     </section>
@@ -311,6 +326,12 @@ function Answers({ run }) {
         <Figure label="Latency p50 / p95" value={`${ms(s.latency.p50Ms)} / ${ms(s.latency.p95Ms)}`} note={`mean ${ms(s.latency.meanMs)} · max ${ms(s.latency.maxMs)}`} />
         <Figure label="Wall time" value={duration(s.wallMs)} note={`${run.options.requestsPerSecond} requests a second allowed`} />
       </div>
+
+      <Q title="Rulesets sampled (from each character's profile)">
+        {s.rulesetsSampled
+          ? <span className="small">{Object.entries(s.rulesetsSampled).map(([k, n]) => `${k}: ${n} character${n === 1 ? '' : 's'}`).join(' · ') || 'No character answered.'}</span>
+          : <span className="t2 small">Not recorded by the analysis this run was made with. Re-analyse it (top right) to read each character's ruleset from its stored profile.</span>}
+      </Q>
 
       <Q title="Rulesets (as Blizzard names them)">
         {s.rulesets.listed.length === 0 ? <span className="t2 small">The ruleset index answered {s.rulesets.indexStatus ?? 'nothing'} and listed none.</span> : (
@@ -395,8 +416,8 @@ function Answers({ run }) {
       </Q>
 
       <Q title="Characters sampled">
-        <div className="tblbox listbox"><table className="tbl"><thead><tr><th scope="col">Path</th><th scope="col">From</th><th scope="col">Profile</th><th scope="col">Name</th><th scope="col" className="r">Level</th><th scope="col">Class</th><th scope="col">Race</th><th scope="col">Faction</th></tr></thead><tbody>
-          {s.characters.map((c) => <tr key={c.path}><td className="mono xsmall">{c.path}</td><td>{c.source}</td><td><span className={`tag ${statusTag(c.status)}`}>{c.status ?? 'no answer'}</span></td><td>{c.name ?? '—'}</td><td className="r">{c.level ?? '—'}</td><td>{c.className ?? '—'}</td><td>{c.race ?? '—'}</td><td>{c.faction ?? '—'}</td></tr>)}
+        <div className="tblbox listbox"><table className="tbl"><thead><tr><th scope="col">Path</th><th scope="col">From</th><th scope="col">Profile</th><th scope="col">Name</th><th scope="col" className="r">Level</th><th scope="col">Class</th><th scope="col">Race</th><th scope="col">Faction</th><th scope="col">Ruleset</th></tr></thead><tbody>
+          {s.characters.map((c) => <tr key={c.path}><td className="mono xsmall">{c.path}</td><td>{c.source}</td><td><span className={`tag ${statusTag(c.status)}`}>{c.status ?? 'no answer'}</span></td><td>{c.name ?? '—'}</td><td className="r">{c.level ?? '—'}</td><td>{c.className ?? '—'}</td><td>{c.race ?? '—'}</td><td>{c.faction ?? '—'}</td><td>{c.ruleset ? `${c.ruleset.name ?? '?'} (${c.ruleset.id ?? '?'})` : '—'}</td></tr>)}
         </tbody></table></div>
       </Q>
     </div>
@@ -455,6 +476,7 @@ function useCatalog(runId) {
   return { catalog, problem, replace };
 }
 
+const TYPE_LABEL = { 'name-and-number': 'name + number' };
 const catPath = (s) => s.categoryPath.map((c) => c.name).join(' › ');
 const SORTS = {
   id: (s) => s.statisticId,
@@ -504,7 +526,7 @@ function Catalog({ runId }) {
                 <td className="mono small">{s.statisticId}</td>
                 <td className="strong">{s.name}</td>
                 <td className="t2 small">{catPath(s) || '—'}</td>
-                <td><span className="tag" title={s.valueTypeBasis}>{s.valueType}</span></td>
+                <td><span className="tag" title={s.valueTypeBasis}>{TYPE_LABEL[s.valueType] ?? s.valueType}</span></td>
                 <td className="r">{s.charactersPresent} / {s.charactersSampled}</td>
                 <td className="r">{s.charactersNonzero}</td>
                 <td className="r t2">{formatNumber(s.minValue)} · {formatNumber(s.medianValue)}</td>
@@ -519,8 +541,14 @@ function Catalog({ runId }) {
   );
 }
 
-const KIND_LABEL = { category: 'Tier category', bad: '“Bad” statistic', leaderboard: 'Worth a leaderboard' };
-const valueLabel = (s) => (s.value === null ? 'Unknown' : s.kind === 'category' ? s.value : s.value ? 'Yes' : 'No');
+const KIND_LABEL = { category: 'Category', grading: 'Counts toward', leaderboard: 'Leaderboard' };
+const GRADING_LABEL = { overall: 'its category tier and the overall tier', category: 'its category tier only (not the overall tier)', none: 'no tier: leaderboard only' };
+const valueLabel = (s) => {
+  if (s.value === null) return 'Unknown';
+  if (s.kind === 'category') return s.value;
+  if (s.kind === 'grading') return GRADING_LABEL[s.value] ?? String(s.value);
+  return s.value ? 'Yes' : 'No';
+};
 const VIEWS = [
   { id: 'pending', label: 'To decide' },
   { id: 'approved', label: 'Approved' },

@@ -5,7 +5,10 @@
  *
  * The shapes everything else will be built against:
  *
- *   Category    { id, label, order, graded }          graded: false for categories that never affect a tier
+ *   Category    { id, label, order, graded, inOverall }
+ *                 graded     false for categories that never get a tier (deaths & mishaps)
+ *                 inOverall  false for farmable categories (Social, Camping & Hearth): their own tier shows on the
+ *                            character page, but never counts toward the overall tier (owner decision, 2026-11-09)
  *   Statistic   { id, blizzardId, label, categoryId, unit, direction, graded, provenance }
  *                 direction  'higher_is_better' | 'lower_is_better'
  *                 graded     false for "bad" stats (deaths and the like): they get a leaderboard, never a tier

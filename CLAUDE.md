@@ -18,7 +18,11 @@ request as hostile: CSRF origin check, rate limits, httpOnly cookies, nothing se
 - **One overall letter tier per character**, S/A/B/C/D by percentile **within their own ruleset**: S top 5 %,
   A next 15 %, B next 30 %, C next 30 %, D bottom 20 % (`server/stats/tiers.js`, shared with the client). Statistics
   are grouped into categories; each category has its own letter; the overall tier rolls up from the categories.
-  **"Bad" statistics (deaths and similar) get leaderboards but never affect a tier.** A ruleset below the minimum
+  **"Bad" statistics (deaths and similar) get leaderboards but never affect a tier.** Owner decisions after
+  discovery run 1 (2026-11-09): **every statistic gets a leaderboard** (ties and name + number ones too, ranked by
+  the number); deaths & mishaps, duels lost, Quests abandoned and name + number statistics are leaderboard-only;
+  **farmable categories (Social emotes; Camping & Hearth) get their own category tier on the character page but are
+  excluded from the overall tier**; of exact duplicates only one is graded. A ruleset below the minimum
   population shows **"Unranked — grading opens at N tracked characters"** (N = admin setting
   `grading.minPopulation`, default 500).
 - **Freshness:** a search refreshes the character immediately; every tracked character re-syncs at least daily
@@ -115,6 +119,10 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 - `discovery_responses` keeps every raw body forever (evidence). `discovery_statistics` is a per-run catalog;
   `discovery_decisions` is append-only. **These are discovery tables, not production character tables**, and
   approving a suggestion builds nothing yet.
+- Suggestions (`suggest.js`) are `category`, `grading` (`overall` | `category` | `none`) and `leaderboard`, from name
+  and Blizzard-category rules, never statistic ids. The catalog is derived: **Re-analyse** rebuilds a run's
+  `discovery_statistics` rows and summary from its stored responses with the current rules (no Blizzard request);
+  the raw responses are the record and are never rebuilt. Old `bad` decisions stay in the append-only history.
 
 ## Themes and design
 

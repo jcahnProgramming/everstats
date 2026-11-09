@@ -7,13 +7,14 @@ import { getSource } from '../sources/registry.js';
 import { characterSlug } from '../stats/slug.js';
 import { forgetGrant, grantStatus, startGrant } from './grant.js';
 import { withDecisions } from './suggest.js';
+import { analyseStored } from './run.js';
 
 /**
  * /api/admin/discovery/*: mounted INSIDE the admin router, after its gate, so without an admin session every one of
  * these is the same plain 404 as a path that doesn't exist. Raw payloads leave the server only through here.
  */
 const MAX_CATALOG_ROWS = 20_000;
-const KINDS = ['category', 'bad', 'leaderboard'];
+const KINDS = ['category', 'grading', 'leaderboard'];
 const DECISIONS = ['approved', 'rejected', 'cleared'];
 
 const intParam = (v) => {
@@ -162,6 +163,21 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy }) {
     const row = await db.one('SELECT * FROM discovery_runs WHERE id = $1', [intParam(req.params.id)]);
     if (!row) throw new HttpError(404, 'Not found');
     res.json({ run: runView(row, { skeletons: req.query.skeletons === '1' }) });
+  }));
+
+  // Re-analyse a finished run with the current rules, from its stored responses: no request goes to Blizzard.
+  r.post('/runs/:id/reanalyse', writes, route(async (req, res) => {
+    const id = intParam(req.params.id);
+    const run = await db.one('SELECT * FROM discovery_runs WHERE id = $1', [id]);
+    if (!run) throw new HttpError(404, 'Not found');
+    if (run.status !== 'done' || !run.summary) throw new HttpError(409, 'Only a finished run can be re-analysed.', 'not_done');
+    const summary = await analyseStored(db, id, run.summary);
+    await db.tx(async (q) => {
+      await q.query('UPDATE discovery_runs SET summary = $2::jsonb WHERE id = $1', [id, JSON.stringify(summary)]);
+      await q.query("INSERT INTO admin_events (type, detail) VALUES ('discovery.reanalysed', $1::jsonb)", [JSON.stringify({ run: id })]);
+    });
+    const row = await db.one('SELECT * FROM discovery_runs WHERE id = $1', [id]);
+    res.json({ run: runView(row) });
   }));
 
   r.get('/runs/:id/catalog', route(async (req, res) => {

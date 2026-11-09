@@ -7,7 +7,8 @@ import {
   SLUG_PROBES, characterPath,
 } from './endpoints.js';
 import { grantToken } from './grant.js';
-import { suggestionsFor } from './suggest.js';
+import { findDuplicates, suggestionsFor } from './suggest.js';
+import { APP_VERSION } from '../core/version.js';
 
 /**
  * One discovery run, start to finish (the worker's discovery job calls this in the background):
@@ -141,7 +142,7 @@ export async function runDiscovery({ db, runId, fetch = globalThis.fetch, sleep,
       if (!Array.isArray(v)) continue;
       for (const item of v) if (isObj(item)) rulesets.listed.push({ id: item.id ?? null, name: nameOf(item.name) ?? item.name ?? null, type: item.type ?? null, href: item.key?.href ?? null, keys: Object.keys(item) });
     }
-    const links = hrefsIn(rulesetIndex.json).map((h) => h.href).filter((h) => /\/data\/wow\/ruleset\/(?!index)/.test(pathOf(h) ?? ''));
+    const links = hrefsIn(rulesetIndex.json).map((h) => h.href).filter((h) => /\/data\/wow\/ruleset\/(?!index$)[^/]+$/.test(pathOf(h) ?? '')); // never the index's own self-link
     const targets = links.length ? links : rulesets.listed.filter((x) => x.id !== null).map((x) => `/data/wow/ruleset/${encodeURIComponent(x.id)}`);
     for (const t of [...new Set(targets)].slice(0, 30)) {
       const r = await fetchOne('data.ruleset', 'data', pathOf(t) ?? '', t, { namespace: nsOf(t) ?? ns.dynamic });
@@ -209,6 +210,7 @@ export async function runDiscovery({ db, runId, fetch = globalThis.fetch, sleep,
       race: nameOf(j.race) ?? nameOf(j.playable_race),
       faction: nameOf(j.faction),
       guild: nameOf(j.guild),
+      ruleset: isObj(j.ruleset) ? { id: j.ruleset.id ?? null, name: nameOf(j.ruleset.name) } : null,
       hasRealm: 'realm' in j,
     });
     const primary = c.source === 'primary';
@@ -260,10 +262,66 @@ export async function runDiscovery({ db, runId, fetch = globalThis.fetch, sleep,
   const staticNamespace = ns.static ?? BLIZZARD_API.namespaces.static;
   for (const e of DATA_ENDPOINTS.filter((d) => d.namespace === 'static')) await fetchOne(e.id, 'data', '', e.path, { namespace: staticNamespace });
 
-  // ---- 6. catalog, suggestions, summary
+  // ---- 6. catalog, suggestions, summary: built from the stored responses (analyseStored), the same code that
+  // re-analyses an earlier run when the rules improve.
   await phase('catalog');
-  const catalog = obs.catalog().map((s) => ({ ...s, suggestions: suggestionsFor(s) }));
+  return analyseStored(db, runId, {
+    namespaces: {
+      dynamic: ns.dynamic,
+      profile: ns.profile,
+      staticDetected: ns.static,
+      staticUsed: staticNamespace,
+      staticNote: ns.static ? 'Detected from links in the API’s own responses.' : `No versioned static namespace appeared in any link; the static requests used the unversioned guess ${staticNamespace}.`,
+    },
+    rulesets,
+    account,
+    characters,
+    guild,
+    slugs: { primary: opts.primary.slug, probes, findings: slugFindings(seenCharacterPaths) },
+  });
+}
+
+const ANALYSE_BATCH = 100;
+const CATALOG_ENDPOINTS = new Set(CHARACTER_ENDPOINTS.filter((e) => e.catalog).map((e) => e.id));
+
+/**
+ * The analysis of a run, from its stored responses only (no request to Blizzard): the observer's measurements, the
+ * statistics catalog with suggestions (written to discovery_statistics, replacing that run's rows: the catalog is
+ * derived, the responses are the record), each character's ruleset, and the summary. `live` carries what only the
+ * run itself knew (seeds, probes, guild, namespaces); for a re-analysis it is the run's earlier summary.
+ */
+export async function analyseStored(db, runId, live) {
+  const obs = createObserver();
+  const rulesetBySubject = new Map();
+  for (let after = 0; ;) {
+    const rows = await db.query('SELECT * FROM discovery_responses WHERE run_id = $1 AND id > $2 ORDER BY id LIMIT $3', [runId, after, ANALYSE_BATCH]);
+    if (rows.length === 0) break;
+    for (const row of rows) {
+      after = row.id;
+      let json = null;
+      if (row.body !== null && !row.truncated) {
+        try {
+          json = JSON.parse(row.body);
+        } catch {
+          json = null;
+        }
+      }
+      obs.add(row.endpoint, row.subject, {
+        path: row.path, namespace: row.namespace, auth: row.auth, status: row.status, latencyMs: row.latency_ms, attempts: row.attempts,
+        headers: row.headers, contentType: row.content_type, bytes: row.bytes, body: row.body, truncated: row.truncated, json, error: row.error,
+        fetchedAt: new Date(row.fetched_at).toISOString(),
+      }, { catalog: CATALOG_ENDPOINTS.has(row.endpoint) });
+      if (row.endpoint === 'character.profile' && row.status === 200 && isObj(json?.ruleset)) {
+        rulesetBySubject.set(row.subject, { id: json.ruleset.id ?? null, name: nameOf(json.ruleset.name) });
+      }
+    }
+  }
+
+  const raw = obs.catalog();
+  const duplicates = findDuplicates(raw);
+  const catalog = raw.map((s) => ({ ...s, suggestions: suggestionsFor(s, { duplicates }) }));
   await db.tx(async (q) => {
+    await q.query('DELETE FROM discovery_statistics WHERE run_id = $1', [runId]);
     for (const s of catalog) {
       await q.query(
         `INSERT INTO discovery_statistics (run_id, statistic_id, name, endpoint, category_path, value_type, value_type_basis, characters_sampled,
@@ -278,11 +336,18 @@ export async function runDiscovery({ db, runId, fetch = globalThis.fetch, sleep,
   const base = obs.summary();
   const byTop = {};
   for (const s of catalog) {
-    const top = s.categoryPath[0]?.name ?? '(no category)';
-    byTop[top] = (byTop[top] ?? 0) + 1;
+    const t = s.categoryPath[0]?.name ?? '(no category)';
+    byTop[t] = (byTop[t] ?? 0) + 1;
   }
-  const primaryRow = characters[0];
-  const mediaRow = await db.one("SELECT status, body FROM discovery_responses WHERE run_id = $1 AND endpoint = 'character.character-media' AND subject = $2 ORDER BY id LIMIT 1", [runId, primaryRow.path]);
+  const characters = (live.characters ?? []).map((c) => ({ ...c, ruleset: rulesetBySubject.get(c.path) ?? c.ruleset ?? null }));
+  const rulesetsSampled = {};
+  for (const c of characters) {
+    if (c.status !== 200) continue;
+    const key = c.ruleset ? `${c.ruleset.name ?? '?'} (id ${c.ruleset.id ?? '?'})` : 'not stated';
+    rulesetsSampled[key] = (rulesetsSampled[key] ?? 0) + 1;
+  }
+  const primaryPath = characters[0]?.path ?? null;
+  const mediaRow = primaryPath ? await db.one("SELECT status, body FROM discovery_responses WHERE run_id = $1 AND endpoint = 'character.character-media' AND subject = $2 ORDER BY id LIMIT 1", [runId, primaryPath]) : null;
   let mediaAssets = null;
   try {
     const m = mediaRow?.status === 200 ? JSON.parse(mediaRow.body) : null;
@@ -291,27 +356,21 @@ export async function runDiscovery({ db, runId, fetch = globalThis.fetch, sleep,
     mediaAssets = null;
   }
   const foreverInCatalog = base.foreverTerms.map((t) => ({ id: t.id, label: t.label, statistics: catalog.filter((s) => FOREVER_TEST[t.id].test(s.name) || s.categoryPath.some((c) => FOREVER_TEST[t.id].test(c.name))).map((s) => ({ id: s.statisticId, name: s.name, category: s.categoryPath.map((c) => c.name).join(' › ') })) }));
+  const duplicateGroups = [...new Map([...duplicates.values()].map((d) => [d.group.join(','), d.group])).values()];
 
-  const summary = {
+  return {
+    ...live,
     ...base,
-    namespaces: {
-      dynamic: ns.dynamic,
-      profile: ns.profile,
-      staticDetected: ns.static,
-      staticUsed: staticNamespace,
-      staticNote: ns.static ? 'Detected from links in the API’s own responses.' : `No versioned static namespace appeared in any link; the static requests used the unversioned guess ${staticNamespace}.`,
-    },
-    rulesets,
-    account,
     characters,
-    guild,
-    slugs: { primary: opts.primary.slug, probes, findings: slugFindings(seenCharacterPaths) },
+    rulesetsSampled,
     catalogSize: catalog.length,
     catalogByBlizzardCategory: byTop,
+    duplicateGroups,
     foreverInCatalog,
     primaryMedia: { status: mediaRow?.status ?? null, assets: mediaAssets },
+    analysedAt: new Date().toISOString(),
+    analysedWith: APP_VERSION,
   };
-  return summary;
 }
 
 const FOREVER_TEST = Object.fromEntries(FOREVER_TERMS.map((t) => [t.id, t.pattern]));
