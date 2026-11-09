@@ -1652,6 +1652,8 @@ export const migrations = [
         ALTER TABLE crawl_queue DROP CONSTRAINT crawl_queue_kind_check;
         ALTER TABLE crawl_queue ADD CONSTRAINT crawl_queue_kind_check CHECK (kind IN ('character', 'guild', 'items', 'collections', 'catalog'));
         ALTER TABLE characters ADD COLUMN collections_fetched_at timestamptz, ADD COLUMN collections_first_at timestamptz;
+        ALTER TABLE share_card_defaults DROP CONSTRAINT IF EXISTS share_card_defaults_kind_check;
+        ALTER TABLE share_card_defaults ADD CONSTRAINT share_card_defaults_kind_check CHECK (kind IN ('character', 'tier', 'guild', 'collections'));
 
         CREATE TABLE character_collections (
           character_id     bigint NOT NULL REFERENCES characters (id) ON DELETE CASCADE,

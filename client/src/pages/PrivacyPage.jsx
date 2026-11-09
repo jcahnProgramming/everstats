@@ -32,6 +32,12 @@ export function PrivacyPage() {
         <p className="t2">When you sign in with Battle.net, Everstats uses that sign-in once to read the list of Forever characters on your Battle.net account, so it can add them and mark them as yours. The permission is then thrown away: it isn't stored, and it can't be used again.</p>
       </section>
 
+      <section className="panel pad-24 stack gap-10" aria-labelledby="coll-h">
+        <h2 className="h2 h2-panel" id="coll-h">Collections and gold</h2>
+        <p className="t2">A character's collections (mounts, pets, toys, titles, achievements, reputations, professions, dungeon and raid kills, quests, PvP summary and transmog appearances) come from Blizzard's public API like everything else, refresh about weekly, and follow the same 30-day limit. “Shared across this account” only appears when Blizzard says so, or when every character on the owner's Everstats account has the identical collection.</p>
+        <p className="t2"><b className="strong-text">Gold is private.</b> Blizzard shares a character's gold only with its owner, so Everstats reads it only when you sign in with Battle.net, using that sign-in. It keeps four numbers (gold on hand, total gold gained, total gold lost, item value gained) for at most 30 days, and shows them only to you, unless you turn on “Show my gold stats publicly” for that character. Turning it off takes the character off the gold leaderboards at once. Blizzard's answer also carries the character's location and your WoW account number: <b className="strong-text">Everstats never stores, shows or logs either</b>; they're dropped the moment the answer arrives.</p>
+      </section>
+
       <section className="panel pad-24 stack gap-10" aria-labelledby="hide-h">
         <h2 className="h2 h2-panel" id="hide-h">Hiding a character</h2>
         <p className="t2">In <Link to="/settings#characters">Settings</Link> you can hide any character that's yours. A hidden character has no public page and is on no leaderboard; you still see its page when signed in. Blizzard's own API still shows it to anyone who asks Blizzard directly: hiding only covers Everstats.</p>
@@ -61,7 +67,7 @@ export function PrivacyPage() {
 
       <section className="panel pad-24 stack gap-10" aria-labelledby="delete-h">
         <h2 className="h2 h2-panel" id="delete-h">Deleting your account</h2>
-        <p className="t2">In <Link to="/settings#delete">Settings → Delete account</Link>. It removes the account, its sign-in links, passkeys, two-factor settings, pins, badges, feedback, saved share cards and its claim on your characters, and signs you out. Your characters stay tracked as the public data they are; any you had hidden stay hidden. It can't be undone.</p>
+        <p className="t2">In <Link to="/settings#delete">Settings → Delete account</Link>. It removes the account, its sign-in links, passkeys, two-factor settings, pins, badges, feedback, saved share cards, your characters' gold stats and your choices about showing them, and its claim on your characters, and signs you out. Your characters stay tracked as the public data they are; any you had hidden stay hidden. It can't be undone.</p>
       </section>
     </div>
   );

@@ -198,7 +198,7 @@ export function StatLeaderboardPage() {
  * what's known: detected on accounts Everstats has seen, or stated by Blizzard.
  */
 function scopeText(c) {
-  if (c.how === 'detected') return c.shared ? 'Shared across an account (detected)' : 'Per character';
+  if (c.how === 'detected') return c.shared ? 'Shared across an account (detected)' : c.accounts ? 'Per character (checked)' : 'Not known yet';
   if (c.how === 'stated') return c.partial ? 'Partly account-wide (Blizzard)' : c.accountWide ? 'Shared across an account (Blizzard)' : 'Per character';
   return 'Per character';
 }

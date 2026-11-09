@@ -19,7 +19,7 @@ import { LAYOUT_VERSION } from './render.js';
  */
 export const CACHE_HOURS = 6;
 export const CACHE_MAX_BYTES = 512 * 1024 * 1024;
-export const DEFAULT_KINDS = Object.freeze(['character', 'tier', 'guild']);
+export const DEFAULT_KINDS = Object.freeze(['character', 'tier', 'guild', 'collections']);
 
 export async function savedDefault(db, kind, subjectId) {
   if (!DEFAULT_KINDS.includes(kind) || subjectId === null || subjectId === undefined) return null;

@@ -468,7 +468,8 @@ export async function collectionsCard(db, { slug, options }) {
   const o = await collectionsOverview(db, row);
   const c = await characterView(db, row);
   const counts = o.counts.filter((k) => k.value > 0 && k.key !== 'appearances').sort((a, b) => b.value - a.value).slice(0, 6)
-    .map((k) => ({ label: k.short ?? k.name, value: num(k.value), cls: k.shared ? 'acct' : '' }));
+    // "Shared across this account" only for a whole count known to be shared (achievements are only partly account-wide).
+    .map((k) => ({ label: k.short ?? k.name, value: num(k.value), cls: k.shared && !k.shared.partial ? 'acct' : '' }));
   const app = o.counts.find((k) => k.key === 'appearances');
   if (!counts.length && !(app?.value > 0)) return { status: 'unavailable', reason: 'This character has no collection count above zero yet, and only real values go on a card.' };
   const showcase = [];

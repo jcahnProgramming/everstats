@@ -58,7 +58,7 @@ export const COUNTS = Object.freeze([
   { key: 'mounts', short: 'Mounts', n: 1, name: 'Mounts collected', kind: 'mounts', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.id)).size, catalog: 'mount' },
   { key: 'pets', short: 'Pets', n: 2, name: 'Pets collected', kind: 'pets', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.speciesId)).size, catalog: 'pet' },
   { key: 'toys', short: 'Toys', n: 3, name: 'Toys collected', kind: 'toys', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.id)).size, catalog: 'toy' },
-  { key: 'heirlooms', short: 'Heirlooms', n: 10, name: 'Heirlooms collected', kind: 'heirlooms', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.id)).size, catalog: 'heirloom' },
+  { key: 'heirlooms', short: 'Heirlooms', onlyWithCatalog: true, n: 10, name: 'Heirlooms collected', kind: 'heirlooms', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.id)).size, catalog: 'heirloom' },
   { key: 'titles', short: 'Titles', n: 4, name: 'Titles earned', kind: 'titles', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.id)).size, catalog: 'title' },
   { key: 'achievements', short: 'Achievements', n: 5, name: 'Achievements earned', kind: 'achievements', shared: 'stated', count: (d) => d.items.filter((a) => a.completedAt).length, catalog: 'achievement' },
   // Blizzard's own standing name, never a tier number we'd have to interpret.

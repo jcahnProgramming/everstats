@@ -35,11 +35,16 @@ let derivedRecordedAt = 0;
 /** The Everstats-counted statistics in `statistics` (names and category are ours; refreshed at most hourly). */
 export async function recordDerivedStatistics(q, { force = false } = {}) {
   if (!force && Date.now() - derivedRecordedAt < 60 * 60 * 1000) return;
+  // A count for a collection Blizzard has no catalog entries for (heirlooms on Forever) isn't registered at all: no
+  // board, no Discovery row. It appears by itself once Blizzard's catalog lists some.
+  const { catalogTotals } = await import('./catalog.js');
+  const totals = await catalogTotals(q);
+  const list = COUNTS.filter((c) => !c.onlyWithCatalog || (totals[c.catalog] ?? 0) > 0);
   await q.query(
     `INSERT INTO statistics (id, name, category_path, derived)
      SELECT v.id, v.name, $3::jsonb, v.key FROM unnest($1::bigint[], $2::text[], $4::text[]) AS v(id, name, key)
      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category_path = EXCLUDED.category_path, derived = EXCLUDED.derived, last_seen_at = now()`,
-    [COUNTS.map((c) => c.id), COUNTS.map((c) => c.name), JSON.stringify([{ id: null, name: COLLECTIONS_CATEGORY }]), COUNTS.map((c) => c.key)],
+    [list.map((c) => c.id), list.map((c) => c.name), JSON.stringify([{ id: null, name: COLLECTIONS_CATEGORY }]), list.map((c) => c.key)],
   );
   derivedRecordedAt = Date.now();
   const { clearCatalogCache } = await import('../stats/catalog.js');

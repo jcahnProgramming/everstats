@@ -41,6 +41,10 @@ async function characterMeta(db, slug, kind) {
   );
   if (!row || row.hidden || row.missing_since || row.profile_state !== 'ok') return null;
   const line = [row.level !== null ? `Level ${row.level}` : null, row.race, row.class].filter(Boolean).join(' ');
+  if (kind === 'collections') {
+    const has = (await db.one('SELECT collections_fetched_at FROM characters WHERE id = $1', [row.id]))?.collections_fetched_at;
+    return { title: `${row.name} ${row.surname}: collections`, description: 'Mounts, pets, toys, titles, achievements, reputations and the transmog tracker on Everstats.', image: has ? `${ogPath(kind, { c: row.slug })}?v=${await version(db, kind, row.id)}` : null };
+  }
   const title = kind === 'tier' ? `${row.name} ${row.surname}: ${row.letter ? `tier ${row.letter}` : 'Unranked'}${row.ruleset ? ` on ${row.ruleset}` : ''}` : `${row.name} ${row.surname}`;
   const description = kind === 'tier'
     ? `The overall tier and every category letter on Everstats${row.ruleset ? `, graded against ${row.ruleset}` : ''}.`
@@ -85,6 +89,8 @@ export async function linkPreviewFor(db, pathname, query) {
   let m;
   try {
     if ((m = /^[/]c[/]([^/]+)[/]tier[/]share[/]?$/.exec(pathname))) return (await characterMeta(db, decodeURIComponent(m[1]), 'tier')) ?? SITE;
+    // 0.9.0: the Collections tab and its screens, and its card maker: the Collections card (wide).
+    if ((m = /^[/]c[/]([^/]+)[/]collections(?:[/][a-z-]+)?[/]?$/.exec(pathname))) return (await characterMeta(db, decodeURIComponent(m[1]), 'collections')) ?? SITE;
     if ((m = /^[/]c[/]([^/]+)(?:[/]share)?[/]?$/.exec(pathname))) return (await characterMeta(db, decodeURIComponent(m[1]), 'character')) ?? SITE;
     if ((m = /^[/]g[/]([^/]+)(?:[/]share)?[/]?$/.exec(pathname))) return (await guildMeta(db, decodeURIComponent(m[1]))) ?? SITE;
     if ((m = /^[/]leaderboards[/]guilds[/]([0-9]+)[/]([0-9]+)(?:[/]share)?[/]?$/.exec(pathname))) return (await boardMeta(db, { rulesetId: Number(m[1]), statisticId: Number(m[2]), guilds: true, query })) ?? SITE;

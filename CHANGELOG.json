@@ -1,6 +1,32 @@
 {
   "releases": [
     {
+      "version": "0.9.0",
+      "date": "2026-11-09",
+      "title": "Collections, the transmog tracker, Legacy Points and opt-in gold",
+      "sections": {
+        "New": [
+          "Collections. Every character page has a new Collections tab beside “Statistics & gear”: mounts, pets (and hunter pets for hunters), toys, titles, achievements, reputations, professions, dungeon and raid boss kills, quests and the PvP summary, each with its own screen. Where Blizzard lists everything that exists, you see what you have and what you’re missing (“12 / 141”), with completion bars and a Missing filter. Missing tiles never rely on colour alone: a dashed edge, a faded icon, a hollow ring and the word “Missing”.",
+          "The transmog tracker: every appearance slot with its own completion, collected and missing appearances, filters for armour type and quality, and for each appearance the items that grant it. A missing one gets a plain “View item on Wowhead” link for each item, because Blizzard doesn’t say where Forever’s items drop. It also lists the transmog you’re wearing now, since Blizzard’s character render shows your gear, not your transmog.",
+          "Collection counts are statistics. Mounts, pets, toys, titles, achievements, Exalted reputations, appearances, completed quests and Legacy Points each have a leaderboard on every ruleset (overall, this week and the rolling window, with the usual tie and zero rules), and you can pin any of them to your dashboard. They don’t count toward a tier.",
+          "Legacy Points. Forever’s achievements say what they reward, and Everstats adds up every “Earn N Legacy Points” on the achievements a character has earned, lists those achievements with their dates, and ranks the total.",
+          "“Shared across this account” appears on a collection only when it’s known: Blizzard says so (some achievements), or every character on the owner’s account has the identical collection. Collection boards say so too, because they rank characters and an account’s alts can sit side by side.",
+          "Opt-in gold stats. Sign in with Battle.net and you see your own characters’ gold on hand, total gold gained, total gold lost and item value gained, on your dashboard and their Collections tab: only you. Turn on “Show my gold stats publicly” for a character and anyone can see those four numbers, and it appears on the new gold leaderboards, which rank only characters whose owners chose to share. Turn it off and it leaves them at once. Gold updates when you sign in, and is kept at most 30 days. Blizzard’s answer also includes your character’s location: Everstats never stores or shows it.",
+          "A Collections share card in all three formats: transmog completion, up to six counts and a showcase of your mounts and pets.",
+          "“Fetch all members” on every guild page. It reads Blizzard’s roster first and shows how many members are on it, how many Everstats already tracks, how many it would fetch, and roughly how many requests and minutes that takes. Once started it runs in the background with a live progress bar, so you can leave the page, and the guild’s totals, tiers and badges update when it finishes. Anyone can use it, signed in or not. It never gets in the way of someone looking up a character; a guild can be fetched whole again 6 hours after a fetch finishes, and when several guilds are waiting the page says how many are ahead.",
+          "Provisional tier letters. On a graded ruleset, a character below a tier minimum now sees “≈ B (provisional)” from the score it already has, drawn clearly differently from a real letter and with the reason underneath. Provisional letters are never on a tier board, never count in a guild’s tier bar and earn no badge."
+        ],
+        "Improved": [
+          "A guild’s “Members by tier” bar shows ranked members only, with every letter wide enough to read (“S 1”), and the unranked members counted on their own line instead of filling the bar.",
+          "New guild badges get a small “NEW” marker inside the badge for a week instead of a ribbon that covered the badges next to it; the unlock date is in the badge’s details.",
+          "The Refresh button on a character page also refreshes its collections."
+        ],
+        "Fixed": [
+          "Pinned statistics on your dashboard no longer have the drag handle sitting on long names; long names wrap, and the rank and the weekly movement each have their own line."
+        ]
+      }
+    },
+    {
       "version": "0.8.3",
       "date": "2026-11-09",
       "title": "An endpoint probe for the owner",

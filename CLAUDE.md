@@ -54,8 +54,10 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Admin settings | `server/admin/settings.js` | key, label, help, type, bounds, default |
 | Statistics / categories / leaderboards | `server/stats/catalog.js` | the `statistics` table (grows from crawls) + discovery decisions, else suggestions |
 | Account merge steps | `server/account/merge.js` | how each account-owned table moves on a merge |
-| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks`, `retention`, `guild-totals`, `tiers`, `badges`, `guild-badges` |
+| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks`, `retention`, `guild-totals`, `guild-fetch`, `tiers`, `badges`, `guild-badges`, `catalogs` |
 | Guild badges | `guild_badge_definitions` (data; seeded from `server/guildBadges/catalog.js` SEED_GUILD_BADGES) | id, family, levelled + measure + thresholds, automatic rule or staff-granted, kept-while-held, status mark; new Deeds badges from the template on /admin/guild-badges |
+| Collections | `server/collections/registry.js` | KINDS (one per character endpoint: path, parse, when, empty rule) and COUNTS (the counts that are statistics: id from DERIVED_BASE, name, short, kind, how "shared" is known) |
+| Static catalogs | `server/collections/catalog.js` CATALOGS | kind, index path/field, detail and media paths: what a catalog refresh asks for |
 | Activity kinds | `server/activity/count.js` ACTIVITY_KINDS | the event kinds the admin Activity panel counts (a kind and a number per hour, nothing else) |
 | Badges | `badge_definitions` (data; seeded from `server/badges/catalog.js` SEED_BADGES) + catalog.js TEMPLATES | id, family, name, how, art, manual or automatic rule, kept-while-held; new ones from templates on /admin/badges, no deploy |
 | Data sources | `server/sources/registry.js` | id, label, credential, userProvider, create() → `get(path, { namespace, auth, userToken })`. One so far: `blizzard`. A provider named as a `userProvider` reads characters at sign-in |
@@ -166,11 +168,15 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 
 - **One Blizzard request budget** (`crawler/budget.js`, admin setting `crawler.requestsPerSecond`, default 8), owned by the
   crawler in the WORKER (`crawler/service.js`, runs continuously beside the job loop). Waiting requests are served by
-  priority: 1 a person waiting (lookup, sign-in) · 2 auto-fetch after sign-in · 3 daily refresh · 4 guild rosters.
-  Background items hold at most 3 of the 4 slots, so a lookup never waits behind the crawl. Back-off is per endpoint
+  priority: 1 a person waiting (lookup, sign-in, a Collections tab on stale data) · 2 a guild fetch ("Fetch all members")
+  · 3 auto-fetch after sign-in · 4 daily refresh · 5 guild rosters and static catalogs. Code uses the names only
+  (`PRIORITY.*`); 0.9.0 renumbered them (migration 021). Background items hold at most 3 of the 4 slots, so a lookup
+  never waits behind the crawl; guild-fetch items hold at most 2, and with background items at most 3. Guild-fetch
+  requests are capped at half the budget (`BUDGET_SHARES`); while one waits its turn, the next request in line goes. Back-off is per endpoint
   (429/5xx/no answer double the wait, Retry-After respected); only 20 successes in a row reset it.
-- The web process makes exactly one Blizzard call itself: `/profile/user/wow` with a sign-in's user token
-  (`crawler/account.js`), because the token must not be stored or handed on. Everything else is queued (`crawl_queue`)
+- The web process makes Blizzard calls itself only with a sign-in's user token, because the token must not be stored or
+  handed on: `/profile/user/wow` once (`crawler/account.js`), then (0.9.0) each listed character's protected-character link
+  for opt-in gold (`collections/gold.js`, at most 60, 4 at a time). Everything else is queued (`crawl_queue`)
   and the web waits for it (lookups, up to 20 s).
 - **A character fetch** (`crawler/fetch.js`): profile; then achievement-statistics, statistics (attributes), equipment and
   character-media in parallel = 5 requests. A daily 'check' whose `last_login_timestamp` equals the one at the last
@@ -200,6 +206,74 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   A failure there never fails the sign-in.
 - Lookups: a character fully fetched in the last 10 minutes is served without asking Blizzard; only a lookup that asks
   Blizzard counts against the per-network limit.
+
+## Collections (0.9.0: `server/collections/`, `client/src/collections/`, `/c/{slug}/collections[/{screen}]`)
+
+- **Design: `design/v4-collections/`** (additive to v1–v3). Tokens appended VERBATIM to `theme/tokens.css`, component CSS
+  VERBATIM in `theme/collections.css` (override in app.css), the glyphs copied from the mockups' inline SVGs into
+  `collections/glyphs.js`, the card templates + `collections-card.css` + tokens VERBATIM in `server/cards/kit/v4-collections/`.
+  Not built (rules or the probe win): native `<select>` filters (segmented buttons instead), `.anno` tags, the Source
+  filter and "Drops from" line (journal indexes are empty on Forever: every missing item gets the Wowhead text link),
+  Housing (404s), Mythic+/PvP seasons, achievement points (0), an empty heirlooms section, "same account as #N" labels and
+  the owner's "hide alts" setting, the card maker's count/showcase pickers (the card picks its top counts).
+- **What the 0.8.3 probe settled** (run #4): every character collection endpoint answers 200 (hunter-pets 404s for
+  non-hunters); static catalogs exist for mounts, pets, toys, titles, achievements (+ categories), appearances (slot index
+  → slot lists → item-appearance/{id}), appearance sets, reputation factions; heirloom/index is EMPTY; /data/wow/item/{id}
+  404s (item names come from item-appearance `items`; item QUALITY from `/data/wow/search/item`, paged by id range, which
+  stops and says so if paging stalls); item-appearance has no quality field.
+- **Fetching:** one crawl item (`collections`, key = slug) asks every KINDS entry that applies (13; +1 for hunters;
+  heirlooms only while the heirloom catalog has entries) in parallel through the shared budget. Weekly as part of the
+  full fetch (`COLLECTIONS_EVERY_DAYS`, also on unchanged checks), at sign-in and "Refresh my characters" (PRIORITY.auto),
+  on the character page's Refresh and on opening the tab when data is older than a day (PRIORITY.lookup, the per-network
+  look-up limit). A kind Blizzard doesn't return keeps its last good copy marked `not_returned` with the status.
+- **Static catalogs** (`collection_catalog`, shared): the worker job `catalogs` (hourly) queues any catalog never built,
+  older than `REFRESH_DAYS` (14, inside the window) or stuck; each refresh is a chain of short crawl items (`catalog`
+  kind, PRIORITY.roster): an index step, then detail steps of `DETAIL_CHUNK` rows (detail + media each), so no item runs
+  long. `collection_catalog_state` counts every request and byte (the measured cost on /admin → Collections). Nothing is
+  asked until a character response has named the versioned static namespace (stored as state kind 'namespace').
+- **Counts are statistics** (registry COUNTS, ids from `DERIVED_BASE` = 2,000,000,000): written to `character_statistics`
+  like Blizzard's (dated by the data they were counted from), so boards, pins, snapshots, gains and guild totals need no
+  second system. `statistics.derived` holds the registry key; Blizzard's statistics refresh never deletes them (`< DERIVED_BASE`);
+  their names are ours (never swept). A count for a catalog Blizzard has no entries for (heirlooms) isn't registered at all.
+  A first collections fetch is never a weekly/rolling gain (`characters.collections_first_at` must precede the baseline).
+  Board population for a count = characters whose collections were fetched. Discovery lists them (category Collections,
+  suggestion grading 'none'); **they count toward no tier unless the owner approves one there.**
+- **Legacy Points** (`collections/legacy.js`): the sum of N over EARNED achievements whose catalog `reward_description` is
+  exactly "Earn N Legacy Point(s)". Anything else mentioning Legacy is reported on /admin → Collections, never counted.
+  Account-wide only when every Legacy-granting achievement says `is_account_wide`.
+- **"Shared across this account"** only when known: `collection_sharing` (every fetched character of a signed-in account
+  has the identical list, 2+ characters; re-detected after each fetch and on merge) or Blizzard's `is_account_wide`.
+  Achievements are "partly" (never the whole-count glyph on a card). Boards say what's known, never assume.
+- **Transmog tracker:** slots are Blizzard's slot types, grouped Armour/Weapons by the catalog's item class; appearance
+  quality = the best known quality of its items; "Currently worn transmog" from equipment `transmog` (0.8.0).
+- **Share card** type `collections` (`cards/catalog.js` `root` = 'v4-collections/cards'), `/c/{slug}/collections/share`,
+  link preview `/og/k/{slug}.png` for the Collections pages; saved defaults like the character card.
+
+## Opt-in gold (0.9.0: `server/collections/gold.js`)
+
+- Read ONLY with the owner's token at a Battle.net sign-in / link / "Refresh my characters" (the protected link comes from
+  /profile/user/wow). `parseProtected` keeps four numbers by name; `character_gold` has fixed columns only.
+  **`position`, `bind_position` and `wow_account` are never stored, shown or logged**; `server/test/collections.test.js`
+  scans every table after a sign-in for them. Gold never feeds tiers (it isn't a statistic).
+- The owner always sees it (dashboard "Your gold", their Collections tab). Anyone else only while `character_gold_public`
+  has a row keyed to the CURRENT owner ("Show my gold stats publicly", default off). Gold boards
+  (`/leaderboards/gold/{ruleset}/{money|gained|lost|items}`) rank only those, say so, zero never ranked; off removes at once.
+- Retention: Blizzard data; past the window it's deleted and the page says "Gold updates when the owner signs in".
+
+## Guild fetch (0.9.0: `server/guilds/fetchAll.js`, `fetchRoutes.js`, `pages/GuildFetch.jsx`)
+
+- **Step 1** reads the guild's profile and roster (2 requests) at lookup priority, against the per-network lookup limit.
+  When the roster lands (`crawler/fetch.js` → `noteRoster`) its untracked, non-hidden level 10+ members become the work list
+  (`guild_fetch_members`: id and slug, the only place roster slugs are kept). The page shows "N members on Blizzard's
+  roster · N tracked · N to fetch (level 10+) · N under level 10" and the cost (~5 requests a member, timed at half the
+  budget). Nothing more is asked until Start. A roster read nobody starts expires after 30 min.
+- **Step 2** (`guildFetchesByNetwork` 10/hour, and `guildFetchesByAccount` 10/hour signed in; signed-out allowed): the
+  worker job `guild-fetch` starts at most `guilds.fetchConcurrent` (default 2) site-wide ("Queued: starts after N other
+  guilds") and feeds members to the crawler at `PRIORITY.guild` in batches sized to the tick. Done → the guild is marked
+  dirty (totals, then guild badges), a full tier grading is requested (debounced), the work list deleted.
+- One live fetch per guild; after a finished one the button rests `guilds.fetchCooldownHours` (6). Hidden characters are
+  never queued or counted; 404s recorded the usual way. Activity: `guild.fetch`, `guild.fetch.members`. Both tables are
+  Blizzard data, swept with the window.
 
 ## Usernames and profiles (0.4.1: `server/accounts/`, `/u/{username}`)
 
@@ -282,6 +356,11 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   their rows at once); `tier_runs` is ours. Admin: `/admin/tiers` (settings with a preview that must run before
   Save, What counts with links to `/admin/discovery?stat=ID`, gradings). `server/tools/tiers-report.js` prints what
   counts and the letters on the server.
+- **Provisional letters (0.9.0):** `tiers/view.js provisionalLetter` places the stored score against `tier_rulesets.scopes`
+  cutoffs when a page is drawn: "≈ B (provisional)" with the reason, a hatched-ring shield. Never stored, never on boards,
+  guild bars, badges (S-Tier, Strong Roster) or share cards; none below `grading.minPopulation` or for a category with no
+  statistic above zero.
+- **Tier bars** use `stats/tiers.js tierBarParts`: ranked letters only, 9% minimum each; Unranked is its own line, never D.
 
 ## Badges (0.7.0: `server/badges/`, `client/src/badges/`, `/badges/{id}`, Settings → Badges, `/admin/badges`)
 
@@ -508,7 +587,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   - **Deleting an account** (Settings, `DELETE /api/account`) deletes the account row and everything that cascades from
     it (sign-in links, passkeys, 2FA, recovery codes, sessions, flows, pins, events, character checks; 0.7.0: badge
     awards and guild officer roles; 0.7.1: feedback threads and their replies, guild badge toast marks; 0.8.0: the share-card defaults it saved; 0.8.1: its creator verification and verified handles; 0.8.2: its bans and their
-    copied identities (`moderation_actions` and `reports` keep the bare account id); `badge_events` and `guild_events` keep the bare account id). Reason: the
+    copied identities (`moderation_actions` and `reports` keep the bare account id); 0.9.0: its characters' gold and their gold opt-ins, its account-wide detection rows; `badge_events` and `guild_events` keep the bare account id). Reason: the
     person asked. Its characters stay (public data); ownership is cleared, a hidden one stays hidden.
   - **A verified creator handle that changes** deletes its `creator_handles` row, and **revoking Verified Content
     Creator** deletes them all (0.8.1). Reason: the mark belongs to the handle the admin checked, not to whatever is typed
@@ -524,7 +603,11 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
     `server/core/backup.js` planPrune; the hourly sweep and every good backup). Reason: they hold only our own data now,
     and a bounded set is enough to recover from. **A pre-0.5.0 dump (`everstats-YYYY-MM-DD.dump`) holds Blizzard data
     and is deleted 3 days after it was taken** (30-day rule). The `backup_runs` log is kept.
-  - **Every Blizzard-sourced row past the retention window** (next section).
+  - **Turning "Show my gold stats publicly" off** deletes that `character_gold_public` row (0.9.0). Reason: the owner
+    asked; the account's history logs it (`gold.public_off`).
+  - **A guild fetch's work list** (`guild_fetch_members`) is deleted when the fetch ends (0.9.0). Reason: a work order;
+    the fetched characters live in the character tables.
+  - **Every Blizzard-sourced row past the retention window** (next section), and a catalog row Blizzard no longer lists.
 - Every time-series table has a composite index on `(parent_id, timestamp)`.
 - **Every query takes limit/cursor. No unbounded selects, ever** (`pageLimit()` in `server/core/db.js`).
 - Migrations: `server/core/schema.js` (`{ id, up(q) }`, run under an advisory lock by both processes). Never edit or

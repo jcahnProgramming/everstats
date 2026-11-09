@@ -206,7 +206,9 @@ test('collection counts are statistics: boards, zero never ranked, and a stats r
   assert.equal(await val('legacy'), 0);
   // Every count is in the statistics table under the Collections category.
   const st = await t.db.query('SELECT id, derived FROM statistics WHERE derived IS NOT NULL ORDER BY id');
-  assert.equal(st.length, COUNTS.length);
+  // Heirlooms aren't registered while Blizzard's heirloom catalog has none.
+  assert.equal(st.length, COUNTS.length - 1);
+  assert.ok(!st.some((s) => s.derived === 'heirlooms'));
   // A board: both characters have one mount → tied at #1; a statistics refresh (storeDetails) leaves the counts alone.
   await fetchChar('alpha-coll');
   assert.equal(await val('mounts'), 1);
@@ -405,4 +407,19 @@ test('retention: an old collection, catalog row or gold row is swept; the derive
   assert.equal(await t.db.one('SELECT 1 AS x FROM character_gold WHERE character_id = 7102'), null);
   assert.equal(await t.db.one("SELECT 1 AS x FROM character_collections WHERE character_id = 7102 AND kind = 'toys'"), null);
   assert.equal((await t.db.one("SELECT count(*)::int AS n FROM statistics WHERE derived IS NOT NULL AND name IS NOT NULL")).n > 0, true);
+});
+
+test('the Collections share card carries real counts only, and the account glyph only where sharing is known', async () => {
+  const { buildCard } = await import('../cards/data.js');
+  const { cleanOptions } = await import('../cards/catalog.js');
+  const card = await buildCard(t.db, 'collections', { c: 'alpha-coll' }, cleanOptions('collections', { format: 'wide' }));
+  assert.equal(card.status, 'ok');
+  assert.deepEqual(card.data.transmog, { big: '60%', sub: '3 / 5 appearances', w: 60 });
+  assert.ok(card.data.counts.every((k) => Number(k.value.replace(/,/g, '')) > 0));
+  assert.ok(card.data.counts.some((k) => k.label === 'Quests'));
+  assert.equal(card.data.show.acct, false);
+  assert.equal(card.page, '/c/alpha-coll/collections');
+  // A character without collections yet can't have one.
+  const none = await buildCard(t.db, 'collections', { c: 'hunt-coll' }, cleanOptions('collections', {}));
+  assert.ok(['ok', 'unavailable'].includes(none.status));
 });

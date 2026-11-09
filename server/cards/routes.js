@@ -165,7 +165,7 @@ function sendError(res, err) {
 
 /** The id a saved default is stored under, or null. */
 async function subjectId(db, type, params) {
-  if (type === 'character' || type === 'tier') return (await db.one('SELECT id FROM characters WHERE slug = $1 AND NOT hidden', [params.c]))?.id ?? null;
+  if (type === 'character' || type === 'tier' || type === 'collections') return (await db.one('SELECT id FROM characters WHERE slug = $1 AND NOT hidden', [params.c]))?.id ?? null;
   if (type === 'guild') return (await db.one('SELECT id FROM guilds WHERE slug = $1 ORDER BY updated_at DESC LIMIT 1', [params.g]))?.id ?? null;
   return null;
 }
@@ -174,7 +174,7 @@ async function subjectId(db, type, params) {
 async function saveRole(db, req, type, params) {
   if (req.session?.stage !== 'full') return null;
   const me = Number(req.session.accountId);
-  if (type === 'character' || type === 'tier') {
+  if (type === 'character' || type === 'tier' || type === 'collections') {
     const row = await db.one('SELECT owner_account_id FROM characters WHERE slug = $1 AND NOT hidden', [params.c]);
     return row && Number(row.owner_account_id) === me ? 'owner' : null;
   }
@@ -231,7 +231,7 @@ export function createCardApiRouter({ db, limits, networkOf }) {
     const { params } = subjectFrom(type, req.query);
     const id = await subjectId(db, type, params);
     const role = await saveRole(db, req, type, params);
-    const saved = id && ['character', 'tier', 'guild'].includes(type) ? await savedDefault(db, type, id) : null;
+    const saved = id && ['character', 'tier', 'guild', 'collections'].includes(type) ? await savedDefault(db, type, id) : null;
     const MAKER_FORMAT = { character: 'square', guild: 'square', board: 'story', tier: 'wide', collections: 'square' };
     const initial = saved?.options ?? cleanOptions(type, { ...defaultOptions(type), format: MAKER_FORMAT[type] });
     const card = await built(db, type, params, initial);
@@ -301,6 +301,7 @@ function limitWrites(limits, networkOf) {
 export function ogPath(type, p) {
   if (type === 'character') return `/og/c/${encodeURIComponent(p.c)}.png`;
   if (type === 'tier') return `/og/t/${encodeURIComponent(p.c)}.png`;
+  if (type === 'collections') return `/og/k/${encodeURIComponent(p.c)}.png`;
   if (type === 'guild') return `/og/g/${encodeURIComponent(p.g)}.png`;
   const q = new URLSearchParams();
   if (p.c) q.set('c', p.c);
@@ -343,6 +344,7 @@ export function createCardImageRouter(deps) {
     }
   };
   r.get('/og/c/:file', og('character', (s) => subjectFrom('character', { c: s })));
+  r.get('/og/k/:file', og('collections', (s) => subjectFrom('collections', { c: s })));
   r.get('/og/t/:file', og('tier', (s) => subjectFrom('tier', { c: s })));
   r.get('/og/g/:file', og('guild', (s) => subjectFrom('guild', { g: s })));
   r.get('/og/b/:ruleset/:file', og('board', async (s, req) => {
