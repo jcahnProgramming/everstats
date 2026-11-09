@@ -4,6 +4,7 @@ import { AppShell } from './chrome/AppShell.jsx';
 import { ChangelogPage } from './pages/ChangelogPage.jsx';
 import { CharacterPage } from './pages/CharacterPage.jsx';
 import { GuildPage } from './pages/GuildPage.jsx';
+import { GuildsPage } from './pages/GuildsPage.jsx';
 import { HomePage } from './pages/HomePage.jsx';
 import { LeaderboardsPage } from './pages/LeaderboardsPage.jsx';
 import { NotFoundPage } from './pages/NotFoundPage.jsx';
@@ -24,6 +25,7 @@ export function App() {
             <Route path="c/:slug" element={<CharacterPage />} />
             <Route path="leaderboards" element={<LeaderboardsPage />} />
             <Route path="leaderboards/:ruleset/:statistic" element={<StatLeaderboardPage />} />
+            <Route path="guilds" element={<GuildsPage />} />
             <Route path="g/:slug" element={<GuildPage />} />
             <Route path="sign-in" element={<SignInPage />} />
             <Route path="sign-in/2fa" element={<SecondFactorPage />} />

@@ -42,3 +42,18 @@
 .char-tier-text { align-items: flex-end; text-align: right; }
 .sheet-body { align-items: start; }
 .stats-title { font-size: var(--es-fs-28); }
+
+/* ---------------------------------------------------------------- leaderboards, guild */
+.h2-panel { font-size: var(--es-fs-22); }
+.strong-text { color: var(--es-text); }
+.crumbs { display: flex; gap: var(--es-space-8); align-items: center; color: var(--es-muted); flex-wrap: wrap; }
+.mono-title { overflow-wrap: anywhere; }
+.board-head { justify-content: space-between; padding: var(--es-space-14) var(--es-space-18); border-bottom: var(--es-border-1) solid var(--es-line); }
+.guild-banner { align-items: center; flex-wrap: wrap; }
+.guild-name { overflow-wrap: anywhere; }
+.crest { width: var(--es-space-96); height: auto; flex: none; }
+.crest .crest-shield { fill: var(--es-sunken); stroke: var(--es-accent); stroke-width: 2; }
+.crest .crest-inner { fill: none; stroke: var(--es-line-strong); stroke-width: 1; }
+.crest .crest-flame { fill: var(--es-accent); opacity: 0.75; }
+.crest .crest-base { fill: var(--es-accent-2); }
+@media (max-width: 719px) { .crest { width: var(--es-space-64); } }
