@@ -1,0 +1,93 @@
+# Everstats: Postgres, the web app (UI + API, the only thing in the tunnel) and the worker (background crawler).
+# The web app and the worker run from the same image and share the database.
+#
+# Host ports bind to BIND_IP ONLY, never 0.0.0.0 (server/test/compose-guard.test.js). The database publishes NO port:
+# only the two app containers reach it, over this stack's own network.
+#
+# Required, no defaults (compose refuses to start without them rather than guess):
+#   BIND_IP            host address the two ports are published on (the deploy passes it; or .env)
+#   PG_DATA_DIR        host folder for Postgres's main data. A DIRECT disk or pool path (e.g. under /mnt/cache),
+#                      never /mnt/user (Unraid's shfs FUSE layer: databases and its locking don't mix)
+#   PG_SNAPSHOT_DIR    host folder for the "snapshots" tablespace: the bulk, kept-forever daily snapshots. On the
+#                      array (a /mnt/diskN path), never /mnt/user
+#   POSTGRES_PASSWORD  in .env (`npm run gen-key postgres` prints one)
+# Both folders must exist before deploying, owned by 999:999 (the postgres user in the image). Docker must never
+# create them (create_host_path: false; the deploy's preflight checks them first).
+#
+# Room for later: an everstats-mcp container (read-only, its own port, LAN only) will join this file and connect
+# with a read-only Postgres role. Not built in 1.0.
+
+x-app: &app
+  build: .
+  image: everstats:local
+  restart: unless-stopped
+  env_file:
+    - path: .env
+      required: false
+  environment: &app-env
+    NODE_ENV: production
+    DATABASE_URL: "postgres://everstats:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see docker-compose.yml)}@everstats-db:5432/everstats"
+    SNAPSHOT_TABLESPACE_DIR: /var/lib/postgresql/snapshots
+    PUBLIC_ORIGIN: "${PUBLIC_ORIGIN:-https://everstats.app}"
+  depends_on:
+    everstats-db:
+      condition: service_healthy
+
+services:
+  everstats-db:
+    # Pinned to 17: the postgres:18 image moved its data directory, which would silently start an empty database.
+    image: postgres:17-bookworm
+    container_name: everstats-db
+    restart: unless-stopped
+    shm_size: 256mb
+    environment:
+      POSTGRES_USER: everstats
+      POSTGRES_DB: everstats
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see docker-compose.yml)}"
+    volumes:
+      - type: bind
+        source: "${PG_DATA_DIR:?Set PG_DATA_DIR to the host folder for the database (see docker-compose.yml)}"
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${PG_SNAPSHOT_DIR:?Set PG_SNAPSHOT_DIR to the host folder for the snapshot tablespace (see docker-compose.yml)}"
+        target: /var/lib/postgresql/snapshots
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U everstats -d everstats"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  everstats:
+    <<: *app
+    container_name: everstats
+    command: ["node", "server/index.js"]
+    environment:
+      <<: *app-env
+      PORT: 3260
+    ports:
+      - "${BIND_IP:?Set BIND_IP to the host address to publish on (see docker-compose.yml)}:${WEB_PORT:-3260}:3260"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3260/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  everstats-worker:
+    <<: *app
+    container_name: everstats-worker
+    command: ["node", "server/worker/index.js"]
+    environment:
+      <<: *app-env
+      WORKER_PORT: 3261
+      WORKER_ID: everstats-worker
+    ports:
+      - "${BIND_IP:?Set BIND_IP to the host address to publish on (see docker-compose.yml)}:${WORKER_PORT:-3261}:3261"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3261/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

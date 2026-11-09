@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en" data-theme="forever">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Everstats</title>
+    <meta name="description" content="WoW Forever character statistics, leaderboards and tiers." />
+    <link rel="icon" href="data:," />
+    <!-- Theme boot: blocking on purpose, so the account's theme applies before first paint. Served by the app from
+         the signed-in account's choice; logged-out visitors always get Forever (server/app.js). -->
+    <script src="/api/theme-boot.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

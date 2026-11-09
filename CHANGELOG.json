@@ -1,0 +1,19 @@
+{
+  "releases": [
+    {
+      "version": "0.1.0",
+      "date": "2026-11-08",
+      "title": "The foundations: a site you can open, sign in to, and theme",
+      "sections": {
+        "New": [
+          "Everstats has a home page with a character search (name and surname). Lookups aren't switched on yet, so a search takes you to the character's page, which says plainly that there's no data for anyone yet.",
+          "Every page Everstats 1.0 will have is in place: character pages (hero, gear, core stats, statistics by category, tier letters, progress charts), leaderboards for each ruleset and category, single-statistic leaderboards and guild pages. Each says what it will show and that it's coming, with no sample numbers.",
+          "Accounts are optional. Sign in with Battle.net or Discord; the first sign-in makes your account. Until the site's keys are entered, the sign-in page says that sign-in isn't set up yet rather than offering a button that fails.",
+          "In Settings you can link a second provider, add passkeys (and then sign in with a passkey), turn on two-factor codes from an authenticator app with ten one-time recovery codes shown once, and merge a second account you made by mistake into the one you keep.",
+          "Three themes: Forever (twilight blue and gold), Alliance (royal blue, gold and parchment) and Horde (crimson, charcoal and bronze). Choosing a theme is for signed-in accounts and follows your account to every device; visitors always see Forever.",
+          "The version and a link to these notes sit in a bar at the bottom of every page."
+        ]
+      }
+    }
+  ]
+}

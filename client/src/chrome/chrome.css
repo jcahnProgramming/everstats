@@ -1,0 +1,37 @@
+/* Top bar and bottom strip. Colours from tokens only. */
+.topbar-bar {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--surface-bar);
+  border-bottom: var(--trim-w) solid var(--trim);
+  box-shadow: var(--shadow);
+}
+.topbar {
+  max-width: var(--page-max); margin: 0 auto; height: var(--topbar-h);
+  padding: 0 var(--page-gutter);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+}
+.topbar-name { display: inline-flex; align-items: center; gap: var(--space-2); text-decoration: none; color: var(--text-1); min-height: var(--tap); }
+.topbar-word { font-size: var(--text-xl); letter-spacing: 0.04em; color: var(--text-1); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-2); }
+.topbar-actions .btn-ghost.active { color: var(--accent-text); }
+
+.bottombar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 15;
+  min-height: var(--bottombar-h);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); flex-wrap: wrap;
+  padding: var(--space-1) var(--page-gutter);
+  background: var(--surface-bar);
+  border-top: var(--border-w) solid var(--border);
+  font-size: var(--text-sm);
+}
+.version-link { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-2); text-decoration: none; min-height: 32px; }
+.version-link:hover { color: var(--accent-text); }
+.version-name { font-family: var(--font-display); color: var(--text-1); }
+.version-number { font-family: var(--font-mono); color: var(--accent-text); }
+.bottombar-note { color: var(--text-3); font-size: var(--text-xs); }
+
+@media (max-width: 520px) {
+  .topbar-label { display: none; }
+  .topbar-word { font-size: var(--text-lg); }
+  .bottombar-note { display: none; }
+}

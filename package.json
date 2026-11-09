@@ -1,0 +1,24 @@
+{
+  "name": "everstats",
+  "private": true,
+  "type": "module",
+  "description": "WoW Forever character statistics, leaderboards and tiers",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "dev:server": "npm run dev --workspace server",
+    "dev:worker": "npm run dev:worker --workspace server",
+    "dev:client": "npm run dev --workspace client",
+    "build": "node scripts/check-changelog.js && npm run build --workspace client",
+    "start": "npm run start --workspace server",
+    "start:worker": "npm run start:worker --workspace server",
+    "gen-key": "node scripts/gen-key.js",
+    "test": "node --test \"server/test/*.test.js\""
+  }
+}

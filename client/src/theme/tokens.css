@@ -1,0 +1,232 @@
+/* Everstats design tokens. THE ONLY FILE WITH COLOURS IN IT: everything else uses var(--…)
+   (server/test/client-colours.test.js fails the build's tests otherwise).
+
+   Three themes, all following WoW's colour language, chosen by data-theme on <html>:
+     forever   (default; every logged-out visitor) twilight blue, gold and white, a faint old-map texture
+     alliance  deep royal blue, polished gold trim, pale parchment highlight
+     horde     dark crimson and charcoal, bronze / iron accents, a hint of ember orange
+   The boot script (/api/theme-boot.js, served by the app from the account's choice) sets it before first paint.
+
+   Tier badges borrow item-quality colours: S legendary orange, A epic purple, B rare blue, C uncommon green,
+   D common grey. Each theme tunes them so a badge reads against that theme's surfaces (ring + fill + text).
+   "Unranked" is deliberately colourless.
+
+   Not final: the full design pass comes next. Keep components token-driven so it can change everything here. */
+
+@font-face { font-family: "Inter"; src: url("fonts/InterVariable-latin.woff2") format("woff2"); font-weight: 100 900; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Inter"; src: url("fonts/InterVariable-latin-ext.woff2") format("woff2"); font-weight: 100 900; font-display: swap; unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+
+:root, [data-theme="forever"] {
+  /* Type */
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 2rem;
+  --text-3xl: 2.75rem;
+
+  /* Space, shape, motion */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+  --border-w: 1px;
+  --trim-w: 2px;
+  --page-max: 1120px;
+  --page-gutter: 16px;
+  --topbar-h: 60px;
+  --bottombar-h: 40px;
+  --tap: 44px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur: 160ms;
+
+  /* ---------- Forever (default) ---------- */
+  --bg: #0b1430;
+  --bg-deep: #070d22;
+  --surface-1: #111c3d;
+  --surface-2: #17244c;
+  --surface-3: #1e2d5b;
+  --surface-bar: #091231;
+  --text-1: #f5f2e8;
+  --text-2: #c3cadf;
+  --text-3: #97a1c0;
+  --text-on-accent: #1a1405;
+  --border: #2a3a6e;
+  --border-strong: #3d4f8a;
+  --accent: #d6b25e;
+  --accent-strong: #e8c977;
+  --accent-text: #e6c879;
+  --accent-soft: #2b2a3a;
+  --trim: #b8954a;
+  --highlight: #24356b;
+  --highlight-text: #f5f2e8;
+  --focus: #f0d68e;
+  --link: #e6c879;
+  --glow: #24356b;
+  --texture-line: #16234a;
+  --texture-line-2: #13204400;
+  --emblem-ring: #d6b25e;
+  --emblem-fill: #17244c;
+  --emblem-mark: #f5f2e8;
+
+  --success: #5fc48a;
+  --success-soft: #12352a;
+  --warning: #e7b75a;
+  --warning-soft: #3a2f16;
+  --danger: #ef7a6f;
+  --danger-soft: #3f1d22;
+  --info: #8fb3ff;
+  --info-soft: #1a2a55;
+
+  /* Empty states: four kinds that must never look alike */
+  --state-soon: #d6b25e;
+  --state-soon-soft: #2a2a3b;
+  --state-nodata: #8fb3ff;
+  --state-nodata-soft: #18284f;
+  --state-nocoverage: #a8a3c9;
+  --state-nocoverage-soft: #221f3d;
+  --state-unranked: #c3cadf;
+  --state-unranked-soft: #1a2445;
+
+  /* Tier badges */
+  --tier-s-bg: #ff9a2e; --tier-s-fg: #1d1000; --tier-s-ring: #ffd29a;
+  --tier-a-bg: #b65cf2; --tier-a-fg: #16051f; --tier-a-ring: #dcb0ff;
+  --tier-b-bg: #3b9bff; --tier-b-fg: #04162b; --tier-b-ring: #a9d2ff;
+  --tier-c-bg: #4fd66b; --tier-c-fg: #052010; --tier-c-ring: #b6f3c3;
+  --tier-d-bg: #b9bfcc; --tier-d-fg: #15181f; --tier-d-ring: #e6e9ef;
+  --tier-none-bg: transparent; --tier-none-fg: #c3cadf; --tier-none-ring: #3d4f8a;
+
+  --shadow: 0 6px 24px #02061899;
+  color-scheme: dark;
+}
+
+/* ---------- Alliance ---------- */
+[data-theme="alliance"] {
+  --bg: #0a1a3f;
+  --bg-deep: #06112c;
+  --surface-1: #0f2452;
+  --surface-2: #142e66;
+  --surface-3: #1a3878;
+  --surface-bar: #081636;
+  --text-1: #fbf6e6;
+  --text-2: #cdd6ee;
+  --text-3: #9fb0d8;
+  --text-on-accent: #1d1503;
+  --border: #23427f;
+  --border-strong: #3459a3;
+  --accent: #e2bb4f;
+  --accent-strong: #f2cf6a;
+  --accent-text: #f0cd6b;
+  --accent-soft: #2d2f3c;
+  --trim: #c9a241;
+  --highlight: #efe3c2;
+  --highlight-text: #2a2210;
+  --focus: #f7dc8a;
+  --link: #f0cd6b;
+  --glow: #1b3c80;
+  --texture-line: #12285a;
+  --texture-line-2: #0f245200;
+  --emblem-ring: #e2bb4f;
+  --emblem-fill: #142e66;
+  --emblem-mark: #efe3c2;
+
+  --success: #63cf92;
+  --success-soft: #0f3a33;
+  --warning: #f0c060;
+  --warning-soft: #3b3214;
+  --danger: #ff8a7e;
+  --danger-soft: #431f2a;
+  --info: #9cc0ff;
+  --info-soft: #173465;
+
+  --state-soon: #e2bb4f;
+  --state-soon-soft: #2b3043;
+  --state-nodata: #9cc0ff;
+  --state-nodata-soft: #173465;
+  --state-nocoverage: #b9b2dc;
+  --state-nocoverage-soft: #24254d;
+  --state-unranked: #efe3c2;
+  --state-unranked-soft: #1b2f60;
+
+  --tier-s-bg: #ffa040; --tier-s-fg: #1d1000; --tier-s-ring: #ffe0b8;
+  --tier-a-bg: #c070ff; --tier-a-fg: #17041f; --tier-a-ring: #e6c6ff;
+  --tier-b-bg: #6db6ff; --tier-b-fg: #031a33; --tier-b-ring: #d6ebff;
+  --tier-c-bg: #5fe07a; --tier-c-fg: #032010; --tier-c-ring: #c7f7d1;
+  --tier-d-bg: #c9cfdb; --tier-d-fg: #141821; --tier-d-ring: #f1f3f7;
+  --tier-none-bg: transparent; --tier-none-fg: #efe3c2; --tier-none-ring: #3459a3;
+
+  --shadow: 0 6px 24px #020a1f99;
+}
+
+/* ---------- Horde ---------- */
+[data-theme="horde"] {
+  --bg: #141113;
+  --bg-deep: #0c0a0b;
+  --surface-1: #1d1719;
+  --surface-2: #261d1f;
+  --surface-3: #312426;
+  --surface-bar: #110d0e;
+  --text-1: #f4ebe3;
+  --text-2: #d3c3b8;
+  --text-3: #a8968a;
+  --text-on-accent: #fff4ec;
+  --border: #3e2c2c;
+  --border-strong: #5a3d38;
+  --accent: #a3211f;
+  --accent-strong: #c22a26;
+  --accent-text: #e2a06a;
+  --accent-soft: #3a1a19;
+  --trim: #b07a45;
+  --highlight: #3b1716;
+  --highlight-text: #f4ebe3;
+  --focus: #f08a4b;
+  --link: #e9a86e;
+  --glow: #3a1314;
+  --texture-line: #1c1617;
+  --texture-line-2: #1a141500;
+  --emblem-ring: #b07a45;
+  --emblem-fill: #5c1514;
+  --emblem-mark: #f08a4b;
+
+  --success: #6cc68b;
+  --success-soft: #16301f;
+  --warning: #f0a24b;
+  --warning-soft: #3d2712;
+  --danger: #ff7d6e;
+  --danger-soft: #45191a;
+  --info: #a9b9d6;
+  --info-soft: #222631;
+
+  --state-soon: #e9a86e;
+  --state-soon-soft: #33231a;
+  --state-nodata: #a9b9d6;
+  --state-nodata-soft: #222631;
+  --state-nocoverage: #c2a8b8;
+  --state-nocoverage-soft: #2e2028;
+  --state-unranked: #d3c3b8;
+  --state-unranked-soft: #261d1f;
+
+  --tier-s-bg: #ff9733; --tier-s-fg: #1d0f00; --tier-s-ring: #ffd2a3;
+  --tier-a-bg: #b866f0; --tier-a-fg: #15041d; --tier-a-ring: #dcb7fb;
+  --tier-b-bg: #4ea4ff; --tier-b-fg: #03162b; --tier-b-ring: #b9dbff;
+  --tier-c-bg: #55d570; --tier-c-fg: #041f0e; --tier-c-ring: #bdf2c8;
+  --tier-d-bg: #bdb6b1; --tier-d-fg: #1a1614; --tier-d-ring: #ebe6e2;
+  --tier-none-bg: transparent; --tier-none-fg: #d3c3b8; --tier-none-ring: #5a3d38;
+
+  --shadow: 0 6px 24px #00000099;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur: 0ms; }
+}
