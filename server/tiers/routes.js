@@ -2,7 +2,8 @@ import express from 'express';
 import { TIER_SETTING_KEYS, checkSetting, getSetting, setSetting } from '../admin/settings.js';
 import { HttpError, route } from '../core/errors.js';
 import { rulesetList } from '../characters/routes.js';
-import { previewTiers, requestTierRecompute } from './store.js';
+import { weightsProblem } from './engine.js';
+import { countingNow, previewTiers, requestTierRecompute } from './store.js';
 import { adminTierState, howTiersWork, tierBoard } from './view.js';
 
 /**
@@ -11,17 +12,25 @@ import { adminTierState, howTiersWork, tierBoard } from './view.js';
  *           GET /api/tiers/boards         a tier board: ?ruleset=&scope=overall|<category key>&cursor=
  *   admin   GET  /api/admin/tiers         settings, what counts (with reasons and inconsistencies), runs, rulesets
  *           POST /api/admin/tiers/preview letters per ruleset with proposed settings; nothing is saved
- *           PUT  /api/admin/tiers/settings save the four tier settings (each change logged; a full grading follows)
+ *           PUT  /api/admin/tiers/settings save the tier settings (each change logged; a full grading follows)
  *           POST /api/admin/tiers/regrade ask for a full grading now
  * The admin ones are mounted inside the admin router, after its gate: a plain 404 without an admin session.
  */
-const FIELDS = { shares: 'tiers.shares', minPopulation: 'grading.minPopulation', categoryHalf: 'tiers.categoryHalf', overallHalf: 'tiers.overallHalf' };
+const FIELDS = { shares: 'tiers.shares', minPopulation: 'grading.minPopulation', categoryHalf: 'tiers.categoryHalf', overallHalf: 'tiers.overallHalf', weights: 'tiers.weights' };
 
-/** The four tier settings from a request body, each validated by the settings registry. */
-function settingsFrom(body) {
+/**
+ * The tier settings from a request body, each validated by the settings registry, and the weight pins also against
+ * the live categories (an older admin page that doesn't send weights keeps the saved pins).
+ */
+async function settingsFrom(db, body) {
   const out = {};
-  for (const [field, key] of Object.entries(FIELDS)) out[field] = checkSetting(key, body?.[field]);
-  return out;
+  for (const [field, key] of Object.entries(FIELDS)) {
+    out[field] = field === 'weights' && body?.weights === undefined ? await getSetting(db, key) : checkSetting(key, body?.[field]);
+  }
+  const { plan } = await countingNow(db, { fresh: true });
+  const problem = weightsProblem(plan, out.weights);
+  if (problem) throw new HttpError(400, problem, 'invalid');
+  return { ...out, weighting: 'sqrt' };
 }
 
 export function createTierRouter({ db }) {
@@ -64,12 +73,12 @@ export function createAdminTierRouter({ db, writes }) {
   r.get('/tiers', route(async (req, res) => res.json(await adminTierState(db))));
 
   r.post('/tiers/preview', writes, route(async (req, res) => {
-    const settings = settingsFrom(req.body);
+    const settings = await settingsFrom(db, req.body);
     res.json({ settings, preview: await previewTiers(db, settings) });
   }));
 
   r.put('/tiers/settings', writes, route(async (req, res) => {
-    const settings = settingsFrom(req.body);
+    const settings = await settingsFrom(db, req.body);
     await db.tx(async (q) => {
       for (const [field, key] of Object.entries(FIELDS)) {
         const now = await getSetting(q, key);

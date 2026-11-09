@@ -69,6 +69,54 @@ test('categories weigh the same, a category without a letter still counts its sc
   assert.equal(gradeRuleset({ characterIds: [1, 2], valueOf: () => null, plan, settings }).graded, false);
 });
 
+// 0.8.0: weighted categories.
+const weightPlan = (counts) => ({
+  categories: Object.entries(counts).map(([key, n]) => ({ key, label: key, inOverall: true, statisticIds: Array.from({ length: n }, (_, i) => i), overallIds: Array.from({ length: n }, (_, i) => i) })),
+});
+
+test('category weights follow the square root of their statistics and add up to 1', async () => {
+  const { categoryWeights } = await import('../tiers/engine.js');
+  // The counts the owner quoted for 0.8.0: Professions 27, Dungeons & Raids 14, Character 14, PvP 9, Combat 9, Adventure 4.
+  const plan = weightPlan({ professions: 27, dungeons: 14, character: 14, pvp: 9, combat: 9, adventure: 4 });
+  const w = categoryWeights(plan, { weighting: 'sqrt' });
+  const pct = Object.fromEntries(w.map((x) => [x.key, Math.round(x.weight * 1000) / 10]));
+  assert.deepEqual(pct, { professions: 25.1, dungeons: 18.1, character: 18.1, pvp: 14.5, combat: 14.5, adventure: 9.7 });
+  assert.ok(Math.abs(w.reduce((n, x) => n + x.weight, 0) - 1) < 1e-12);
+  // A grading stored before 0.8.0 (no weighting in its settings) keeps equal weights.
+  assert.ok(categoryWeights(plan, {}).every((x) => Math.abs(x.weight - 1 / 6) < 1e-12));
+});
+
+test('a pinned weight is kept and the others share the rest by the formula; bad pins are refused in words', async () => {
+  const { categoryWeights, weightsProblem } = await import('../tiers/engine.js');
+  const plan = weightPlan({ a: 16, b: 4, c: 1 }); // √: 4, 2, 1
+  const w = categoryWeights(plan, { weighting: 'sqrt', weights: { a: 50, gone: 30 } });
+  assert.equal(w[0].weight, 0.5);
+  assert.ok(Math.abs(w[1].weight - 0.5 * (2 / 3)) < 1e-12); // b and c share 50 % as 2 : 1
+  assert.ok(Math.abs(w[2].weight - 0.5 * (1 / 3)) < 1e-12);
+  assert.equal(w[0].pinned, 50);
+  assert.equal(w[1].pinned, null);
+  // Every category pinned: scaled to exactly 100.
+  const all = categoryWeights(plan, { weighting: 'sqrt', weights: { a: 50, b: 30, c: 20 } });
+  assert.deepEqual(all.map((x) => Math.round(x.weight * 100)), [50, 30, 20]);
+  assert.equal(weightsProblem(plan, { a: 50, gone: 99 }), null); // a pin for a category not in the overall tier is ignored
+  assert.match(weightsProblem(plan, { a: 60, b: 40 }), /leaves nothing for the 1 you didn’t pin/);
+  assert.match(weightsProblem(plan, { a: 50, b: 30, c: 10 }), /must add up to 100% \(they add up to 90%\)/);
+});
+
+test('the overall score is the weighted average of the category parts', async () => {
+  const { scoreCharacter } = await import('../tiers/engine.js');
+  const plan = { statisticIds: [1, 2, 3, 4, 5], categories: [
+    { key: 'big', label: 'Big', inOverall: true, statisticIds: [1, 2, 3, 4], overallIds: [1, 2, 3, 4] },
+    { key: 'small', label: 'Small', inOverall: true, statisticIds: [5], overallIds: [5] },
+  ] };
+  const pct = { 1: 80, 2: 80, 3: 80, 4: 80, 5: 20 };
+  const base = { categoryHalf: 50, overallHalf: 50 };
+  const equal = scoreCharacter(plan, base, (id) => pct[id], () => true);
+  assert.equal(equal.overallScore, 50);
+  const weighted = scoreCharacter(plan, { ...base, weighting: 'sqrt' }, (id) => pct[id], () => true);
+  assert.equal(weighted.overallScore, 60); // √4 : √1 = 2 : 1 → (80·2 + 20) / 3
+});
+
 test('a farmable category gets its own letter and never reaches the overall score', async () => {
   const { gradeRuleset } = await import('../tiers/engine.js');
   const plan = {
@@ -161,14 +209,15 @@ test('a statistic counts only once its category AND what it counts toward are ap
 test('a burst of decisions makes one pending grading, which waits for a quiet moment', async () => {
   const pending = await t.db.query("SELECT * FROM tier_runs WHERE status = 'pending'");
   assert.equal(pending.length, 1);
-  assert.deepEqual(pending[0].reasons, ['decision']);
+  // Migration 017 (0.8.0) asks for one grading with category weights; the decisions above join that same request.
+  assert.deepEqual(pending[0].reasons, ['category weights (0.8.0)', 'decision']);
   const { dueReason, runDueTierWork, TIER_DEBOUNCE_MS } = await import('../tiers/store.js');
   // The first grading ever ran above (directly), but tier_runs has no 'done' row: inside the quiet period a pending
   // request still waits.
   await t.db.query("INSERT INTO tier_runs (status, finished_at) VALUES ('done', now())");
   assert.equal(await dueReason(t.db), null);
   const later = () => Date.now() + TIER_DEBOUNCE_MS + 1000;
-  assert.deepEqual((await dueReason(t.db, { now: later })).reasons, ['decision']);
+  assert.deepEqual((await dueReason(t.db, { now: later })).reasons, ['category weights (0.8.0)', 'decision']);
   assert.match(await runDueTierWork(t.db, { now: later, log: { error() {} } }), /Graded 1 ruleset/);
   assert.equal((await t.db.query("SELECT 1 FROM tier_runs WHERE status = 'pending'")).length, 0);
 });
@@ -290,6 +339,39 @@ test('admin: the preview changes nothing; shares must add up to 100; every chang
   assert.ok(state.categories.every((x) => Array.isArray(x.undecided)));
   // Without an admin session: the same plain 404 as every admin route.
   assert.equal((await t.client().get('/api/admin/tiers')).status, 404);
+});
+
+test('admin: category weights are listed, a pin is checked against the live categories, saved, logged and used', async () => {
+  const c = t.client();
+  const state = (await c.get('/api/admin/tiers', admin)).json;
+  assert.ok(state.weights.length >= 1);
+  assert.ok(Math.abs(state.weights.reduce((n, w) => n + w.weight, 0) - 1) < 1e-9);
+  const key = state.weights[0].key;
+  const base = { shares: { S: 5, A: 15, B: 30, C: 30, D: 20 }, minPopulation: 50, categoryHalf: 50, overallHalf: 50 };
+  if (state.weights.length === 1) {
+    const bad = await c.put('/api/admin/tiers/settings', { ...base, weights: { [key]: 40 } }, admin);
+    assert.equal(bad.status, 400);
+    assert.match(bad.json.error, /must add up to 100%/);
+  } else {
+    const too = await c.put('/api/admin/tiers/settings', { ...base, weights: { [key]: 99.9, ...Object.fromEntries(state.weights.slice(1).map((w) => [w.key, 1])) } }, admin);
+    assert.equal(too.status, 400);
+  }
+  assert.equal((await c.put('/api/admin/tiers/settings', { ...base, weights: { [key]: 120 } }, admin)).status, 400);
+  const ok = await c.put('/api/admin/tiers/settings', { ...base, weights: state.weights.length === 1 ? {} : { [key]: 30 } }, admin);
+  assert.equal(ok.status, 200);
+  if (state.weights.length > 1) {
+    assert.equal(ok.json.weights[0].pinned, 30);
+    assert.equal(ok.json.weights[0].weight, 0.3);
+    const logged = await t.db.query("SELECT detail FROM admin_events WHERE type = 'setting.changed' AND detail->>'key' = 'tiers.weights'");
+    assert.ok(logged.length >= 1);
+    await gradeNow();
+    const stored = await t.db.one('SELECT settings FROM tier_rulesets WHERE ruleset_id = $1', [RS]);
+    assert.equal(stored.settings.weighting, 'sqrt');
+    assert.deepEqual(stored.settings.weights, { [key]: 30 });
+    await c.put('/api/admin/tiers/settings', { ...base, weights: {} }, admin);
+  }
+  const how = (await t.client().get('/api/tiers/how')).json;
+  assert.ok(how.weights.every((w) => w.pinned === null));
 });
 
 test('below the ruleset minimum nobody is graded, and the page says how many are tracked so far', async () => {

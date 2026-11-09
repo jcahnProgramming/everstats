@@ -29,6 +29,7 @@ import { HowTiersPage, TierBoardPage } from './pages/TiersPages.jsx';
 import { SessionProvider } from './session.jsx';
 import { MergePage } from './settings/MergePage.jsx';
 import { SettingsPage } from './settings/SettingsPage.jsx';
+import { CardMakerPage } from './share/CardMaker.jsx';
 
 // Every 1.0 page has its route. Pages for features that aren't built say so ("Coming soon"), with no sample data.
 // Signed in, the home route is the player's dashboard (HomePage → DashboardPage).
@@ -42,6 +43,12 @@ export function App() {
             {/* The signed-in dashboard IS the home page; /dashboard is a natural guess, so it goes there. */}
             <Route path="dashboard" element={<Navigate to="/" replace />} />
             <Route path="c/:slug" element={<CharacterPage />} />
+            {/* 0.8.0: the card maker, at the designed routes (design/v3-share-cards). */}
+            <Route path="c/:slug/share" element={<CardMakerPage type="character" />} />
+            <Route path="c/:slug/tier/share" element={<CardMakerPage type="tier" />} />
+            <Route path="g/:slug/share" element={<CardMakerPage type="guild" />} />
+            <Route path="leaderboards/:ruleset/:statistic/share" element={<CardMakerPage type="board" />} />
+            <Route path="leaderboards/guilds/:ruleset/:statistic/share" element={<CardMakerPage type="board" />} />
             <Route path="leaderboards" element={<LeaderboardsPage />} />
             <Route path="leaderboards/:ruleset/:statistic" element={<StatLeaderboardPage />} />
             <Route path="leaderboards/guilds/:ruleset/:statistic" element={<GuildBoardPage />} />

@@ -39,6 +39,10 @@ export async function tierSettings(db) {
     minPopulation: await getSetting(db, 'grading.minPopulation'),
     categoryHalf: await getSetting(db, 'tiers.categoryHalf'),
     overallHalf: await getSetting(db, 'tiers.overallHalf'),
+    // 0.8.0: weighted categories. Stored with each grading, so a one-character grading uses the same weighting as
+    // the full grading it is placed against (a grading stored without it was graded with equal weights).
+    weighting: 'sqrt',
+    weights: await getSetting(db, 'tiers.weights'),
   };
 }
 

@@ -1,6 +1,26 @@
 {
   "releases": [
     {
+      "version": "0.8.0",
+      "date": "2026-11-09",
+      "title": "Share cards, link previews, transmog and weighted tiers",
+      "sections": {
+        "New": [
+          "Share cards. Every character, guild, leaderboard placement and tier now has a card you can download or copy as an image: square for Discord, tall for phone stories, or wide for X and Reddit, each in two layouts and the Forever, Alliance or Horde theme. Open one from the gold Share button on a character sheet or guild page, the share icon on any leaderboard row, or \"Share tier\" under a tier breakdown.",
+          "Everything on a card is real and dated: the statistics, ranks, tier and gear come from the same data as the pages, with the date Blizzard’s data was fetched. A statistic at zero can’t go on a card, and a character with no render gets a crest with their initials instead of a stand-in picture.",
+          "Link previews. Pasting a character, guild, tier or leaderboard link into Discord, Reddit or X now shows its card.",
+          "Save as my default. A character’s owner, or a guild’s Guild Master and officers, can save their card design. It becomes the card everyone sees first and the link preview. Nobody else’s choices are ever saved.",
+          "Worn gear or transmog. A character with transmogged gear gets a \"Worn gear | Transmog\" switch on its gear: the transmog view shows the look each slot is transmogged to, and the worn item’s full tooltip is still there. Blizzard’s render always shows worn gear. Share cards can show either.",
+          "\"Why sign in?\" on the home page for visitors: what an account adds, with the real number of characters and guilds tracked so far. Character and guild pages show a small, dismissible \"Is this your character?\" note. Nothing is ever hidden from visitors."
+        ],
+        "Improved": [
+          "Overall tiers weigh categories by how much they measure. Each category used to count the same, so one with 4 statistics counted as much as one with 27. A category’s weight now follows the square root of how many of its statistics count, so bigger categories count more, but not overwhelmingly. \"How tiers work\" lists every category’s weight, and \"Why this tier\" shows each one beside its score. The rule for getting an overall letter (a letter in at least half the categories) is unchanged.",
+          "Guild pages are much shorter: \"Top members\" categories are now full-width sections that start closed. Each closed header shows how many statistics it holds and the guild’s best guild-board placement in that category.",
+          "The leaderboards index (characters and guilds) starts with every category closed, each showing how many boards it has and its busiest board. The category tags at the top open that category and jump to it."
+        ]
+      }
+    },
+    {
       "version": "0.7.1",
       "date": "2026-11-09",
       "title": "Guild badges, feedback with replies, and hiding a wrong render",

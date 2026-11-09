@@ -43,6 +43,12 @@ export const MERGE_STEPS = [
     run: (q, from, to) => q.query('UPDATE character_render_hidden SET account_id = $2 WHERE account_id = $1', [from, to]),
   },
   {
+    // 0.8.0: share-card defaults this account saved stay saved, now by the kept account.
+    id: 'share_card_defaults',
+    describe: 'Share cards you saved as the default for your characters or guild stay saved.',
+    run: (q, from, to) => q.query('UPDATE share_card_defaults SET saved_by = $2 WHERE saved_by = $1', [from, to]),
+  },
+  {
     id: 'character_checks',
     describe: 'The record of each time Battle.net listed your characters moves too.',
     run: (q, from, to) => q.query('UPDATE account_character_checks SET account_id = $2 WHERE account_id = $1', [from, to]),

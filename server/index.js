@@ -41,6 +41,8 @@ sweeper.unref();
 
 function shutdown() {
   clearInterval(sweeper);
+  // 0.8.0: the share-card renderer's Chromium goes with the process.
+  app.locals.cardRenderer?.close?.();
   httpServer.close(() => {
     db.close().finally(() => process.exit(0));
   });

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
+import { Icon } from '../chrome/Icon.jsx';
 import { EmptyState, UnrankedNote } from '../components/EmptyState.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
 import { Segmented } from '../components/Controls.jsx';
@@ -19,7 +20,18 @@ import { useCoverage } from '../useCoverage.js';
  *
  * 0.5.0: a Characters | Guilds switch (?view=guilds). The Guilds view lists the same boards with each one's top three
  * GUILDS by the total of their current tracked members (GET /api/guild-boards), keeping the ruleset and categories.
+ *
+ * 0.8.0: the CATEGORY sections collapse (the board cards inside them don't), all collapsed when the page opens, each on
+ * its own; nothing is remembered, so a refresh collapses them again. A category chip, or an address ending in
+ * #category (the character page's "All boards"), opens that category and scrolls to it. A collapsed header says how
+ * many boards it holds and which board has the most characters (or ranked guilds) on it.
  */
+const busiest = (cat, guilds) => {
+  const n = (b) => (guilds ? b.ranked : b.nonzero) ?? 0;
+  const top = cat.boards.reduce((best, b) => (n(b) > n(best ?? { ranked: -1, nonzero: -1 }) ? b : best), null);
+  if (!top || n(top) === 0) return guilds ? 'no ranked guild has any yet' : 'nobody tracked has any yet';
+  return guilds ? `busiest: ${top.name} (${formatNumber(n(top))} guild${n(top) === 1 ? '' : 's'})` : `busiest: ${top.name} (${formatNumber(n(top))} with any)`;
+};
 export function LeaderboardsPage() {
   const { coverage } = useCoverage();
   const [params, setParams] = useSearchParams();
@@ -43,11 +55,30 @@ export function LeaderboardsPage() {
     setParams(Object.fromEntries(Object.entries(q).filter(([k, v]) => v && !(k === 'view' && v === 'characters'))));
   };
 
-  // A category anchor (#combat) scrolls once the boards are drawn.
+  const [open, setOpen] = useState(() => new Set());
+  const [scrollTo, setScrollTo] = useState(null);
+  const toggle = (key) => setOpen((o) => {
+    const n = new Set(o);
+    if (n.has(key)) n.delete(key);
+    else n.add(key);
+    return n;
+  });
+  const reveal = useCallback((key) => {
+    setOpen((o) => new Set(o).add(key));
+    setScrollTo(key);
+  }, []);
+  // A category anchor (#combat) opens that category and scrolls to it once the boards are drawn.
   useEffect(() => {
     if (!data || !window.location.hash) return;
-    document.getElementById(window.location.hash.slice(1))?.scrollIntoView();
-  }, [data]);
+    const key = decodeURIComponent(window.location.hash.slice(1));
+    if (data.categories?.some((c) => c.key === key)) reveal(key);
+  }, [data, reveal]);
+  useEffect(() => {
+    if (!scrollTo) return;
+    document.getElementById(scrollTo)?.scrollIntoView({ block: 'start' });
+    document.getElementById(`h-${scrollTo}`)?.focus({ preventScroll: true });
+    setScrollTo(null);
+  }, [scrollTo, open]);
 
   const rs = data?.ruleset ?? null;
   const guilds = view === 'guilds';
@@ -72,7 +103,20 @@ export function LeaderboardsPage() {
         <p className="muted small">Beta: boards are filling up as players join. Every search and every sign-in adds characters.</p>
         {data && rs && data.categories.length > 0 && (
           <nav className="row gap-8" aria-label="Categories">
-            {data.categories.map((c) => <a key={c.key} className="tag" href={`#${c.key}`}>{c.label} · {c.boards.length}</a>)}
+            {data.categories.map((c) => (
+              <a
+                key={c.key}
+                className="tag"
+                href={`#${c.key}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}#${c.key}`);
+                  reveal(c.key);
+                }}
+              >
+                {c.label} · {c.boards.length}
+              </a>
+            ))}
           </nav>
         )}
       </div>
@@ -88,14 +132,33 @@ export function LeaderboardsPage() {
         </EmptyState>
       )}
 
-      {data && rs && data.categories.map((cat) => (
-        <section key={cat.key} id={cat.key} className="stack gap-14" aria-labelledby={`h-${cat.key}`}>
-          <div className="orn"><span className="gem" /><h2 className="h2 h2-panel" id={`h-${cat.key}`}>{cat.label}</h2><span className="muted xsmall">{cat.boards.length} boards · {!cat.tierCounted ? 'not graded' : cat.inOverall ? `${cat.tierCounted} graded` : 'own tier only'}</span><span className="rule" /></div>
-          <div className="grid-auto col-md gap-14">
-            {cat.boards.map((b) => (guilds ? <MiniGuildBoard key={b.id} board={b} ruleset={rs} minMembers={data.minMembers} /> : <MiniBoard key={b.id} board={b} ruleset={rs} population={data.population} />))}
-          </div>
-        </section>
-      ))}
+      {data && rs && data.categories.length > 0 && (
+        <div className="stack gap-8">
+          {data.categories.map((cat) => {
+            const isOpen = open.has(cat.key);
+            return (
+              <section key={cat.key} id={cat.key} className={`stack gap-14 lb-cat${isOpen ? ' is-open' : ''}`} aria-labelledby={`h-${cat.key}`}>
+                <h2 className="lb-cat-h">
+                  <button type="button" id={`h-${cat.key}`} className="orn lb-cat-btn" aria-expanded={isOpen} aria-controls={`boards-${cat.key}`} onClick={() => toggle(cat.key)}>
+                    <span className="gem" />
+                    <span className="lb-cat-title">
+                      <span className="h2 h2-panel">{cat.label}</span>
+                      <span className="muted xsmall">{formatNumber(cat.boards.length)} board{cat.boards.length === 1 ? '' : 's'} · {!cat.tierCounted ? 'not graded' : cat.inOverall ? `${cat.tierCounted} graded` : 'own tier only'} · {busiest(cat, guilds)}</span>
+                    </span>
+                    <span className="rule" />
+                    <Icon name={isOpen ? 'chevron-up' : 'chevron-down'} size="sm" />
+                  </button>
+                </h2>
+                {isOpen && (
+                  <div id={`boards-${cat.key}`} className="grid-auto col-md gap-14">
+                    {cat.boards.map((b) => (guilds ? <MiniGuildBoard key={b.id} board={b} ruleset={rs} minMembers={data.minMembers} /> : <MiniBoard key={b.id} board={b} ruleset={rs} population={data.population} />))}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
+      )}
 
       {guilds && data && rs && data.categories.length > 0 && data.rankedGuilds === 0 && (
         <EmptyState kind="nodata" title={`No guild on ${rs.name} has ${data.minMembers} tracked members yet`}>

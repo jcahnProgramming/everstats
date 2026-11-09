@@ -16,6 +16,8 @@ import { NameWithBadge } from '../badges/Badges.jsx';
 import { formatDate, formatDateTime, formatNumber, timeAgo } from '../format.js';
 import { useSession } from '../session.jsx';
 import { feedbackHref } from '../feedback/FeedbackPages.jsx';
+import { ShareButton } from '../share/ShareButtons.jsx';
+import { SignInNudge } from '../chrome/SignInNudge.jsx';
 
 /**
  * The character page (design/v1/pages/character): the gilt character sheet, then every statistic.
@@ -28,7 +30,8 @@ import { feedbackHref } from '../feedback/FeedbackPages.jsx';
  *   - 0.6.0: the overall tier (or Unranked, with the reason in words) and "Why this tier" (components/TierBreakdown.jsx):
  *     every letter comes with what fed it. Statistics sections are full width and start collapsed (the mockup's
  *     multi-column cards left gaps); each collapsed header still says the category's letter, size and best rank.
- *   - No Progress chart or Share button yet; the Refresh button is the page reload (a lookup refreshes).
+ *   - 0.8.0: the gold Share button (design/v3-share-cards share-button.md) opens the card maker; a hidden character
+ *     has none. No Progress chart yet; the Refresh button is the page reload (a lookup refreshes).
  *   - Gear slots are split in two columns as Blizzard lists them (no fixed slot list: whatever the API returns).
  */
 export function CharacterPage() {
@@ -132,6 +135,11 @@ function CharacterSheet({ data, onReload }) {
   return (
     <>
       {data.notice && <div className="note warn small" role="status"><Icon name="warning" /><span className="flex-fill">{NOTICES[data.notice]} Data as of {formatDateTime(c.fetchedAt)}.</span></div>}
+      {!c.claimedBy && !c.mine && (
+        <SignInNudge id="character" returnTo={`/c/${encodeURIComponent(c.slug)}`}>
+          <b>Is this your character?</b> Sign in with Battle.net to claim it: pin its statistics, hide it or its render, and save its share card.
+        </SignInNudge>
+      )}
       {c.hidden && <EmptyState kind="hidden" compact title="Hidden: only you can see this page"><span>It's on no leaderboard and has no public page. Show it again in <Link to="/settings#characters">Settings</Link>.</span></EmptyState>}
       <section className="sheet stack gap-24 sheet-pad" aria-label="Character sheet">
         <div className="row gap-24 sheet-top">
@@ -149,6 +157,7 @@ function CharacterSheet({ data, onReload }) {
               <span className="t2">Last seen in game: <b className="strong-text">{c.lastLoginAt ? timeAgo(c.lastLoginAt) : 'not reported'}</b></span>
               <Fresh at={c.fetchedAt} prefix="Data as of " />
               <button type="button" className="btn ghost sm" onClick={onReload}><Icon name="refresh" size="sm" />Refresh</button>
+              {!c.hidden && <ShareButton to={`/c/${encodeURIComponent(c.slug)}/share`} />}
             </div>
           </div>
           <OverallTier tiers={data.tiers} />
@@ -166,7 +175,7 @@ function CharacterSheet({ data, onReload }) {
         </Provenance>
       </section>
 
-      <WhyThisTier tiers={data.tiers} name={c.name} />
+      <WhyThisTier tiers={data.tiers} name={c.name} shareTo={c.hidden ? null : `/c/${encodeURIComponent(c.slug)}/tier/share`} />
 
       <Statistics stats={stats} character={c} count={statCount} tiers={data.tiers} />
 

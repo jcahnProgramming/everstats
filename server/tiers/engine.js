@@ -9,11 +9,13 @@ import { TIER_LETTERS, atLeastShare, isGraded, tierForRank } from '../stats/tier
  *               Ties share a percentile (mid-rank). Higher is better, 0–100.
  *   CATEGORY    the average of the character's percentiles over the category's counted statistics. A letter needs a
  *               value above 0 in at least `categoryHalf` % of them (rounded up), so one lucky statistic can't earn S.
- *   OVERALL     the average, over EVERY category that counts toward the overall tier, of the character's percentiles in
- *               that category's overall-counting statistics. Each category weighs the same, however many statistics it
- *               has. A category without a letter still contributes its score (otherwise skipping a category would
- *               raise the average); the letter rule only decides whether an overall letter is given: it needs a letter
- *               in at least `overallHalf` % of those categories (rounded up).
+ *   OVERALL     the WEIGHTED average, over EVERY category that counts toward the overall tier, of the character's
+ *               percentiles in that category's overall-counting statistics (0.8.0; until then each category weighed
+ *               the same). A category's weight follows the square root of how many of its statistics count toward the
+ *               overall tier, unless the owner pinned a percent for it (categoryWeights below). A category without a
+ *               letter still contributes its score (otherwise skipping a category would raise the average); the
+ *               letter rule only decides whether an overall letter is given: it needs a letter in at least
+ *               `overallHalf` % of those categories (rounded up). That rule counts categories, not weight.
  *   LETTERS     from where a score places among everyone's scores of the same kind on the ruleset: rank = 1 + how
  *               many are strictly above (ties share), then the shares (tiers.shares, default S 5 · A 15 · B 30 · C 30 ·
  *               D 20). Only characters who meet that scope's rule are placed; the rest are Unranked, with the reason.
@@ -54,6 +56,55 @@ export function percentiles(values) {
 export const percentileOf = ({ below, equal, population }) => (population > 0 ? ((below + equal / 2) / population) * 100 : null);
 
 /**
+ * Each overall category's weight (0.8.0). `settings.weighting`:
+ *   'sqrt'   (every grading from 0.8.0) the default weight of a category is proportional to the square root of how many
+ *            of its statistics count toward the overall tier, so a category with 4 counts less than one with 27, but
+ *            not 7 times less. `settings.weights` pins a percent for some categories ({ key: percent }); the rest
+ *            share what is left in proportion to the same square roots. Pins for categories not in the overall tier
+ *            are ignored. Every category pinned: the pins are scaled to add up to exactly 100.
+ *   absent   a grading stored before 0.8.0: every category weighs the same, as it was graded then.
+ * → [{ key, label, statistics, formula, pinned, weight }] in the plan's order, for overall categories only. formula
+ *   and weight are fractions adding up to 1; pinned is the pinned percent or null.
+ */
+export function categoryWeights(plan, settings = {}) {
+  const cats = plan.categories.filter((c) => c.inOverall);
+  if (!cats.length) return [];
+  const sq = cats.map((c) => Math.sqrt(c.overallIds.length));
+  const sqSum = sq.reduce((a, b) => a + b, 0);
+  const formula = sq.map((x) => (sqSum > 0 ? x / sqSum : 1 / cats.length));
+  if (settings.weighting !== 'sqrt') {
+    return cats.map((c, i) => ({ key: c.key, label: c.label, statistics: c.overallIds.length, formula: formula[i], pinned: null, weight: 1 / cats.length }));
+  }
+  const pins = settings.weights ?? {};
+  const pinned = cats.map((c) => (Number.isFinite(pins[c.key]) ? pins[c.key] : null));
+  const pinnedSum = pinned.reduce((a, p) => a + (p ?? 0), 0);
+  const free = cats.map((_, i) => pinned[i] === null);
+  let weight;
+  if (!free.some(Boolean)) {
+    weight = pinned.map((p) => (pinnedSum > 0 ? p / pinnedSum : 1 / cats.length));
+  } else {
+    const left = Math.max(0, 100 - pinnedSum) / 100;
+    const freeSq = sq.reduce((a, x, i) => a + (free[i] ? x : 0), 0);
+    const freeCount = free.filter(Boolean).length;
+    weight = cats.map((_, i) => (free[i] ? left * (freeSq > 0 ? sq[i] / freeSq : 1 / freeCount) : pinned[i] / 100));
+  }
+  return cats.map((c, i) => ({ key: c.key, label: c.label, statistics: c.overallIds.length, formula: formula[i], pinned: pinned[i], weight: weight[i] }));
+}
+
+/**
+ * Why a set of pins can't be used with this plan, in words, or null. Pins for categories that aren't in the overall
+ * tier are allowed (kept, ignored) so a category that drops out and comes back keeps its pin.
+ */
+export function weightsProblem(plan, pins) {
+  const cats = plan.categories.filter((c) => c.inOverall);
+  const used = cats.filter((c) => Number.isFinite(pins?.[c.key]));
+  const sum = used.reduce((a, c) => a + pins[c.key], 0);
+  if (used.length && used.length === cats.length && Math.abs(sum - 100) > 0.05) return `Every category is pinned, so the pins must add up to 100% (they add up to ${Math.round(sum * 10) / 10}%).`;
+  if (used.length < cats.length && sum >= 100) return `The pinned categories add up to ${Math.round(sum * 10) / 10}%, which leaves nothing for the ${cats.length - used.length} you didn’t pin. Keep the pins under 100%.`;
+  return null;
+}
+
+/**
  * One character's category scores and overall score from its percentiles. `pctOf(statId)` and `nonzeroOf(statId)`
  * answer for each counted statistic. → { categories: [{ key, score, overallPart, nonzero, needed, counted,
  * eligible }], overallScore, overallCategories, overallNeeded, lettersNeededFrom }
@@ -80,7 +131,8 @@ export function scoreCharacter(plan, settings, pctOf, nonzeroOf) {
     };
   });
   const inOverall = plan.categories.map((c, i) => (c.inOverall ? categories[i] : null)).filter(Boolean);
-  const overallScore = inOverall.length ? round6(inOverall.reduce((n, c) => n + c.overallPart, 0) / inOverall.length) : null;
+  const weights = categoryWeights(plan, settings);
+  const overallScore = inOverall.length ? round6(inOverall.reduce((n, c, i) => n + c.overallPart * weights[i].weight, 0)) : null;
   return { categories, overallScore, overallCategories: inOverall.length, overallNeeded: atLeastShare(inOverall.length, settings.overallHalf) };
 }
 

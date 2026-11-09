@@ -55,6 +55,12 @@ export const BLIZZARD = [
     sweep: async (q, cutoff) => n(await q.query('DELETE FROM tier_rulesets WHERE computed_at < $1 RETURNING 1', [cutoff])),
   },
   {
+    // 0.8.0: rendered share-card images show Blizzard values (and renders/icons). data_at is the OLDEST Blizzard fetch
+    // behind the image; the cache also never keeps an image longer than cards/store.js CACHE_HOURS.
+    table: 'share_card_images', holds: 'Rendered share-card PNGs (Blizzard values, renders and icons drawn in)', fetched: 'data_at',
+    sweep: async (q, cutoff) => n(await q.query("DELETE FROM share_card_images WHERE data_at < $1 OR created_at < now() - interval '6 hours' RETURNING 1", [cutoff])),
+  },
+  {
     table: 'item_media', holds: 'Item icon URLs (render host)', fetched: 'fetched_at',
     sweep: async (q, cutoff) => n(await q.query('DELETE FROM item_media WHERE fetched_at < $1 RETURNING 1', [cutoff])),
   },
@@ -248,6 +254,9 @@ export const OURS = {
   guild_badge_events: 'Guild badge log: unlocks, losses, grants, threshold and display changes, the back-fill (ids, counts, reasons) (0.7.1)',
   guild_badge_toast_seen: 'How far each Guild Master or officer has seen their guild’s badge toasts (0.7.1)',
   guild_partner_marks: 'Partner guild emblems the admin uploaded with written permission (re-encoded PNG) (0.7.1)',
+  // 0.8.0: a share-card default is the owner's (or a guild editor's) choice of layout, theme, accent, toggles and
+  // statistic ids. Keyed on a Blizzard character or guild id (allowed); no Blizzard value is stored in it.
+  share_card_defaults: 'Share-card designs saved as the default by a character’s owner or a guild’s editors: options and ids (0.8.0)',
   character_render_hidden: 'Characters whose owner chose “Hide my render” (character id, who, when) (0.7.1)',
   feedback_threads: 'Feedback players sent: type, the Everstats page it was about, an optional Discord name (0.7.1)',
   feedback_messages: 'Feedback messages and Everstats’ replies, plain text (0.7.1)',
@@ -264,6 +273,7 @@ export const OLDEST = [
   ['characters (renders)', 'SELECT min(media_fetched_at) AS t FROM characters WHERE media IS NOT NULL'],
   ['characters (gear, attributes)', 'SELECT min(last_fetched_at) AS t FROM characters WHERE equipment IS NOT NULL OR attributes IS NOT NULL'],
   ['item_media', 'SELECT min(fetched_at) AS t FROM item_media'],
+  ['share_card_images', 'SELECT min(data_at) AS t FROM share_card_images'],
   ['guilds', 'SELECT min(updated_at) AS t FROM guilds'],
   ['guilds (profiles)', 'SELECT min(profile_fetched_at) AS t FROM guilds'],
   ['guild_roster', 'SELECT min(fetched_at) AS t FROM guild_roster'],

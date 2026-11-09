@@ -42,7 +42,7 @@ async function startAdminSession(db, res) {
   setCookie(res, COOKIE.admin, token, { maxAgeMs: ADMIN_TTL_MS, sameSite: 'Strict' });
 }
 
-export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fetch, proxies = () => ({ trustedProxies: null, sources: [] }) }) {
+export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fetch, proxies = () => ({ trustedProxies: null, sources: [] }), cardStats = () => null }) {
   const r = express.Router();
   const adminLimit = limitBy(limits.admin, networkOf);
   const writes = limitBy(limits.writes, networkOf);
@@ -125,6 +125,12 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
   r.use('/', createAdminGuildLinksRouter({ db, writes }));
   // 0.7.1: guild badges (grants, thresholds, emblems, the log), the feedback inbox, and Activity. Same gate.
   r.use('/', createAdminGuildBadgeRouter({ db, writes }));
+  // 0.8.0: share cards: the renderer's measured times (this process, since it started) and the image cache. Same gate.
+  r.get('/cards', route(async (req, res) => {
+    const cache = await db.one('SELECT count(*)::int AS images, coalesce(sum(bytes), 0)::bigint AS bytes, min(data_at) AS oldest_data, avg(render_ms)::int AS avg_ms FROM share_card_images');
+    const defaults = await db.query('SELECT kind, count(*)::int AS n FROM share_card_defaults GROUP BY kind ORDER BY kind LIMIT 10');
+    res.json({ renderer: cardStats(), cache: { ...cache, bytes: Number(cache.bytes) }, defaults });
+  }));
   r.use('/', createAdminFeedbackRouter({ db, writes }));
   r.use('/', createAdminActivityRouter({ db, writes }));
 

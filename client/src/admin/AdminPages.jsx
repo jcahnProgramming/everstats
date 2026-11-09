@@ -13,6 +13,7 @@ import { useCoverage } from '../useCoverage.js';
 import { PlayersSection, ReservedSection } from './PlayersSection.jsx';
 import { RetentionSection } from './RetentionSection.jsx';
 import { ActivitySection } from './ActivitySection.jsx';
+import { CardsSection } from './CardsSection.jsx';
 
 /**
  * The admin area (design/v1/pages/admin). Not linked from anywhere. Without an admin session, /admin sends the browser
@@ -75,6 +76,7 @@ export function AdminPage() {
         <CrawlerSection crawler={state.crawler} settings={state.settings} onSaved={(settings) => setState((st) => ({ ...st, settings }))} onRefresh={load} />
         <BetaSection beta={state.beta} settings={state.settings} onBeta={(beta) => setState((st) => ({ ...st, beta }))} onSaved={(settings) => setState((st) => ({ ...st, settings }))} />
         <RetentionSection retention={state.retention} setting={state.settings.find((st) => st.key === 'retention.window')} onSaved={load} />
+        <CardsSection settings={state.settings} onSaved={(settings) => setState((st) => ({ ...st, settings }))} />
         <BackupsSection backups={state.backups} />
         <ProxiesSection proxies={state.proxies} />
         <PlayersSection />

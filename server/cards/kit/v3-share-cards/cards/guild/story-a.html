@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-theme="forever">
+<head>
+<meta charset="utf-8">
+<title>Everstats guild card · story · layout A</title>
+<link rel="stylesheet" href="../../../v1/assets/fonts/fonts.css">
+<link rel="stylesheet" href="../../../v1/tokens/themes.css">
+<link rel="stylesheet" href="../../../v1/components/components.css">
+<link rel="stylesheet" href="../../../v2-badges/tokens/badges.css">
+<link rel="stylesheet" href="../../../v2-guild-badges/tokens/guild-badges.css">
+<link rel="stylesheet" href="../../tokens/cards.css">
+<link rel="stylesheet" href="../../cards/cards.css">
+</head>
+<body>
+<!-- TEMPLATE guild/story-a. Server: inject <script>window.CARD_DATA = {…}</script> in place of the example data script, render
+     at exactly the card size (see tokens), wait for <html data-ready="1">, screenshot [data-card]. Bindings are documented in ../fill.js. -->
+<div class="card fmt-story t-guild v-a" data-card>
+<div class="bgfx mapbg" aria-hidden="true"></div><div class="frame" aria-hidden="true"></div>
+<div class="recruit" data-if="show.recruiting">RECRUITING<span data-slot="discord"></span></div>
+<div class="body">
+  <div class="crest a-c" data-slot-html="pinned_svg"></div>
+  <div class="ident a-i"><div class="tagrow"><span class="ctag" data-slot="faction"></span><span class="ctag" data-slot="ruleset"></span></div><h1 class="cname one" data-fit data-slot="name"></h1><span class="cmeta" data-slot="members"></span></div>
+  <div class="gbadges a-b" data-repeat="badges"><span class="gb" data-item><span data-f-html="svg"></span><span data-f="name"></span><span class="lv" data-f="lv"></span></span></div>
+  <div class="totals a-x" data-repeat="totals"><div class="stat" data-item><span class="l" data-f="label"></span><span class="v" data-f="value"></span></div></div>
+  <div class="place solid a-p" data-if="place"><span class="rk" data-slot="place.rank"></span><span class="txt"><b data-slot="place.stat"></b><span data-slot="place.scope"></span></span></div>
+  <div class="ctierbar a-d" data-repeat="tiers" role="img" aria-label="Members by tier"><span data-item data-f-class="k" data-f-width="w" data-f="t"></span></div>
+</div>
+<footer class="card-foot"><span class="wm"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" style="fill:none;stroke:var(--es-accent);stroke-width:3"/><path d="M32 6 L35 29 L58 32 L35 35 L32 58 L29 35 L6 32 L29 29 Z" style="fill:var(--es-accent);opacity:var(--es-opacity-ornament)"/><text x="32" y="42" text-anchor="middle" font-size="28" style="font-family:var(--es-font-display);font-weight:var(--es-weight-black);fill:var(--es-text)">E</text></svg>Everstats</span><span class="info"><span class="url" data-fit data-slot="url"></span><span class="attr">Data: Blizzard Entertainment · as of <span data-slot="asof"></span></span></span></footer>
+</div>
+<script src="../data/guild.example.js"></script>
+<script src="../fill.js"></script>
+</body>
+</html>

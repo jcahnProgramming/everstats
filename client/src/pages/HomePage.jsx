@@ -7,6 +7,7 @@ import { Field } from '../components/Controls.jsx';
 import { TierBadge } from '../components/Tier.jsx';
 import { useSession } from '../session.jsx';
 import { DashboardPage } from './DashboardPage.jsx';
+import { WhySignIn } from '../chrome/SignInNudge.jsx';
 
 /**
  * Home (design/v1/pages/home): hero with the two-field search, three pillars, featured leaderboards.
@@ -18,6 +19,8 @@ import { DashboardPage } from './DashboardPage.jsx';
  *   - Pillar II named the four rulesets and "Hardcore joins later": rulesets come from Blizzard's list, never typed in.
  *   - No "Placeholdername" in the inputs.
  *   - The emblem's "Overall tier" card shows a letter with no one's name on it: it explains the idea, it isn't a grade.
+ *   - 0.8.0: "Why sign in?" right after the search (chrome/SignInNudge.jsx), built from v1 parts: the live benefits,
+ *     both sign-in buttons and the real tracked counts. Visitors only; nothing is blocked without an account.
  */
 const PILLARS = [
   ['I', 'Hundreds of statistics', 'Deaths, kills, social numbers, times camped — the whole in-game statistics pane, grouped and searchable.'],
@@ -80,6 +83,8 @@ function VisitorHome() {
           </div>
         </div>
       </section>
+
+      <WhySignIn />
 
       <section className="wrap grid-auto home-pillars" aria-label="What Everstats does">
         {PILLARS.map(([numeral, title, text]) => (

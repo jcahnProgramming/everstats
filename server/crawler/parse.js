@@ -159,6 +159,20 @@ function tooltipOf(i) {
   return t;
 }
 
+/**
+ * The transmog Blizzard reports on an equipped item (0.8.0; Forever sends it, Discovery run 3): the item whose
+ * appearance is shown instead, as { itemId, name }, or null when the slot isn't transmogged. Read from transmog.item
+ * (id and name) only; nothing else in it is kept. A malformed one is treated as none, never guessed.
+ */
+function transmogOf(i) {
+  const t = i.transmog;
+  if (!isObj(t) || !isObj(t.item)) return null;
+  const itemId = int(t.item.id);
+  const name = str(t.item.name, 120);
+  if (!Number.isSafeInteger(itemId) || !name) return null;
+  return { itemId, name };
+}
+
 export function parseEquipment(json) {
   const items = Array.isArray(json?.equipped_items) ? json.equipped_items : [];
   return items.slice(0, 30).filter(isObj).map((i) => {
@@ -175,6 +189,10 @@ export function parseEquipment(json) {
       // Blizzard's own link to the item's media (static namespace). Only followed on the API host (sources/blizzard.js).
       mediaHref,
       tooltip: tooltipOf(i),
+      // 0.8.0. Always written by this parser (null = not transmogged); an item stored before 0.8.0 has no key at
+      // all, which the page reads as "not known yet" until the character's next full fetch. No version bump: that
+      // would force an extra full fetch of every character.
+      transmog: transmogOf(i),
     };
   });
 }

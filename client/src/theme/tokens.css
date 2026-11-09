@@ -654,3 +654,115 @@
   --es-gbadge-ribbon: #E8B57A;
   --es-gbadge-ribbon-ink: #1A0E05;
 }
+
+/* ==========================================================================================================
+   Share card tokens (0.8.0). Source: design/v3-share-cards/tokens/cards.css (Claude Design v3 share cards), copied
+   VERBATIM below this comment so the next handoff diffs cleanly. Sizes only, no colour: the card maker uses
+   --es-card-preview-w and friends; the per-format blocks only matter inside a rendered card (server/cards/kit).
+   ========================================================================================================== */
+/* Everstats share cards — sizes and type scales. Load after v1/tokens/themes.css.
+   One block per format: the card root carries class fmt-square | fmt-story | fmt-wide. */
+:root {
+  --es-card-radius: 24px;
+  --es-card-border: 3px;
+  --es-card-inner-inset: 14px;
+  --es-card-panel-radius: 16px;
+  --es-card-gem: 18px;
+  --es-card-badge: 72px;
+  --es-card-badge-sm: 52px;
+  --es-card-gear: 64px;
+  --es-card-preview-w: 520px;
+  --es-card-preview-w-phone: 358px;
+  --es-card-thumb: 96px;
+  --es-card-square-w: 1080px;
+  --es-card-square-h: 1080px;
+  --es-card-square-safe: 64px;
+  --es-card-square-gap: 32px;
+  --es-card-square-name: 84px;
+  --es-card-square-name-sm: 64px;
+  --es-card-square-meta: 30px;
+  --es-card-square-stat-val: 54px;
+  --es-card-square-stat-label: 24px;
+  --es-card-square-stat-rank: 22px;
+  --es-card-square-foot: 24px;
+  --es-card-square-foot-h: 96px;
+  --es-card-square-hero: 220px;
+  --es-card-square-tier: 200px;
+  --es-card-story-w: 1080px;
+  --es-card-story-h: 1920px;
+  --es-card-story-safe: 80px;
+  --es-card-story-gap: 40px;
+  --es-card-story-name: 96px;
+  --es-card-story-name-sm: 72px;
+  --es-card-story-meta: 34px;
+  --es-card-story-stat-val: 60px;
+  --es-card-story-stat-label: 26px;
+  --es-card-story-stat-rank: 24px;
+  --es-card-story-foot: 26px;
+  --es-card-story-foot-h: 150px;
+  --es-card-story-hero: 280px;
+  --es-card-story-tier: 260px;
+  --es-card-wide-w: 1200px;
+  --es-card-wide-h: 630px;
+  --es-card-wide-safe: 48px;
+  --es-card-wide-gap: 24px;
+  --es-card-wide-name: 64px;
+  --es-card-wide-name-sm: 50px;
+  --es-card-wide-meta: 24px;
+  --es-card-wide-stat-val: 40px;
+  --es-card-wide-stat-label: 19px;
+  --es-card-wide-stat-rank: 18px;
+  --es-card-wide-foot: 20px;
+  --es-card-wide-foot-h: 64px;
+  --es-card-wide-hero: 150px;
+  --es-card-wide-tier: 150px;
+}
+
+.fmt-square {
+  --c-w: var(--es-card-square-w);
+  --c-h: var(--es-card-square-h);
+  --c-safe: var(--es-card-square-safe);
+  --c-gap: var(--es-card-square-gap);
+  --c-name: var(--es-card-square-name);
+  --c-name-sm: var(--es-card-square-name-sm);
+  --c-meta: var(--es-card-square-meta);
+  --c-stat-val: var(--es-card-square-stat-val);
+  --c-stat-label: var(--es-card-square-stat-label);
+  --c-stat-rank: var(--es-card-square-stat-rank);
+  --c-foot: var(--es-card-square-foot);
+  --c-foot-h: var(--es-card-square-foot-h);
+  --c-hero: var(--es-card-square-hero);
+  --c-tier: var(--es-card-square-tier);
+}
+.fmt-story {
+  --c-w: var(--es-card-story-w);
+  --c-h: var(--es-card-story-h);
+  --c-safe: var(--es-card-story-safe);
+  --c-gap: var(--es-card-story-gap);
+  --c-name: var(--es-card-story-name);
+  --c-name-sm: var(--es-card-story-name-sm);
+  --c-meta: var(--es-card-story-meta);
+  --c-stat-val: var(--es-card-story-stat-val);
+  --c-stat-label: var(--es-card-story-stat-label);
+  --c-stat-rank: var(--es-card-story-stat-rank);
+  --c-foot: var(--es-card-story-foot);
+  --c-foot-h: var(--es-card-story-foot-h);
+  --c-hero: var(--es-card-story-hero);
+  --c-tier: var(--es-card-story-tier);
+}
+.fmt-wide {
+  --c-w: var(--es-card-wide-w);
+  --c-h: var(--es-card-wide-h);
+  --c-safe: var(--es-card-wide-safe);
+  --c-gap: var(--es-card-wide-gap);
+  --c-name: var(--es-card-wide-name);
+  --c-name-sm: var(--es-card-wide-name-sm);
+  --c-meta: var(--es-card-wide-meta);
+  --c-stat-val: var(--es-card-wide-stat-val);
+  --c-stat-label: var(--es-card-wide-stat-label);
+  --c-stat-rank: var(--es-card-wide-stat-rank);
+  --c-foot: var(--es-card-wide-foot);
+  --c-foot-h: var(--es-card-wide-foot-h);
+  --c-hero: var(--es-card-wide-hero);
+  --c-tier: var(--es-card-wide-tier);
+}

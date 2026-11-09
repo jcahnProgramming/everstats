@@ -1346,4 +1346,45 @@ export const migrations = [
       }
     },
   },
+  {
+    // 0.8.0: share cards (server/cards/) and weighted tier categories.
+    //   share_card_defaults  ours: the card a character's owner or a guild's Guild Master / officer saved as the
+    //                        default (and link preview). Keyed on Blizzard's character or guild id without a foreign key
+    //                        (a characters/guilds row can age out; the choice is ours). Deleted with the account that
+    //                        saved it (CLAUDE.md names the deletion); a merge moves it.
+    //   share_card_images    Blizzard data (retention/registry.js): rendered PNGs, keyed by a hash of everything that
+    //                        decides the pixels; swept by data_at and kept at most a few hours; never in a backup.
+    //   tier weights         nothing to migrate (settings default to the square-root formula); one full grading is
+    //                        requested so every ruleset is graded with weights straight after the deploy.
+    id: '017_share_cards',
+    async up(q) {
+      await q.query(`
+        CREATE TABLE share_card_defaults (
+          kind        text NOT NULL CHECK (kind IN ('character', 'tier', 'guild')),
+          subject_id  bigint NOT NULL,
+          options     jsonb NOT NULL,
+          saved_by    bigint NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          saved_at    timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (kind, subject_id)
+        );
+        CREATE INDEX share_card_defaults_by ON share_card_defaults (saved_by);
+        CREATE TABLE share_card_images (
+          key            text PRIMARY KEY,
+          subject        text NOT NULL,
+          character_ids  bigint[] NOT NULL DEFAULT '{}',
+          guild_ids      bigint[] NOT NULL DEFAULT '{}',
+          png            bytea NOT NULL,
+          bytes          integer NOT NULL,
+          render_ms      integer,
+          data_at        timestamptz NOT NULL,
+          created_at     timestamptz NOT NULL DEFAULT now(),
+          last_used_at   timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX share_card_images_data_at ON share_card_images (data_at);
+        CREATE INDEX share_card_images_used ON share_card_images (last_used_at);
+        CREATE INDEX share_card_images_characters ON share_card_images USING gin (character_ids);
+        INSERT INTO tier_runs (status, reasons) VALUES ('pending', ARRAY['category weights (0.8.0)']) ON CONFLICT DO NOTHING;
+      `);
+    },
+  },
 ];

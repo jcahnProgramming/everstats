@@ -138,7 +138,13 @@ export function StatLeaderboardPage() {
               </EmptyState>
             ) : (
               <>
-                <RankedTable valueLabel={valueLabel} rows={rows.map((r) => ({ ...r, slug: r.slug ?? `${r.name}-${r.surname}`.toLowerCase(), detail: [r.level ? `Level ${r.level}` : null, r.race, r.class].filter(Boolean).join(' · '), value: r.value, valueText: r.text }))} showTier={false} showMove={false} />
+                <RankedTable
+                  valueLabel={valueLabel}
+                  rows={rows.map((r) => ({ ...r, slug: r.slug ?? `${r.name}-${r.surname}`.toLowerCase(), detail: [r.level ? `Level ${r.level}` : null, r.race, r.class].filter(Boolean).join(' · '), value: r.value, valueText: r.text }))}
+                  showTier={false}
+                  showMove={false}
+                  share={(r) => ({ to: `/leaderboards/${data.ruleset.id}/${s.id}/share?${new URLSearchParams({ c: r.slug, ...(period === 'overall' ? {} : { period }) })}`, label: `Share #${r.rank} ${s.name ?? ''}`.trim() })}
+                />
                 {more.next && <button type="button" className="btn ghost self-start" disabled={more.busy} onClick={loadMore}>{more.busy ? 'Loading…' : 'Show more'}</button>}
                 {data.atZero > 0 && (
                   <p className="muted small">{formatNumber(data.atZero)} more tracked character{data.atZero === 1 ? ' is' : 's are'} at 0{period === 'overall' ? '' : ' gained'}: not ranked.</p>

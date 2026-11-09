@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { formatNumber } from '../format.js';
+import { Segmented } from './Controls.jsx';
 
 /**
  * The equipment, laid out like the in-game character sheet / Armory (0.4.1): a column of slots each side of the render,
@@ -18,7 +19,21 @@ import { formatNumber } from '../format.js';
  * Icons come from Blizzard's item media (crawler/items.js), shown from its render host. Until an icon has been fetched
  * the slot shows its frame and name; the page asks again a few times (ICON_POLLS) and then shows our own placeholder.
  * A failed or missing icon shows the placeholder too, and the name and tooltip still work.
+ *
+ * 0.8.0, Worn gear | Transmog: the switch shows only when at least one slot is transmogged (Blizzard's `transmog` on
+ * the equipped item). In the Transmog view a transmogged slot shows the transmog item's icon and name, "Transmog of
+ * {worn item}", and its tooltip is still the WORN item's full tooltip under a "Transmogrified to" line; a slot without
+ * one shows the worn item marked "not transmogged". Blizzard sends no quality for the transmog item, so its name and
+ * frame are neutral, never a guessed colour. Blizzard's render always shows worn gear, and the page says so.
  */
+export const hasTransmog = (equipment) => (equipment ?? []).some((i) => i.transmog);
+
+/** One slot as a view shows it: the worn item, or (Transmog view) the transmog item standing in for it. */
+function shown(item, view) {
+  if (!item || view !== 'transmog') return { item, kind: 'worn' };
+  if (!item.transmog) return { item, kind: 'plain' };
+  return { item, kind: 'transmog', look: item.transmog };
+}
 const LEFT = [['HEAD', 'Head'], ['NECK', 'Neck'], ['SHOULDER', 'Shoulders'], ['BACK', 'Back'], ['CHEST', 'Chest'], ['SHIRT', 'Shirt'], ['TABARD', 'Tabard'], ['WRIST', 'Wrist']];
 const RIGHT = [['HANDS', 'Hands'], ['WAIST', 'Waist'], ['LEGS', 'Legs'], ['FEET', 'Feet'], ['FINGER_1', 'Finger'], ['FINGER_2', 'Finger'], ['TRINKET_1', 'Trinket'], ['TRINKET_2', 'Trinket']];
 const BOTTOM = [['MAIN_HAND', 'Main Hand'], ['OFF_HAND', 'Off Hand'], ['RANGED', 'Ranged']];
@@ -28,6 +43,7 @@ const ICON_POLL_MS = 3000;
 
 export function GearSheet({ equipment, render }) {
   const [items, setItems] = useState(equipment ?? []);
+  const [view, setView] = useState('worn');
   const [open, setOpen] = useState(null); // slot type with the tooltip open
   const [pinned, setPinned] = useState(false); // opened by a tap or focus: stays until closed
   const polls = useRef(0);
@@ -37,20 +53,25 @@ export function GearSheet({ equipment, render }) {
     polls.current = 0;
   }, [equipment]);
 
-  // Icons that weren't fetched yet: ask again a few times, then give up honestly (placeholder).
+  // Icons that weren't fetched yet (worn items and transmogs): ask again a few times, then give up honestly.
   useEffect(() => {
-    const pending = items.filter((i) => i.iconState === 'pending' && Number.isSafeInteger(i.itemId));
+    const pending = [...new Set(items.flatMap((i) => [
+      i.iconState === 'pending' ? i.itemId : null,
+      i.transmog?.iconState === 'pending' ? i.transmog.itemId : null,
+    ]).filter(Number.isSafeInteger))];
     if (!pending.length) return undefined;
     if (polls.current >= ICON_POLLS) {
-      setItems((list) => list.map((i) => (i.iconState === 'pending' ? { ...i, iconState: 'unloaded' } : i)));
+      const giveUp = (x) => (x.iconState === 'pending' ? { ...x, iconState: 'unloaded' } : x);
+      setItems((list) => list.map((i) => ({ ...giveUp(i), ...(i.transmog ? { transmog: giveUp(i.transmog) } : {}) })));
       return undefined;
     }
     const t = setTimeout(async () => {
       polls.current += 1;
       try {
-        const r = await api(`/api/items/media?ids=${pending.map((i) => i.itemId).join(',')}`);
-        const byId = new Map(r.items.map((x) => [x.itemId, x]));
-        setItems((list) => list.map((i) => (byId.has(i.itemId) ? { ...i, icon: byId.get(i.itemId).icon, iconState: byId.get(i.itemId).iconState } : { ...i })));
+        const r = await api(`/api/items/media?ids=${pending.join(',')}`);
+        const byId = new Map(r.items.map((x) => [Number(x.itemId), x]));
+        const fill = (x) => (byId.has(x.itemId) ? { ...x, icon: byId.get(x.itemId).icon, iconState: byId.get(x.itemId).iconState } : x);
+        setItems((list) => list.map((i) => ({ ...fill(i), ...(i.transmog ? { transmog: fill(i.transmog) } : {}) })));
       } catch {
         setItems((list) => [...list]);
       }
@@ -85,6 +106,7 @@ export function GearSheet({ equipment, render }) {
       type={type}
       label={label}
       item={bySlot.get(type) ?? null}
+      view={view}
       side={side}
       open={open === type}
       onOpen={(how) => {
@@ -101,17 +123,26 @@ export function GearSheet({ equipment, render }) {
       }}
     />
   );
+  const transmogged = items.filter((i) => i.transmog).length;
   return (
-    <div className="armory">
-      <div className="armory-col left" aria-label="Equipment, left side">{LEFT.map(slot('left'))}</div>
-      <div className="armory-render">{render}</div>
-      <div className="armory-col right" aria-label="Equipment, right side">{[...RIGHT, ...extra].map(slot('right'))}</div>
-      <div className="armory-bottom" aria-label="Weapons">{BOTTOM.map(slot('bottom'))}</div>
+    <div className="stack gap-12">
+      {transmogged > 0 && (
+        <div className="row gap-12 wrap-row gear-view">
+          <Segmented label="Gear shown" value={view} onChange={setView} scroll={false} options={[{ id: 'worn', label: 'Worn gear' }, { id: 'transmog', label: 'Transmog' }]} />
+          <span className="muted xsmall">{transmogged} transmogged slot{transmogged === 1 ? '' : 's'}. Blizzard’s render shows worn gear.</span>
+        </div>
+      )}
+      <div className={`armory${view === 'transmog' ? ' is-transmog' : ''}`}>
+        <div className="armory-col left" aria-label="Equipment, left side">{LEFT.map(slot('left'))}</div>
+        <div className="armory-render">{render}</div>
+        <div className="armory-col right" aria-label="Equipment, right side">{[...RIGHT, ...extra].map(slot('right'))}</div>
+        <div className="armory-bottom" aria-label="Weapons">{BOTTOM.map(slot('bottom'))}</div>
+      </div>
     </div>
   );
 }
 
-function GearSlotButton({ type, label, item, side, open, onOpen, onClose, onToggle }) {
+function GearSlotButton({ type, label, item, view, side, open, onOpen, onClose, onToggle }) {
   const tipId = useId();
   const ref = useRef(null);
   // A tap focuses the button before its click: that focus must not open it, or the click would toggle it shut.
@@ -124,14 +155,17 @@ function GearSlotButton({ type, label, item, side, open, onOpen, onClose, onTogg
       </div>
     );
   }
-  const meta = `${item.slotName || label}${Number.isFinite(item.level) ? ` · ilvl ${item.level}` : ''}`;
+  const s = shown(item, view);
+  const meta = s.kind === 'transmog' ? `Transmog of ${item.name}`
+    : s.kind === 'plain' ? `${item.slotName || label} · not transmogged`
+      : `${item.slotName || label}${Number.isFinite(item.level) ? ` · ilvl ${item.level}` : ''}`;
   return (
     <>
       <button
         ref={ref}
         type="button"
         data-gear-slot={type}
-        className={`slot armory-slot qc-${item.quality} ${side}`}
+        className={`slot armory-slot ${s.kind === 'transmog' ? 'qc-tmog' : `qc-${item.quality}`}${s.kind === 'plain' ? ' is-plain' : ''} ${side}`}
         aria-describedby={open ? tipId : undefined}
         aria-expanded={open}
         onPointerEnter={(e) => { if (e.pointerType === 'mouse') onOpen('hover'); }}
@@ -147,13 +181,13 @@ function GearSlotButton({ type, label, item, side, open, onOpen, onClose, onTogg
           if (e.detail === 0 || e.nativeEvent.pointerType !== 'mouse') onToggle();
         }}
       >
-        <span className="icon"><ItemIcon item={item} /></span>
+        <span className="icon"><ItemIcon item={s.kind === 'transmog' ? s.look : item} /></span>
         <span className="txt stack ellipsis">
-          <span className={`nm q-${item.quality} ellipsis`}>{item.name}</span>
-          <span className="meta">{meta}</span>
+          <span className={`nm ${s.kind === 'transmog' ? 'q-tmog' : `q-${item.quality}`} ellipsis`}>{s.kind === 'transmog' ? s.look.name : item.name}</span>
+          <span className="meta ellipsis">{meta}</span>
         </span>
       </button>
-      {open && <ItemTooltip id={tipId} item={item} anchor={ref} side={side} />}
+      {open && <ItemTooltip id={tipId} item={item} anchor={ref} side={side} transmog={item.transmog ?? null} />}
     </>
   );
 }
@@ -183,7 +217,7 @@ function EmptySlotArt() {
  * weapons), then nudged to stay inside the window at every edge. Positioned through the CSSOM (style prop), which the
  * CSP allows; no inline style attribute is written by hand.
  */
-function ItemTooltip({ id, item, anchor, side }) {
+function ItemTooltip({ id, item, anchor, side, transmog = null }) {
   const box = useRef(null);
   const [pos, setPos] = useState({ left: -9999, top: 0 });
   const place = useCallback(() => {
@@ -231,6 +265,7 @@ function ItemTooltip({ id, item, anchor, side }) {
   return (
     <div ref={box} id={id} role="tooltip" className="item-tip" style={{ left: pos.left, top: pos.top }}>
       <b className={`tip-name q-${item.quality}`}>{item.name}</b>
+      {transmog && <span className="tip-tmog">Transmogrified to: {transmog.name}</span>}
       {Number.isFinite(item.level) && <span className="tip-level">Item Level {item.level}</span>}
       {t.binding && <span>{t.binding}</span>}
       {t.unique && <span>{t.unique}</span>}

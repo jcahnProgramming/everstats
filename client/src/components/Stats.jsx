@@ -4,6 +4,7 @@ import { Icon } from '../chrome/Icon.jsx';
 import { formatNumber } from '../format.js';
 import { Fresh } from './EmptyState.jsx';
 import { TierBadge } from './Tier.jsx';
+import { ShareRowButton } from '../share/ShareButtons.jsx';
 
 /**
  * The data components of design v1 (design/v1/components/*.md). Every one of them renders only what it is given:
@@ -85,7 +86,9 @@ export function CategoryHeader({ title, summary, letter = null, boardsTo = null,
  * (the last one names the statistic). With no rows it renders the header alone, for the caller to put an empty state
  * under, as design/v1/states/no-data-yet does.
  */
-export function RankedTable({ valueLabel = 'Value', rows = [], showTier = true, showGuild = true, showMove = true }) {
+export function RankedTable({ valueLabel = 'Value', rows = [], showTier = true, showGuild = true, showMove = true, share = null }) {
+  // 0.8.0: share(row) → { to, label } | null: an icon-only share link per row (share-button.md). On phones it sits
+  // beside the row's own link (a sibling, never inside it), always visible.
   return (
     <div className="tblbox">
       <table className="tbl to-list">
@@ -97,6 +100,7 @@ export function RankedTable({ valueLabel = 'Value', rows = [], showTier = true, 
             {showGuild && <th scope="col">Guild</th>}
             {showMove && <th scope="col" className="r">7-day</th>}
             <th scope="col" className="r">{valueLabel}</th>
+            {share && <th scope="col"><span className="sr-only">Share</span></th>}
           </tr>
         </thead>
         {rows.length > 0 && (
@@ -116,6 +120,7 @@ export function RankedTable({ valueLabel = 'Value', rows = [], showTier = true, 
                 {showGuild && <td className="t2">{r.guild && r.guildSlug ? <Link to={`/g/${encodeURIComponent(r.guildSlug)}`}>{r.guild}</Link> : (r.guild ?? '')}</td>}
                 {showMove && <td className={`r ${r.move > 0 ? 'up' : r.move < 0 ? 'down' : 'muted'}`}>{r.move > 0 ? `▲ ${r.move}` : r.move < 0 ? `▼ ${-r.move}` : '–'}</td>}
                 <td className="r strong">{r.valueText && <span className="muted xsmall named">{r.valueText} · </span>}{formatNumber(r.value)}</td>
+                {share && <td className="r">{share(r) && <ShareRowButton {...share(r)} />}</td>}
               </tr>
             ))}
           </tbody>
@@ -124,7 +129,7 @@ export function RankedTable({ valueLabel = 'Value', rows = [], showTier = true, 
       {rows.length > 0 && (
         <ol className="ranklist only-phone">
           {rows.map((r) => (
-            <li key={r.slug} className={r.mine ? 'me' : undefined}>
+            <li key={r.slug} className={`${r.mine ? 'me' : ''}${share?.(r) ? ' has-share' : ''}`.trim() || undefined}>
               <Link to={`/c/${encodeURIComponent(r.slug)}`}>
                 <span className={`rk${r.rank <= 3 ? ` r${r.rank}` : ''}`}>{formatNumber(r.rank)}</span>
                 <span className="strong ellipsis">{r.name} {r.surname}</span>
@@ -132,6 +137,7 @@ export function RankedTable({ valueLabel = 'Value', rows = [], showTier = true, 
                 <span className="muted xsmall ellipsis">{r.detail}</span>
                 {showTier && <TierBadge letter={r.letter ?? null} size="sm" />}
               </Link>
+              {share?.(r) && <ShareRowButton {...share(r)} />}
             </li>
           ))}
         </ol>

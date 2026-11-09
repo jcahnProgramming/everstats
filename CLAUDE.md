@@ -61,6 +61,8 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Data sources | `server/sources/registry.js` | id, label, credential, userProvider, create() → `get(path, { namespace, auth, userToken })`. One so far: `blizzard`. A provider named as a `userProvider` reads characters at sign-in |
 | Discovery endpoints | `server/discovery/endpoints.js` | what a discovery run asks for (data, account, character, guild, slug probes) |
 | Suggestion rules | `server/discovery/suggest.js` | per-statistic suggestions (category, bad, leaderboard), each with its reasoning |
+| Share cards | `server/cards/catalog.js` | card types (layouts, show toggles, template), formats, themes, accents; `cleanOptions` is the only way options get in |
+| "Why sign in?" benefits | `server/signin/benefits.js` | id, title, text (ALL the wording, one place), `live(ctx)`: a benefit shows only while its feature is live |
 
 - Statistics, categories and rulesets come from Blizzard's API (discovery pass), stored as data, never typed in
   from memory. A new statistic in a game patch must be data, not a deploy.
@@ -240,8 +242,11 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   the overall tier only with 'overall' AND a non-farmable category (farmable = `CATEGORY_RULES` `farmable`). Pages say
   "counts toward the overall tier" from `Stat.tierRole` / `countsOverall` (catalog.js), never from `grading`.
 - **The maths** (`tiers/engine.js`, pure): mid-rank percentile per counted statistic among the ruleset's tier-eligible
-  characters (missing = 0); category score = average percentile; overall score = average over EVERY overall category of
-  its overall-counting part, each category equal (an unlettered category still counts its score); letters from the
+  characters (missing = 0); category score = average percentile; overall score = WEIGHTED average over EVERY overall
+  category of its overall-counting part (0.8.0, `categoryWeights`: weight ∝ √(its statistics counting toward overall),
+  read live like everything else; the admin can pin a % per category, `tiers.weights`, and the rest share what's left by
+  the same formula; a grading stored before 0.8.0 has no `weighting` in its settings and stays equal-weight until
+  regraded; an unlettered category still counts its score; the overall letter rule counts categories, not weight); letters from the
   score's place among everyone's (rank = 1 + strictly above, ties share), shares `tiers.shares` (default 5/15/30/30/20).
   Minimums: ruleset `grading.minPopulation` (50), category `tiers.categoryHalf` % of its counted stats above 0 (50),
   overall `tiers.overallHalf` % of overall categories with a letter (50). Every Unranked carries its reason in words
@@ -416,7 +421,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
     (0.7.1). Reason: feedback is kept until the owner deletes it (the privacy page says so); `admin_events` logs it.
   - **Deleting an account** (Settings, `DELETE /api/account`) deletes the account row and everything that cascades from
     it (sign-in links, passkeys, 2FA, recovery codes, sessions, flows, pins, events, character checks; 0.7.0: badge
-    awards and guild officer roles; 0.7.1: feedback threads and their replies, guild badge toast marks; `badge_events` and `guild_events` keep the bare account id). Reason: the
+    awards and guild officer roles; 0.7.1: feedback threads and their replies, guild badge toast marks; 0.8.0: the share-card defaults it saved; `badge_events` and `guild_events` keep the bare account id). Reason: the
     person asked. Its characters stay (public data); ownership is cleared, a hidden one stays hidden.
   - **Username holds expire** (`username_holds.held_until`): the row stays as history; an expired hold simply stops
     counting. Not a deletion, listed here because a held name becomes claimable again by design.
@@ -474,6 +479,34 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   list, handle patterns, URL templates; links are built by us, opened with rel="noopener noreferrer nofollow"; nothing
   marked verified), "Show my pinned stats" (default on). Icons: text labels only; no brand assets are shipped.
 - Sections sent only when non-empty: about, pins, featured, characters, guilds (from non-hidden characters only).
+
+## Share cards and link previews (0.8.0: `server/cards/`, `client/src/share/`, `/c/{slug}/share` …)
+
+- **Design: `design/v3-share-cards/`.** The templates, `cards.css`, `fill.js`, the card tokens and the v1/v2 files they
+  link are copied VERBATIM into `server/cards/kit/` with the design's own folder layout (`design/` isn't in the image);
+  `server/test/cards.test.js` fails if one differs. Card tokens are appended VERBATIM to `theme/tokens.css`, the maker's
+  CSS is `theme/card-maker.css` (VERBATIM; overrides in app.css). The six `board/*-guild.html` templates draw a guild on
+  a guild board (owner's decision).
+- **Rendered on the server only**, never in a browser: headless Chromium (playwright-core, pinned exactly, + Playwright's
+  chromium headless shell in the image at `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`), one browser in the WEB process,
+  launched on first use, closed after 5 idle minutes. The card page makes NO network request: kit files are served
+  from disk by request interception, everything else is aborted; Blizzard's render and icons are fetched by Node
+  (`cards/images.js`: render host only, 6 s, 4 MB) and handed over as data: URIs. A failed render image = the crest.
+- **Data is live** (`cards/data.js`, same sources as the pages): the board period from the live window ("Last 29 days"),
+  the tier card's categories from the live grading, no invented units, zero statistics never on a card, "as of" = when
+  Blizzard's data was fetched. Hidden character: no card, 404 image, "can't be shared", plain link preview. A hidden
+  render: the crest version. The Recruiting ribbon only with the editors' Discord invite.
+- **Cost:** images are cached by a hash of template + CARD_DATA (`share_card_images`, Blizzard data: ≤ 6 hours and never
+  past the window, swept by `data_at`, deleted at once when a character or its render is hidden, LRU-capped at 512 MB).
+  Only a render counts against `cardRendersByNetwork` (40/15 min) and `cardRendersByAccount` (60/15 min); identical
+  renders in flight share one; at most `cards.maxConcurrent` (admin, default 2) at once, 8 waiting, then 503.
+  `scripts/measure-cards.js` measures it.
+- **Saved defaults** (`share_card_defaults`, ours): only the character's owner, or the guild's GM / officers (`guildRole`),
+  can save; it becomes the card everyone sees first and the link preview (always wide). A board card has none.
+  Nobody else's choices are stored. Logged in account_events (and guild_events).
+- **Link previews** (`cards/meta.js`): the SPA fallback writes Open Graph / Twitter tags into index.html for character,
+  tier share, guild and board pages; `og:image` = `/og/…png?v=` (a cache key: the day + the saved default's time, never
+  a tracking parameter). Every other page gets the plain preview.
 
 ## Hosting and networking
 
@@ -576,6 +609,8 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
 
 ## Testing
 
+- The share-card tests use a fake renderer, except one real Chromium render that is skipped where Chromium isn't
+  installed (`npx playwright-core install --only-shell chromium` locally).
 - `npm test` (node:test, `server/test/`). Each file gets a fresh in-memory Postgres (PGlite behind a socket,
   `server/test/helpers.js`) and its own root key; never point a test at `data/` or a real server. `startApp({ fetch })`
   takes a fake outbound fetch (OAuth, key tests): tests never reach Blizzard or Discord.

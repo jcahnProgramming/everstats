@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en" data-theme="forever">
+<head>
+<meta charset="utf-8">
+<title>Everstats tier card · square · layout B</title>
+<link rel="stylesheet" href="../../../v1/assets/fonts/fonts.css">
+<link rel="stylesheet" href="../../../v1/tokens/themes.css">
+<link rel="stylesheet" href="../../../v1/components/components.css">
+<link rel="stylesheet" href="../../../v2-badges/tokens/badges.css">
+<link rel="stylesheet" href="../../../v2-guild-badges/tokens/guild-badges.css">
+<link rel="stylesheet" href="../../tokens/cards.css">
+<link rel="stylesheet" href="../../cards/cards.css">
+</head>
+<body>
+<!-- TEMPLATE tier/square-b. Server: inject <script>window.CARD_DATA = {…}</script> in place of the example data script, render
+     at exactly the card size (see tokens), wait for <html data-ready="1">, screenshot [data-card]. Bindings are documented in ../fill.js. -->
+<div class="card fmt-square t-tier v-b" data-card>
+<div class="bgfx mapbg" aria-hidden="true"></div><div class="frame" aria-hidden="true"></div>
+<div class="body">
+  <div class="a-L"><span class="tier ct big" data-class="tier.cls" role="img" aria-label="Overall tier"><b data-slot="tier.letter"></b></span><span class="cmeta">Overall tier</span></div>
+  <div class="a-n"><div class="ident"><div class="tagrow"><span class="ctag" data-slot="faction"></span><span class="ctag" data-slot="ruleset"></span></div><h1 class="cname" data-fit><span data-slot="first"></span> <span class="last" data-slot="last"></span></h1><span class="cmeta" data-slot="meta"></span></div></div>
+  <div class="a-p tierbox" style="flex-direction: column; align-items: stretch"><div class="pctline" data-slot="pct"></div><div class="next solid" data-if="next.show"><span><b data-slot="next.text"></b></span><div class="cbar"><span data-slot-width="next.w"></span></div><span data-slot="next.sub"></span></div></div>
+  <div class="cats a-g" data-if="show.cats" data-repeat="cats"><div class="cat" data-item><span class="tier ct cat" data-f-class="cls"><b data-f="L"></b></span><span data-f="name"></span></div></div>
+</div>
+<footer class="card-foot"><span class="wm"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" style="fill:none;stroke:var(--es-accent);stroke-width:3"/><path d="M32 6 L35 29 L58 32 L35 35 L32 58 L29 35 L6 32 L29 29 Z" style="fill:var(--es-accent);opacity:var(--es-opacity-ornament)"/><text x="32" y="42" text-anchor="middle" font-size="28" style="font-family:var(--es-font-display);font-weight:var(--es-weight-black);fill:var(--es-text)">E</text></svg>Everstats</span><span class="info"><span class="url" data-fit data-slot="url"></span><span class="attr">Data: Blizzard Entertainment · as of <span data-slot="asof"></span></span></span></footer>
+</div>
+<script src="../data/tier.example.js"></script>
+<script src="../fill.js"></script>
+</body>
+</html>

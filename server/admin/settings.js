@@ -6,13 +6,15 @@ import { BETA_PERK_TEXT } from '../badges/catalog.js';
  * The admin settings registry. Every setting declares itself here; the admin page renders whatever is declared and
  * the store refuses anything undeclared. A missing row in `settings` means the declared default.
  *
- *   key, section ('grading' | 'tiers' | 'discovery' | 'crawler' | 'beta': which admin panel shows it), label, help, type, default
+ *   key, section ('grading' | 'tiers' | 'discovery' | 'crawler' | 'beta' | 'cards': which admin panel shows it), label, help, type, default
  *   type 'integer'  (min, max)
  *        'percent'  a whole percent (min, max), shown with a % sign
  *        'shares'   the five letter shares { S, A, B, C, D }, whole percents adding up to 100
  *        'boolean'
  *        'perks'    a short list of { title, description } (the beta page's perks), at most PERKS_MAX items
  *        'window'   null, or { start, end } as UTC calendar dates 'YYYY-MM-DD', both days included (0.7.0)
+ *        'weights'  { categoryKey: percent } pins for the overall tier's category weights (0.8.0); each 0.1–99.9, one
+ *                   decimal; whether they fit the live categories is checked by tiers/engine.js weightsProblem
  */
 export const PERKS_MAX = 12;
 export const SETTINGS = [
@@ -55,6 +57,28 @@ export const SETTINGS = [
     min: 1,
     max: 100,
     default: 50,
+  },
+  {
+    // 0.8.0: share cards (server/cards/render.js). Each render is a headless Chromium page at card size; this caps how
+    // many run at once in the web container (memory: see the admin page's measured times and the deploy notes).
+    key: 'cards.maxConcurrent',
+    section: 'cards',
+    label: 'Share cards rendered at the same time',
+    help: 'Each render is one headless Chromium page. More at once answers a burst faster but uses more memory. Requests beyond this wait in a short queue; a full queue is told to try again in a few seconds.',
+    type: 'integer',
+    min: 1,
+    max: 8,
+    default: 2,
+  },
+  {
+    // 0.8.0: the overall tier is a weighted average of its categories. Unpinned categories follow the square root of
+    // their counted statistics (tiers/engine.js categoryWeights); a pin fixes one category's percent.
+    key: 'tiers.weights',
+    section: 'tiers',
+    label: 'Pinned category weights',
+    help: 'Each category counts toward the overall tier in proportion to the square root of how many of its statistics count. Pin a percent to fix a category’s weight; the others share the rest by the same rule.',
+    type: 'weights',
+    default: {},
   },
   {
     // 0.5.0: guild boards (stats/guildBoards.js). A guild below this shows "Not ranked yet: needs N tracked members".
@@ -205,6 +229,18 @@ function check(def, value) {
     if (value.end < value.start) throw new HttpError(400, 'The window ends before it starts.', 'invalid');
     return { start: value.start, end: value.end };
   }
+  if (def.type === 'weights') {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'Category weights must be a list of pinned percents', 'invalid');
+    const entries = Object.entries(value);
+    if (entries.length > 30) throw new HttpError(400, 'Too many pinned categories', 'invalid');
+    const out = {};
+    for (const [k, v] of entries) {
+      if (!/^[a-z0-9-]{1,80}$/.test(k)) throw new HttpError(400, 'Unknown category', 'invalid');
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0.1 || v > 99.9) throw new HttpError(400, 'A pinned weight is between 0.1% and 99.9%', 'invalid');
+      out[k] = Math.round(v * 10) / 10;
+    }
+    return out;
+  }
   if (def.type === 'retention') {
     const days = value?.days;
     const note = typeof value?.note === 'string' ? value.note.trim().slice(0, 1000) : '';
@@ -249,7 +285,7 @@ export function checkSetting(key, value) {
 }
 
 /** Keys whose change re-grades every ruleset (the worker's tiers job picks the request up). */
-export const TIER_SETTING_KEYS = Object.freeze(['grading.minPopulation', 'tiers.shares', 'tiers.categoryHalf', 'tiers.overallHalf']);
+export const TIER_SETTING_KEYS = Object.freeze(['grading.minPopulation', 'tiers.shares', 'tiers.categoryHalf', 'tiers.overallHalf', 'tiers.weights']);
 
 export async function setSetting(db, key, value, { q: outer = null } = {}) {
   const def = byKey.get(key);

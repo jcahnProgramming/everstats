@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { TIER_LETTERS } from '../../../server/stats/tiers.js';
+import { categoryWeights, weightsProblem } from '../../../server/tiers/engine.js';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Button, Field } from '../components/Controls.jsx';
@@ -16,6 +17,9 @@ import { formatDateTime, formatNumber, timeAgo } from '../format.js';
  *              how many characters per ruleset would land in each letter with the values in the form, computed from
  *              the stored values and the live decisions without saving anything; "Save" stores them (each change is
  *              an admin event) and a full grading follows within a minute.
+ *   Weights    (0.8.0) each overall category's weight: the square-root formula, read live from what counts, unless a
+ *              percent is pinned; the unpinned ones share the rest by the formula. Pins are part of the same form, so
+ *              they too need a Preview before Save, and each change is logged like the other settings.
  *   What counts read-only, from the Discovery decisions as they are now: per category, which statistics count, which
  *              are bad, farmable, duplicate-excluded, and which are undecided (and so count as nothing), each linking
  *              back to its decision on the Discovery page. Decisions that look inconsistent are listed first.
@@ -69,7 +73,8 @@ function SettingsPanel({ state, onSaved }) {
   const initial = useMemo(() => ({
     ...Object.fromEntries(TIER_LETTERS.map((l) => [l, String(state.settings.shares[l])])),
     ...Object.fromEntries(FIELDS.map((f) => [f.key, String(state.settings[f.key])])),
-  }), [state.settings]);
+    ...Object.fromEntries(state.weights.map((w) => [`w:${w.key}`, w.pinned !== null ? String(w.pinned) : ''])),
+  }), [state.settings, state.weights]);
   const [form, setForm] = useState(initial);
   const [preview, setPreview] = useState(null);
   const [problem, setProblem] = useState(null);
@@ -77,10 +82,24 @@ function SettingsPanel({ state, onSaved }) {
   useEffect(() => {
     setForm(initial);
   }, [initial]);
+  // Pins kept for categories that aren't in the overall tier right now stay as they are (they're ignored until it is).
+  const pins = () => {
+    const out = Object.fromEntries(Object.entries(state.settings.weights ?? {}).filter(([k]) => !state.weights.some((w) => w.key === k)));
+    for (const w of state.weights) {
+      const v = form[`w:${w.key}`];
+      if (v !== undefined && String(v).trim() !== '') out[w.key] = Number(v);
+    }
+    return out;
+  };
   const body = () => ({
     shares: Object.fromEntries(TIER_LETTERS.map((l) => [l, Number(form[l])])),
     ...Object.fromEntries(FIELDS.map((f) => [f.key, Number(form[f.key])])),
+    weights: pins(),
   });
+  const plan = { categories: state.weights.map((w) => ({ key: w.key, label: w.label, inOverall: true, overallIds: new Array(w.statistics) })) };
+  const pinBad = Object.values(pins()).some((v) => !Number.isFinite(v) || v < 0.1 || v > 99.9);
+  const weightProblem = pinBad ? 'A pinned weight is a number between 0.1 and 99.9.' : weightsProblem(plan, pins());
+  const liveWeights = weightProblem ? null : categoryWeights(plan, { weighting: 'sqrt', weights: pins() });
   const sum = TIER_LETTERS.reduce((n, l) => n + (Number(form[l]) || 0), 0);
   const changed = JSON.stringify(form) !== JSON.stringify(initial);
   const set = (k) => (e) => {
@@ -127,10 +146,33 @@ function SettingsPanel({ state, onSaved }) {
       <div className="grid-auto col-md gap-14">
         {FIELDS.map((f) => <Field key={f.key} label={f.label} inputClassName="num" inputMode="numeric" value={form[f.key]} onChange={set(f.key)} />)}
       </div>
+      <div className="stack gap-8">
+        <span className="eyebrow">Category weights in the overall tier</span>
+        <span className="t2 small">Each category weighs √(its statistics counting toward overall), as a share of the total. Pin a percent to fix one; leave it blank to follow the formula. The unpinned ones share what is left, by the same formula, so everything adds up to 100%.</span>
+        {state.weights.length === 0 ? <span className="muted small">No category counts toward the overall tier yet.</span> : (
+          <div className="tblbox">
+            <table className="tbl">
+              <thead><tr><th scope="col">Category</th><th scope="col" className="r">Statistics</th><th scope="col" className="r">Formula</th><th scope="col">Pinned %</th><th scope="col" className="r">Weight used</th></tr></thead>
+              <tbody>
+                {state.weights.map((w, i) => (
+                  <tr key={w.key}>
+                    <td>{w.label}</td>
+                    <td className="r">{formatNumber(w.statistics)}</td>
+                    <td className="r">{(w.formula * 100).toFixed(1)}%</td>
+                    <td><Field label={`${w.label} pinned weight`} className="weight-pin" inputClassName="num" inputMode="decimal" placeholder="formula" value={form[`w:${w.key}`]} onChange={set(`w:${w.key}`)} /></td>
+                    <td className="r"><b className="strong-text">{liveWeights ? `${(liveWeights[i].weight * 100).toFixed(1)}%` : '–'}</b></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {weightProblem && <span className="xsmall err-text" role="alert">{weightProblem}</span>}
+      </div>
       {problem && <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>}
       <div className="row gap-10">
-        <Button className="sm" loading={busy === 'preview'} disabled={busy !== null || sum !== 100} onClick={runPreview}><Icon name="chart" size="sm" />Preview</Button>
-        <Button className="sm gold" loading={busy === 'save'} disabled={busy !== null || !changed || sum !== 100 || !preview} onClick={save}>Save</Button>
+        <Button className="sm" loading={busy === 'preview'} disabled={busy !== null || sum !== 100 || Boolean(weightProblem)} onClick={runPreview}><Icon name="chart" size="sm" />Preview</Button>
+        <Button className="sm gold" loading={busy === 'save'} disabled={busy !== null || !changed || sum !== 100 || Boolean(weightProblem) || !preview} onClick={save}>Save</Button>
         <span className="muted xsmall">{changed ? (preview ? 'Preview shown below: save to apply it.' : 'Preview first: Save stays off until you have seen what it changes.') : 'No changes.'}</span>
       </div>
       {preview && <Preview preview={preview} current={state.runs.find((r) => r.status === 'done')} />}

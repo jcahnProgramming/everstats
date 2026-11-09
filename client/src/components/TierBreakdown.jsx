@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { formatNumber, timeAgo } from '../format.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { TierBadge, letterRange } from './Tier.jsx';
+import { ShareButton } from '../share/ShareButtons.jsx';
 
 /**
  * The tier parts of the character page (0.6.0), from GET /api/characters/:slug → tiers (server/tiers/view.js):
@@ -15,6 +16,8 @@ import { TierBadge, letterRange } from './Tier.jsx';
  * instead of jumping to the statistics, because the statistics sections now start collapsed.
  */
 const score = (x) => (Number.isFinite(x) ? x.toFixed(1) : '–');
+/** A category's weight in the overall score (0.8.0), as a percent with one decimal. */
+const weightPct = (w) => (Number.isFinite(w) ? `${(Math.round(w * 1000) / 10).toFixed(1)}%` : null);
 
 export function OverallTier({ tiers }) {
   if (!tiers) {
@@ -52,7 +55,7 @@ export function OverallTier({ tiers }) {
   );
 }
 
-export function WhyThisTier({ tiers, name }) {
+export function WhyThisTier({ tiers, name, shareTo = null }) {
   const [open, setOpen] = useState(() => new Set());
   // "#why-<category>" opens that category's breakdown (the category cards link there).
   useEffect(() => {
@@ -91,7 +94,7 @@ export function WhyThisTier({ tiers, name }) {
             )}
           </div>
         </div>
-        <span className="small"><Link to="/tiers/how">How tiers work</Link></span>
+        <span className="row gap-12 small"><Link to="/tiers/how">How tiers work</Link>{shareTo && <ShareButton to={shareTo} label="Share tier" gold={false} />}</span>
       </section>
     );
   }
@@ -100,7 +103,7 @@ export function WhyThisTier({ tiers, name }) {
   const overallCats = tiers.categories.filter((c) => c.inOverall);
   return (
     <section id="why-tier" className="stack gap-18" aria-labelledby="why-h">
-      <div className="orn"><span className="gem" /><h2 className="h2" id="why-h">Why this tier</h2><span className="rule" /><span className="muted xsmall">Graded against {formatNumber(tiers.population)} tier-eligible characters on {rs}</span></div>
+      <div className="orn"><span className="gem" /><h2 className="h2" id="why-h">Why this tier</h2><span className="rule" /><span className="muted xsmall">Graded against {formatNumber(tiers.population)} tier-eligible characters on {rs}</span>{shareTo && <ShareButton to={shareTo} label="Share tier" gold={false} />}</div>
       <div className="panel pad-20 stack gap-12">
         <div className="row gap-16 align-start">
           <TierBadge letter={o.letter} size="md" />
@@ -109,7 +112,9 @@ export function WhyThisTier({ tiers, name }) {
               {o.letter ? <>Overall {o.letter} · {letterRange(o.letter, s.shares)} · #{formatNumber(o.rank)} of {formatNumber(o.of)} graded</> : <>Overall: Unranked</>}
             </span>
             <span className="t2 small">
-              Overall score <b className="strong-text">{score(o.score)}</b> = the average of {name}'s scores in the {overallCats.length} categor{overallCats.length === 1 ? 'y' : 'ies'} that count toward the overall tier, each weighing the same.
+              Overall score <b className="strong-text">{score(o.score)}</b> = {s.weighting === 'sqrt'
+                ? <>the weighted average of {name}'s scores in the {overallCats.length} categor{overallCats.length === 1 ? 'y' : 'ies'} that count toward the overall tier (each category’s weight is shown beside it; <Link to="/tiers/how">how weights work</Link>).</>
+                : <>the average of {name}'s scores in the {overallCats.length} categor{overallCats.length === 1 ? 'y' : 'ies'} that count toward the overall tier, each weighing the same (this grading is from before weights; the next full grading uses them).</>}
               {' '}{name} has a letter in {o.lettered} of them; an overall letter needs {o.needed} ({s.overallHalf}%).
             </span>
             {o.reason && <span className="small tier-reason"><Icon name="info" size="sm" /> {o.reason.text}</span>}
@@ -129,6 +134,7 @@ export function WhyThisTier({ tiers, name }) {
             <span className="stack ellipsis">
               <span className="tier-card-title">{c.label}</span>
               <span className="muted xsmall">{c.letter ? `Score ${score(c.score)}` : 'Unranked'}{!c.inOverall ? ' · own tier' : ''}</span>
+              {c.inOverall && weightPct(c.weight) && <span className="muted xsmall tier-card-weight">Weight {weightPct(c.weight)}</span>}
             </span>
           </a>
         ))}
@@ -145,7 +151,7 @@ export function WhyThisTier({ tiers, name }) {
                   <span className="h3 cat-title">{c.label}</span>
                   <span className="muted xsmall">
                     Score {score(c.score)} = the average percentile of {c.counted} statistic{c.counted === 1 ? '' : 's'} · {c.nonzero} above zero (a letter needs {c.needed ?? '–'}, {s.categoryHalf}%)
-                    {c.letter ? ` · #${formatNumber(c.rank)} of ${formatNumber(c.of)}` : ''}{c.inOverall ? ' · counts toward the overall tier' : c.farmable ? ' · farmable: its own tier only' : ' · its own tier only'}
+                    {c.letter ? ` · #${formatNumber(c.rank)} of ${formatNumber(c.of)}` : ''}{c.inOverall ? ` · ${weightPct(c.weight) ? `${weightPct(c.weight)} of the overall score` : 'counts toward the overall tier'}` : c.farmable ? ' · farmable: its own tier only' : ' · its own tier only'}
                   </span>
                 </span>
                 <span className="spacer" />

@@ -7,6 +7,7 @@ import { ServiceUnavailable } from '../components/States.jsx';
 import { RankedTable, RulesetSwitcher } from '../components/Stats.jsx';
 import { formatDateTime, formatNumber, timeAgo } from '../format.js';
 import { GuildName } from '../guildBadges/GuildBadges.jsx';
+import { ShareRowButton } from '../share/ShareButtons.jsx';
 
 /**
  * 0.5.0: the two guild boards.
@@ -143,7 +144,7 @@ export function GuildBoardPage() {
                 </EmptyState>
               ) : (
                 <>
-                  <GuildTable rows={rows} mode={mode} />
+                  <GuildTable rows={rows} mode={mode} shareTo={(r) => ({ to: `/leaderboards/guilds/${data.ruleset.id}/${s.id}/share?${new URLSearchParams({ g: r.slug, ...(mode === 'average' ? { mode } : {}), ...(period === 'overall' ? {} : { period }) })}`, label: `Share #${r.rank} ${s.name ?? ''}`.trim() })} />
                   {more.next && <button type="button" className="btn ghost self-start" disabled={more.busy} onClick={loadMore}>{more.busy ? 'Loading…' : 'Show more'}</button>}
                   {data.atZero > 0 && <p className="muted small">{formatNumber(data.atZero)} more ranked guild{data.atZero === 1 ? ' is' : 's are'} at 0{what}: not ranked.</p>}
                 </>
@@ -183,7 +184,7 @@ export function GuildBoardPage() {
   );
 }
 
-function GuildTable({ rows, mode }) {
+function GuildTable({ rows, mode, shareTo = null }) {
   return (
     <div className="tblbox">
       <table className="tbl to-list">
@@ -194,6 +195,7 @@ function GuildTable({ rows, mode }) {
             <th scope="col" className="r">Members</th>
             <th scope="col" className={mode === 'total' ? 'r' : 'r muted'}>Total</th>
             <th scope="col" className={mode === 'average' ? 'r' : 'r muted'}>Average</th>
+            {shareTo && <th scope="col"><span className="sr-only">Share</span></th>}
           </tr>
         </thead>
         <tbody>
@@ -204,19 +206,21 @@ function GuildTable({ rows, mode }) {
               <td className="r t2">{formatNumber(r.members)}</td>
               <td className={`r${mode === 'total' ? ' strong' : ' t2'}`}>{formatNumber(r.total)}</td>
               <td className={`r${mode === 'average' ? ' strong' : ' t2'}`}>{formatNumber(round1(r.average))}</td>
+              {shareTo && <td className="r"><ShareRowButton {...shareTo(r)} /></td>}
             </tr>
           ))}
         </tbody>
       </table>
       <ol className="ranklist only-phone">
         {rows.map((r) => (
-          <li key={r.slug}>
+          <li key={r.slug} className={shareTo ? 'has-share' : undefined}>
             <Link to={`/g/${encodeURIComponent(r.slug)}`}>
               <span className={`rk${r.rank <= 3 ? ` r${r.rank}` : ''}`}>{formatNumber(r.rank)}</span>
               <span className="strong ellipsis"><GuildName guild={r} link={false} still /></span>
               <span className="strong">{formatNumber(round1(mode === 'total' ? r.total : r.average))}</span>
               <span className="muted xsmall ellipsis">{formatNumber(r.members)} members · {mode === 'total' ? `avg ${formatNumber(round1(r.average))}` : `total ${formatNumber(r.total)}`}</span>
             </Link>
+            {shareTo && <ShareRowButton {...shareTo(r)} />}
           </li>
         ))}
       </ol>

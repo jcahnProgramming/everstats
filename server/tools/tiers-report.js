@@ -5,16 +5,19 @@
 //                                                                       from its last full grading
 //   docker exec everstats node server/tools/tiers-report.js preview    the same letters computed now with the current
 //                                                                       settings (what the admin preview shows)
+//   docker exec everstats node server/tools/tiers-report.js weights    each category's weight now (0.8.0), and the letters
+//                                                                       computed with equal weights vs these weights
 //
 // Prints counts, category labels and statistic ids only: no character names and no Blizzard values.
 import { config } from '../core/config.js';
 import { createDb } from '../core/db.js';
+import { categoryWeights } from '../tiers/engine.js';
 import { countingNow, previewTiers, tierSettings } from '../tiers/store.js';
 
 const db = createDb({ url: config.databaseUrl, max: 2 });
 try {
   const settings = await tierSettings(db);
-  const { counts } = await countingNow(db, { fresh: true });
+  const { counts, plan } = await countingNow(db, { fresh: true });
   console.log(`Settings: shares ${JSON.stringify(settings.shares)} · ruleset minimum ${settings.minPopulation} · category ${settings.categoryHalf}% · overall ${settings.overallHalf}%`);
   console.log('\nWhat counts (category: counted [overall] / bad / name+number / duplicate / undecided):');
   for (const c of counts.categories) {
@@ -24,7 +27,22 @@ try {
   console.log(`\nInconsistent decisions: ${counts.issues.length}`);
   for (const i of counts.issues) console.log(`  id ${i.statisticId} (${i.category}): ${i.problem}`);
   const names = new Map((await db.query('SELECT id, name FROM rulesets LIMIT 100')).map((r) => [r.id, r.name]));
-  if (process.argv[2] === 'preview') {
+  if (process.argv[2] === 'weights') {
+    const pct = (x) => `${(x * 100).toFixed(1)}%`;
+    console.log('\nCategory weights now (statistics counting toward overall → square-root formula → weight used):');
+    for (const w of categoryWeights(plan, settings)) {
+      console.log(`  ${w.label.padEnd(20)} ${String(w.statistics).padStart(3)}  formula ${pct(w.formula).padStart(6)}  weight ${pct(w.weight).padStart(6)}${w.pinned !== null ? '  (pinned)' : ''}`);
+    }
+    const equal = await previewTiers(db, { ...settings, weighting: undefined, weights: {} });
+    const weighted = await previewTiers(db, settings);
+    console.log('\nOverall letters: equal weights → these weights (computed now, nothing saved):');
+    for (const r of weighted.rulesets) {
+      const e = equal.rulesets.find((x) => x.id === r.id);
+      if (!r.graded) { console.log(`  ${String(r.name ?? r.id).padEnd(12)} ${r.population} eligible · below the minimum`); continue; }
+      const cells = ['S', 'A', 'B', 'C', 'D', 'unranked'].map((l) => `${l} ${e.overall[l]}→${r.overall[l]}`).join(' · ');
+      console.log(`  ${String(r.name ?? r.id).padEnd(12)} ${r.population} eligible · ${cells}`);
+    }
+  } else if (process.argv[2] === 'preview') {
     const p = await previewTiers(db, settings);
     console.log(`\nLetters computed now (${p.ms} ms, nothing saved):`);
     for (const r of p.rulesets) console.log(`  ${(r.name ?? r.id).toString().padEnd(12)} ${r.population} eligible · ${r.graded ? JSON.stringify(r.overall) : 'below the minimum'}`);

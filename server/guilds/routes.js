@@ -406,18 +406,25 @@ export async function guildView(db, g) {
   const minBoardGuilds = await getSetting(db, 'guilds.minBoardGuilds');
   let placements = null;
   let placementsHeld = 0;
+  // 0.8.0: the best placement in each category (same boards, same rule), for the collapsed "Top members" headers.
+  let bestByCategory = null;
   if (members.length >= minMembers && built && g.ruleset_id !== null) {
     const all = await guildPlacements(db, { guildId: g.id, rulesetId: g.ruleset_id, minMembers });
     const rows = all.filter((p) => p.ranked >= minBoardGuilds);
     placementsHeld = all.length - rows.length;
-    placements = rows
+    const sorted = rows
       .map((p) => {
         const byAvg = p.rank_average < p.rank_total;
         return { statisticId: p.statistic_id, name: statistics.get(p.statistic_id)?.name ?? null, mode: byAvg ? 'average' : 'total', rank: byAvg ? p.rank_average : p.rank_total, of: p.ranked, value: byAvg ? p.average : p.total };
       })
       .filter((p) => p.name !== null)
-      .sort((a, b) => a.rank - b.rank || b.of - a.of || a.name.localeCompare(b.name))
-      .slice(0, 8);
+      .sort((a, b) => a.rank - b.rank || b.of - a.of || a.name.localeCompare(b.name));
+    placements = sorted.slice(0, 8);
+    bestByCategory = {};
+    for (const p of sorted) {
+      const key = categoryKey(statistics.get(p.statisticId)?.category ?? '');
+      if (key && !bestByCategory[key]) bestByCategory[key] = p;
+    }
   }
   return {
     guild: {
@@ -445,6 +452,7 @@ export async function guildView(db, g) {
     },
     placements,
     placementsHeld,
+    bestByCategory,
     minBoardGuilds,
     // 0.6.0: the tracked members by overall letter (Unranked included), and each member's letter on the roster.
     tiers: await guildTierDistribution(db, g),

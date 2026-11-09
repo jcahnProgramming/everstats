@@ -256,6 +256,11 @@ export async function setHidden(q, characterId, hidden) {
   // 0.6.0: hidden, it has no tier (and is on no tier board); shown again, it is graded at once.
   const { gradeCharacter } = await import('../tiers/store.js');
   await gradeCharacter(q, characterId);
+  // 0.8.0: a hidden character is on no share card from this moment: every cached image showing it goes.
+  if (hidden) {
+    const { forgetCharacter } = await import('../cards/store.js');
+    await forgetCharacter(q, characterId);
+  }
   // 0.5.0: a hidden character counts toward no guild total from this moment, so its guild is rebuilt now, in the same
   // transaction, not on the worker's next pass.
   if (ch?.guild_id !== null && ch?.guild_id !== undefined) {

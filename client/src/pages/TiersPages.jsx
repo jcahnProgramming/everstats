@@ -49,9 +49,10 @@ export function HowTiersPage() {
           <li><b className="strong-text">A percentile for every graded statistic.</b> Your value is compared with every tier-eligible character on your ruleset: the share below you, plus half of those level with you. Ties get the same percentile. A statistic Blizzard doesn’t list for you counts as 0.</li>
           <li><b className="strong-text">A score for each category:</b> the average of your percentiles in that category’s graded statistics (0 to 100).</li>
           <li><b className="strong-text">A letter for each category,</b> from where that score places among everyone’s score in the same category on your ruleset{s ? ` (top ${s.shares.S}% S, and so on)` : ''}. It needs a value above zero in at least {s ? `${s.categoryHalf}%` : 'half'} of the category’s graded statistics, so one lucky statistic can’t earn an S.</li>
-          <li><b className="strong-text">An overall score:</b> the average of your category scores, over the categories that count toward the overall tier. Each category weighs the same, however many statistics it has. A category you have no letter in still counts its score, so skipping one never helps.</li>
-          <li><b className="strong-text">An overall letter,</b> from where that score places on your ruleset. It needs a letter in at least {s ? `${s.overallHalf}%` : 'half'} of the categories that count toward it.</li>
+          <li><b className="strong-text">An overall score:</b> a weighted average of your category scores, over the categories that count toward the overall tier. A category with more graded statistics weighs more, but not in proportion: its weight follows the <b className="strong-text">square root</b> of how many of its statistics count, so a category with 4 counts half as much as one with 16, not a quarter. The weights are listed below. A category you have no letter in still counts its score, so skipping one never helps.</li>
+          <li><b className="strong-text">An overall letter,</b> from where that score places on your ruleset. It needs a letter in at least {s ? `${s.overallHalf}%` : 'half'} of the categories that count toward it (counted as categories, whatever their weight).</li>
         </ol>
+        {data && <Weights weights={data.weights} />}
         <p className="t2 small">Everyone is graded again every few hours, after the daily refresh, and whenever what counts changes. A character you look up is graded straight after its fetch, against the ruleset’s last full grading, so other characters’ letters only move at the next full grading. Every character page has a “Why this tier” breakdown with each percentile behind its letters.</p>
       </section>
 
@@ -115,6 +116,40 @@ export function HowTiersPage() {
         )}
       </section>
       {data && <Provenance source="Everstats’ grading of Blizzard statistics" fetchedAt={data.lastGrading}><span className="muted">Last full grading</span></Provenance>}
+    </div>
+  );
+}
+
+const pct = (x) => `${(Math.round(x * 1000) / 10).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+
+/**
+ * 0.8.0: each overall category's weight now, read live (server/tiers/engine.js categoryWeights): the graded statistics
+ * counting toward the overall tier, the square-root formula's share, and the weight in use (an Everstats setting can
+ * fix one category's weight; the others share the rest by the formula). They change as statistics are approved.
+ */
+function Weights({ weights }) {
+  if (!weights?.length) return null;
+  const pinned = weights.some((w) => w.pinned !== null);
+  const sqrtSum = weights.reduce((n, w) => n + Math.sqrt(w.statistics), 0);
+  return (
+    <div className="panel pad-20 stack gap-10" aria-labelledby="weights-h">
+      <h3 className="h3" id="weights-h">Category weights now</h3>
+      <p className="t2 small">Weight = √(statistics counting toward overall) ÷ the sum of those square roots ({sqrtSum.toFixed(2)} today). They follow what is approved, so they move as statistics are reviewed.{pinned ? ' Everstats has fixed the weight of the categories marked “set”; the others share what is left by the same formula.' : ''}</p>
+      <div className="tblbox">
+        <table className="tbl">
+          <thead><tr><th scope="col">Category</th><th scope="col" className="r">Statistics</th><th scope="col" className="r">√</th><th scope="col" className="r">Weight</th></tr></thead>
+          <tbody>
+            {weights.map((w) => (
+              <tr key={w.key}>
+                <td>{w.label}</td>
+                <td className="r">{formatNumber(w.statistics)}</td>
+                <td className="r">{Math.sqrt(w.statistics).toFixed(2)}</td>
+                <td className="r"><b className="strong-text">{pct(w.weight)}</b>{w.pinned !== null && <span className="muted xsmall"> set (formula {pct(w.formula)})</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

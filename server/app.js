@@ -19,6 +19,10 @@ import { createBadgeRouter } from './badges/routes.js';
 import { createGuildManageRouter } from './guilds/manage.js';
 import { createGuildBadgeRouter } from './guildBadges/routes.js';
 import { createFeedbackRouter } from './feedback/routes.js';
+import { createCardApiRouter, createCardImageRouter } from './cards/routes.js';
+import { createCardRenderer } from './cards/render.js';
+import { spaWithPreviews } from './cards/meta.js';
+import { getSetting } from './admin/settings.js';
 
 /**
  * The web app (API + built client), without listening. index.js starts it; tests build it with their own database,
@@ -31,8 +35,9 @@ import { createFeedbackRouter } from './feedback/routes.js';
  * @param {string} [opts.trustedProxies] see core/network.js
  * @param {Function} [opts.onHeader] told where each CF-Connecting-IP arrived from (default: log each new source once
  *   and keep the list for the admin page, core/network.js)
+ * @param {object} [opts.renderer] the share-card renderer (cards/render.js); tests pass a fake
  */
-export function createApp({ db, now = Date.now, fetch = globalThis.fetch, trustedProxies = process.env.TRUSTED_PROXIES, onHeader = logHeaderSources() } = {}) {
+export function createApp({ db, now = Date.now, fetch = globalThis.fetch, trustedProxies = process.env.TRUSTED_PROXIES, onHeader = logHeaderSources(), renderer = null } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(securityHeaders({ hsts: config.secureCookies }));
@@ -40,6 +45,9 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   const limits = createLimits({ now });
   const networkOf = createNetworkResolver({ trustedProxies, onHeader });
   app.locals.limits = limits;
+  // 0.8.0: share cards. One headless Chromium for the whole web process, launched on the first render.
+  const cards = renderer ?? createCardRenderer({ maxConcurrent: () => getSetting(db, 'cards.maxConcurrent') });
+  app.locals.cardRenderer = cards;
 
   // Every request, pages and files included, goes past the resolver once, so the first page load through the tunnel
   // logs where CF-Connecting-IP arrives from (TRUSTED_PROXIES discovery). Rate limits still run their own lookup.
@@ -92,11 +100,14 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   // 0.7.1: guild badges (detail pages, emblems, Manage → Badges, GM/officer toasts) and feedback with replies.
   app.use('/api', createGuildBadgeRouter({ db, limits, networkOf }));
   app.use('/api', createFeedbackRouter({ db, limits, networkOf }));
+  // 0.8.0: share cards (the maker's state, "Save as my default").
+  app.use('/api', createCardApiRouter({ db, limits, networkOf }));
 
   app.use('/api/auth', createAuthRouter({ db, limits, networkOf, fetch }));
   app.use('/api/admin', createAdminRouter({
     db, limits, networkOf, fetch,
     proxies: () => ({ trustedProxies: trustedProxyEntries(trustedProxies), sources: onHeader?.sources?.() ?? [], check: trustedProxyCheck(trustedProxies) }),
+    cardStats: () => cards.stats(),
   }));
   app.use('/api', createAccountRouter({ db, limits, networkOf }));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
@@ -104,11 +115,15 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   // OAuth callbacks: /auth/battlenet/callback and /auth/discord/callback (registered with both providers).
   app.use('/auth', createCallbackRouter({ db, fetch }));
 
+  // 0.8.0: share-card images (/card.png for the maker, /og/… for link previews).
+  app.use(createCardImageRouter({ db, limits, networkOf, fetch, renderer: cards }));
+
   // Serve the built client (production / Docker). In dev, Vite serves it instead.
   if (existsSync(config.clientDist)) {
     app.use('/assets', express.static(join(config.clientDist, 'assets'), { immutable: true, maxAge: '365d', fallthrough: false }));
     app.use(express.static(config.clientDist, { index: false }));
-    app.get('/{*splat}', (req, res) => res.sendFile(join(config.clientDist, 'index.html')));
+    // 0.8.0: every page gets its link-preview tags (cards/meta.js); pages with a card get its image.
+    app.get('/{*splat}', spaWithPreviews(db));
   }
 
   app.use(createErrorHandler('web'));

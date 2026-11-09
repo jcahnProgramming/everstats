@@ -35,6 +35,16 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/server ./server
 COPY --from=build /app/client/package.json ./client/package.json
 COPY --from=build /app/client/dist ./client/dist
+# 0.8.0: share cards draw badges from the same verbatim art the site uses (server/cards/badgeSvg.js).
+COPY --from=build /app/client/src/badges/art ./client/src/badges/art
+COPY --from=build /app/client/src/guildBadges/art ./client/src/guildBadges/art
+# 0.8.0: the share-card renderer (server/cards/render.js): Playwright's chromium headless shell, at the exact build the
+# pinned playwright-core expects, plus the system libraries and fonts it needs (--with-deps runs apt as root, here).
+# Installed where the non-root node user can read it. The web container uses it; the worker image carries it too.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN node node_modules/playwright-core/cli.js install --with-deps --only-shell chromium \
+ && rm -rf /var/lib/apt/lists/* \
+ && chmod -R a+rX /ms-playwright
 USER node
 EXPOSE 3260 3261
 # Default: the web app. docker-compose.yml overrides the command for the worker.

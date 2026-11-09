@@ -26,6 +26,8 @@ const SOURCES = {
   rolling: { table: 'stat_gains', col: 'gain', where: "AND period = 'rolling' AND period_start = $3" },
 };
 export const BOARD_PERIODS = Object.keys(SOURCES);
+/** The table, column and period predicate behind each period (share cards read neighbours with the same predicates). */
+export const BOARD_SOURCES = SOURCES;
 
 const startOf = (period, now) => (period === 'overall' ? null : periodStart(period, now()));
 const params = (period, now, ...rest) => (period === 'overall' ? rest : [...rest, startOf(period, now)]);

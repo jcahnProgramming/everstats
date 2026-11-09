@@ -93,6 +93,11 @@ export function createLimits({ now = Date.now } = {}) {
     // per hour. Both are checked; a refused message is never stored.
     feedbackByNetwork: createLimiter({ limit: 5, windowMs: FIFTEEN_MINUTES, now }),
     feedbackByAccount: createLimiter({ limit: 10, windowMs: 4 * FIFTEEN_MINUTES, now }),
+    // 0.8.0: share cards that must be RENDERED (a cached image costs nothing and isn't counted): 40 per network per 15
+    // minutes AND, signed in, 60 per account. Both are checked. On top of these, the renderer itself runs at most
+    // cards.maxConcurrent at once and refuses a full queue (cards/render.js).
+    cardRendersByNetwork: createLimiter({ limit: 40, windowMs: FIFTEEN_MINUTES, now }),
+    cardRendersByAccount: createLimiter({ limit: 60, windowMs: FIFTEEN_MINUTES, now }),
   };
 }
 

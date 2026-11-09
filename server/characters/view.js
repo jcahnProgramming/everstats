@@ -1,23 +1,33 @@
 import { boardCounts, characterRanks } from '../stats/boards.js';
 import { categoryKey, loadCatalog } from '../stats/catalog.js';
 import { inlineBadges } from '../badges/store.js';
+import { gearItemIds } from '../crawler/items.js';
 
 /**
  * A tracked character as the public API shows it. Everything carries its freshness: fetchedAt (the last full fetch:
  * statistics, gear), checkedAt (the profile, read even when nothing changed), media.fetchedAt (renders lag the profile
  * by hours) and each statistic's own updatedAt from Blizzard.
  */
-/** Each equipped item with its icon: { icon: url | null, iconState: 'ok' | 'pending' | 'missing' | 'failed' }. */
+/**
+ * Each equipped item with its icon: { icon: url | null, iconState: 'ok' | 'pending' | 'missing' | 'failed' }, and its
+ * transmog (0.8.0) with the transmog item's own icon the same way. transmog: null = not transmogged; undefined = stored
+ * before 0.8.0, not known until the next full fetch.
+ */
 export async function equipmentWithIcons(db, equipment) {
   const list = Array.isArray(equipment) ? equipment : [];
-  const ids = list.map((i) => i.itemId).filter(Number.isSafeInteger);
-  const rows = ids.length ? await db.query('SELECT item_id, state, icon_url FROM item_media WHERE item_id = ANY($1::bigint[])', [ids]) : [];
-  const byId = new Map(rows.map((r) => [r.item_id, r]));
+  const ids = gearItemIds(list);
+  const rows = ids.length ? await db.query('SELECT item_id, state, icon_url FROM item_media WHERE item_id = ANY($1::bigint[]) LIMIT 100', [ids]) : [];
+  const byId = new Map(rows.map((r) => [Number(r.item_id), r]));
+  const iconOf = (id) => {
+    const m = byId.get(id);
+    return { icon: m?.state === 'ok' ? m.icon_url : null, iconState: m ? m.state : 'pending' };
+  };
   // mediaHref is how the crawler finds the icon; the page doesn't need it.
-  return list.map(({ mediaHref: _href, ...i }) => {
-    const m = byId.get(i.itemId);
-    return { ...i, icon: m?.state === 'ok' ? m.icon_url : null, iconState: m ? m.state : 'pending' };
-  });
+  return list.map(({ mediaHref: _href, ...i }) => ({
+    ...i,
+    ...iconOf(i.itemId),
+    ...(i.transmog ? { transmog: { ...i.transmog, ...iconOf(i.transmog.itemId) } } : {}),
+  }));
 }
 
 /** Whether the character's owner hid its render (0.7.1, character_render_hidden). */

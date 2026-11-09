@@ -13,6 +13,9 @@ export default defineConfig({
     proxy: {
       '/api': backend,
       '/auth': backend,
+      // 0.8.0: share-card images (the maker's preview, Download, Copy) and link-preview images.
+      '/card.png': backend,
+      '/og': backend,
     },
   },
 });

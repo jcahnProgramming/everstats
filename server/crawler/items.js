@@ -13,12 +13,15 @@ import { enqueue } from './queue.js';
  * The page shows each slot's frame, name and tooltip at once, and the icon when it lands.
  */
 export const ICON_TTL_DAYS = 30;
-const MAX_ITEMS_PER_ITEM = 30;
+const MAX_ITEMS_PER_ITEM = 60; // worn items and their transmogs (0.8.0)
+
+/** Every item id whose icon a character's gear can show: what is worn, and (0.8.0) each slot's transmog item. */
+export const gearItemIds = (equipment) => [...new Set((equipment ?? []).flatMap((i) => [i.itemId, i.transmog?.itemId]).filter(Number.isSafeInteger))];
 
 /** Item ids on this character with no icon row, or one older than the TTL. */
 export async function itemsNeedingMedia(q, characterId) {
   const ch = await q.one('SELECT equipment FROM characters WHERE id = $1', [characterId]);
-  const ids = [...new Set((ch?.equipment ?? []).map((i) => i.itemId).filter(Number.isSafeInteger))];
+  const ids = gearItemIds(ch?.equipment);
   if (!ids.length) return [];
   const fresh = await q.query(
     `SELECT item_id FROM item_media WHERE item_id = ANY($1::bigint[]) AND fetched_at > now() - ($2 || ' days')::interval`,
@@ -43,6 +46,7 @@ export async function fetchItemMedia({ db, client }, item) {
   const equipment = (await db.one('SELECT equipment FROM characters WHERE id = $1', [characterId]))?.equipment ?? [];
   let ok = 0;
   for (const id of missing.slice(0, MAX_ITEMS_PER_ITEM)) {
+    // A transmog item has no media link of its own in the equipment response: the documented path.
     const href = equipment.find((e) => e.itemId === id)?.mediaHref ?? `/data/wow/media/item/${id}`;
     const ns = (() => {
       try {

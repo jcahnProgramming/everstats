@@ -42,6 +42,12 @@ export function PrivacyPage() {
         <p className="t2">Blizzard's render server sometimes draws a character wrong. The owner of a character can hide its render and avatar on Everstats (Settings → Characters, or on the character's own page); everyone, the owner included, then sees a plain frame that says the render was hidden. Everstats remembers only which character and when, until the owner shows it again. Anyone can use “Report a wrong render” under a render: it opens the feedback form.</p>
       </section>
 
+      <section className="panel pad-24 stack gap-10" aria-labelledby="cards-h">
+        <h2 className="h2 h2-panel" id="cards-h">Share cards and link previews</h2>
+        <p className="t2">Share cards are pictures Everstats draws on its own server from the same public data as the pages, so they hold Blizzard data too: a drawn card is kept for a few hours at most, never past Blizzard's 30-day limit, and never in a backup. A hidden character has no card and no link preview, and hiding one deletes every drawn card that shows it at once. A render its owner hid is never drawn.</p>
+        <p className="t2">If you own a character (or run a guild page) and press “Save as my default”, Everstats keeps your card choices (layout, theme, colour and which statistics) and who saved them, until you change them or delete your account. Anyone else's choices in the card maker are never stored.</p>
+      </section>
+
       <section className="panel pad-24 stack gap-10" aria-labelledby="feedback-h">
         <h2 className="h2 h2-panel" id="feedback-h">Feedback</h2>
         <p className="t2">When you send <Link to="/feedback">feedback</Link>, Everstats keeps what you wrote, the kind of message, the Everstats page it was about and, if you gave one, your Discord username. Signed in, it's also linked to your account so replies can reach you in Your feedback. Nothing else is recorded with it: not your address, browser or device. A draft you haven't sent stays only in your own browser.</p>
@@ -55,7 +61,7 @@ export function PrivacyPage() {
 
       <section className="panel pad-24 stack gap-10" aria-labelledby="delete-h">
         <h2 className="h2 h2-panel" id="delete-h">Deleting your account</h2>
-        <p className="t2">In <Link to="/settings#delete">Settings → Delete account</Link>. It removes the account, its sign-in links, passkeys, two-factor settings, pins, badges, feedback and its claim on your characters, and signs you out. Your characters stay tracked as the public data they are; any you had hidden stay hidden. It can't be undone.</p>
+        <p className="t2">In <Link to="/settings#delete">Settings → Delete account</Link>. It removes the account, its sign-in links, passkeys, two-factor settings, pins, badges, feedback, saved share cards and its claim on your characters, and signs you out. Your characters stay tracked as the public data they are; any you had hidden stay hidden. It can't be undone.</p>
       </section>
     </div>
   );

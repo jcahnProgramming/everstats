@@ -1,0 +1,55 @@
+/* Card maker and share button (0.8.0). Source: design/v3-share-cards/components/card-maker.css (Claude Design v3
+   share cards), copied VERBATIM below this comment so the next handoff diffs cleanly: do not edit it here, override in
+   app.css. Loaded after guild-badges.css, before app.css. */
+
+/* Everstats — card maker + share button. Additive to v1 / v2. Only var(--es-*) values. */
+.maker { display: flex; flex-wrap: wrap; gap: var(--es-space-24); align-items: flex-start; }
+.mk-preview { flex: 999 1 var(--es-size-col-min-2xl); min-width: 0; display: flex; flex-direction: column; gap: var(--es-space-12); }
+.mk-controls { flex: 1 1 var(--es-size-col-min-lg); min-width: 0; display: flex; flex-direction: column; gap: var(--es-space-16); }
+.stage { position: relative; display: grid; place-items: center; padding: var(--es-space-24); min-height: var(--es-size-col-min-xl); border-radius: var(--es-radius-lg); border: var(--es-border-1) solid var(--es-line); background: repeating-linear-gradient(45deg, var(--es-sunken) 0 var(--es-space-12), color-mix(in oklab, var(--es-sunken) 85%, var(--es-line)) var(--es-space-12) var(--es-space-24)); }
+.stage img { display: block; height: auto; border-radius: var(--es-radius-md); box-shadow: var(--es-shadow-modal); }
+.stage img.pv-square { width: min(100%, var(--es-card-preview-w)); }
+.stage img.pv-story { width: min(100%, calc(var(--es-card-preview-w) * 0.62)); }
+.stage img.pv-wide { width: min(100%, calc(var(--es-card-preview-w) * 1.35)); }
+.stage .meta { position: absolute; top: var(--es-space-10); left: var(--es-space-12); font: var(--es-fs-11) var(--es-font-mono); color: var(--es-text-2); background: var(--es-sunken); padding: var(--es-space-2) var(--es-space-6); border-radius: var(--es-radius-xs); }
+.stage.is-busy img { opacity: var(--es-opacity-disabled); }
+.stage .busy { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--es-space-10); color: var(--es-text); font-weight: var(--es-weight-semibold); }
+.stage .busy span { padding: var(--es-space-6) var(--es-space-12); border-radius: var(--es-radius-pill); background: var(--es-raised); border: var(--es-border-1) solid var(--es-line-strong); }
+.stage .busy svg { width: var(--es-size-icon-3xl); height: var(--es-size-icon-3xl); }
+.linkprev { display: flex; gap: var(--es-space-12); align-items: center; padding: var(--es-space-10) var(--es-space-12); }
+.linkprev img { width: var(--es-size-col-min-xs); height: auto; border-radius: var(--es-radius-sm); flex: none; }
+.mk-sec { display: flex; flex-direction: column; gap: var(--es-space-10); padding: var(--es-space-16); }
+.mk-sec + .mk-sec { border-top: var(--es-border-1) solid var(--es-line); }
+.mk-sec .hd { display: flex; justify-content: space-between; align-items: baseline; gap: var(--es-space-10); }
+.tchips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--es-space-8); }
+.tchip { display: flex; flex-direction: column; gap: var(--es-space-6); padding: var(--es-space-8); border-radius: var(--es-radius-md); border: var(--es-border-2) solid var(--es-line); background: var(--es-bg); color: var(--es-text); font: var(--es-weight-semibold) var(--es-fs-12) var(--es-font-body); cursor: pointer; text-align: left; min-height: var(--es-size-control-xl); }
+.tchip[aria-checked="true"] { border-color: var(--es-accent); box-shadow: 0 0 0 var(--es-border-2) color-mix(in oklab, var(--es-accent) 35%, transparent); }
+.tchip .sw { display: flex; gap: var(--es-space-4); }
+.tchip .sw i { width: var(--es-space-16); height: var(--es-space-10); border-radius: var(--es-radius-xs); }
+.swatches { display: flex; gap: var(--es-space-10); flex-wrap: wrap; }
+.swatch { width: var(--es-size-control); height: var(--es-size-control); border-radius: var(--es-radius-round); border: var(--es-border-2) solid var(--es-line-strong); padding: var(--es-space-5); background: transparent; cursor: pointer; display: grid; place-items: center; }
+.swatch i { display: block; width: 100%; height: 100%; border-radius: var(--es-radius-round); }
+.swatch[aria-checked="true"] { border-color: var(--es-text); box-shadow: 0 0 0 var(--es-border-2) var(--es-focus); }
+.statpick { display: flex; flex-direction: column; border: var(--es-border-1) solid var(--es-line); border-radius: var(--es-radius-md); }
+.sp { display: grid; grid-template-columns: var(--es-space-20) auto minmax(0, 1fr) auto; gap: var(--es-space-10); align-items: center; padding: var(--es-space-6) var(--es-space-10); min-height: var(--es-size-control); border-bottom: var(--es-border-1) solid var(--es-row-sep); font-size: var(--es-fs-13-5); }
+.sp:last-child { border-bottom: 0; }
+.sp .grip { color: var(--es-muted); cursor: grab; display: grid; place-items: center; }
+.sp .grip svg { width: var(--es-space-14); height: var(--es-space-14); fill: currentColor; }
+.sp input { width: var(--es-size-checkbox); height: var(--es-size-checkbox); accent-color: var(--es-accent); margin: 0; }
+.sp .val { font-variant-numeric: tabular-nums; color: var(--es-text-2); font-size: var(--es-fs-12-5); }
+.sp.is-disabled { color: var(--es-muted); background: var(--es-sunken); }
+.sp.is-disabled .val { color: var(--es-warning); }
+.tgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(var(--es-size-col-min-sm), 100%), 1fr)); gap: 0 var(--es-space-12); }
+.mk-actions { display: flex; flex-direction: column; gap: var(--es-space-10); padding: var(--es-space-16); }
+.mk-actions .row { display: flex; gap: var(--es-space-8); flex-wrap: wrap; }
+.mk-actions .row .btn { flex: 1 1 var(--es-space-120); }
+.owner { display: flex; gap: var(--es-space-12); align-items: center; padding: var(--es-space-12); border-radius: var(--es-radius-md); border: var(--es-border-1) dashed color-mix(in oklab, var(--es-accent) 55%, var(--es-line)); }
+.blocked { display: flex; flex-direction: column; align-items: center; gap: var(--es-space-12); text-align: center; padding: var(--es-space-48) var(--es-space-24); }
+.blocked svg.ico { width: var(--es-size-icon-2xl); height: var(--es-size-icon-2xl); stroke: var(--es-muted); }
+
+@media (max-width: 719px) {
+  .stage { min-height: 0; padding: var(--es-space-14); }
+  .stage img.pv-square { width: min(100%, var(--es-card-preview-w-phone)); }
+  .tchips { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .linkprev img { width: var(--es-space-96); }
+}

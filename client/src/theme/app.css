@@ -354,3 +354,34 @@ form.panel { position: relative; }
   .char-toggles { align-items: flex-start; }
   .signup-call .btn { width: 100%; }
 }
+
+/* 0.8.0: card maker additions (theme/card-maker.css is the design's file, verbatim). The design's inline swatch
+   styles become classes (the CSP forbids style attributes); each theme chip and the accent row wear the CARD theme
+   through data-theme, so the swatches show that theme's own tokens. */
+.tchip .sw i.sw-bg { background: var(--es-bg); border: var(--es-border-1) solid var(--es-line-strong); }
+.tchip .sw i.sw-accent { background: var(--es-accent); }
+.tchip .sw i.sw-text { background: var(--es-text); }
+.swatches[data-theme] { background: transparent; color: inherit; }
+.swatch i.acc-accent { background: var(--es-accent); }
+.swatch i.acc-c2 { background: var(--es-c2); }
+.swatch i.acc-c3 { background: var(--es-c3); }
+.swatch i.acc-c4 { background: var(--es-c4); }
+.swatch i.acc-c5 { background: var(--es-c5); }
+.stage .mk-blank { display: block; width: min(100%, var(--es-card-preview-w)); aspect-ratio: 1; }
+.stage .mk-failed { max-width: var(--es-card-preview-w); padding: var(--es-space-24); background: var(--es-raised); color: var(--es-text); border: var(--es-border-1) solid var(--es-line-strong); border-radius: var(--es-radius-md); }
+.sp .mk-moves { display: flex; flex-direction: column; }
+.sp .mk-move { background: none; border: 0; padding: 0; color: var(--es-muted); cursor: pointer; display: grid; place-items: center; line-height: 1; }
+.sp .mk-move:hover:not(:disabled) { color: var(--es-text); }
+.sp .mk-move:disabled { opacity: var(--es-opacity-disabled); cursor: default; }
+.sp .mk-move:focus-visible { outline: var(--es-border-2) solid var(--es-focus); }
+.statpick .mk-empty { padding: var(--es-space-10); }
+.linkprev .mk-url { overflow-wrap: anywhere; }
+/* Board rows: the share icon shows on row hover and focus, always on touch (share-button.md). */
+.tbl tr .share-row { opacity: 0; }
+.tbl tr:hover .share-row, .tbl tr:focus-within .share-row { opacity: 1; }
+@media (hover: none) { .tbl tr .share-row { opacity: 1; } }
+.ranklist li.has-share { position: relative; }
+.ranklist li.has-share > a { padding-right: calc(var(--es-size-control) + var(--es-space-14)); }
+.ranklist li.has-share > .share-row { position: absolute; right: var(--es-space-8); top: 50%; transform: translateY(-50%); opacity: 1; }
+.why-list li { flex-wrap: nowrap; }
+.tier-card .tier-card-weight { display: block; }

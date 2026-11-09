@@ -19,6 +19,8 @@ import { lettersFor } from '../tiers/store.js';
 import { characterTierView, tierBrief } from '../tiers/view.js';
 import { badgeContext, publicBadgesOf } from '../badges/store.js';
 import { countActivity, looksAutomated } from '../activity/count.js';
+import { whySignIn } from '../signin/benefits.js';
+import { PROVIDERS } from '../auth/providers.js';
 
 /**
  * The public, read-mostly API: character lookups, leaderboards, the statistics catalog, coverage and the beta.
@@ -89,6 +91,14 @@ export function createPublicRouter({ db, limits, networkOf }) {
     });
   }));
 
+  // 0.8.0: the home page's "Why sign in?" for signed-out visitors: the live benefits (signin/benefits.js, the one place
+  // their wording lives) and the real tracked counts.
+  r.get('/why-sign-in', route(async (req, res) => {
+    const bnet = PROVIDERS.find((p) => p.id === 'battlenet');
+    const battlenet = bnet ? await isConfigured(db, bnet.credential) : false;
+    res.json(await whySignIn(db, { battlenet }));
+  }));
+
   r.get('/beta', route(async (req, res) => {
     res.json({ ...(await betaState(db)), perks: await getSetting(db, 'beta.perks') });
   }));
@@ -104,9 +114,10 @@ export function createPublicRouter({ db, limits, networkOf }) {
     });
   }));
 
-  // Icons that landed after the page loaded (the page asks again while any is pending). Up to 30 item ids.
+  // Icons that landed after the page loaded (the page asks again while any is pending). Up to 60 item ids: worn
+  // items and their transmogs (0.8.0).
   r.get('/items/media', route(async (req, res) => {
-    const ids = String(req.query.ids ?? '').split(',').map(Number).filter(Number.isSafeInteger).slice(0, 30);
+    const ids = String(req.query.ids ?? '').split(',').map(Number).filter(Number.isSafeInteger).slice(0, 60);
     const rows = ids.length ? await db.query('SELECT item_id, state, icon_url FROM item_media WHERE item_id = ANY($1::bigint[])', [ids]) : [];
     res.json({ items: rows.map((r) => ({ itemId: r.item_id, iconState: r.state, icon: r.state === 'ok' ? r.icon_url : null })) });
   }));

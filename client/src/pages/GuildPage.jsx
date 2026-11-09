@@ -12,8 +12,8 @@ import { formatDate, formatNumber, timeAgo } from '../format.js';
 import { NameWithBadge } from '../badges/Badges.jsx';
 import { GuildLinksArea, ManageGuild } from './GuildManage.jsx';
 import { GuildBadgeArea, GuildBadgeToasts, VerifiedMark } from '../guildBadges/GuildBadges.jsx';
-import { useSession } from '../session.jsx';
-import { startProvider } from './SignInPages.jsx';
+import { ShareButton } from '../share/ShareButtons.jsx';
+import { SignInNudge } from '../chrome/SignInNudge.jsx';
 
 /**
  * A guild (design/v1/pages/guild), 0.5.0. GET /api/guilds/:slug answers from what Everstats stored; a guild it has
@@ -159,6 +159,7 @@ function GuildSheet({ data, onReload }) {
           <div className="row gap-14 small">
             {g.createdAt && <span className="t2">Created in game {formatDate(g.createdAt)}</span>}
             <Fresh at={g.rosterFetchedAt} prefix="Roster as of " never="Roster never fetched" />
+            <ShareButton to={`/g/${encodeURIComponent(g.slug)}/share`} label="Share guild card" />
           </div>
         </div>
       </section>
@@ -194,17 +195,11 @@ function GuildSheet({ data, onReload }) {
  * just the guild page: no parameter, no referral id. Signing in brings them back here.
  */
 function SignUpCall({ guild }) {
-  const session = useSession();
-  if (session.loading || session.signedIn || session.stage === 'second_factor') return null;
-  const bnet = session.providers.find((p) => p.id === 'battlenet');
+  // 0.8.0: the same note as character pages (chrome/SignInNudge.jsx), now dismissible.
   return (
-    <div className="note gold signup-call" role="note">
-      <Icon name="guild" />
-      <span className="flex-fill">Sign in with Battle.net to add your characters to <b>{guild.name}</b>. Every guildie who signs in is tracked and moves the guild toward its next badge.</span>
-      {bnet?.configured
-        ? <button type="button" className="btn sm gold" onClick={() => startProvider('battlenet', 'sign_in', `/g/${encodeURIComponent(guild.slug)}`).catch(() => {})}>Sign in with Battle.net</button>
-        : <Link className="btn sm" to="/sign-in">Sign in</Link>}
-    </div>
+    <SignInNudge id="guild" icon="guild" returnTo={`/g/${encodeURIComponent(guild.slug)}`}>
+      Sign in with Battle.net to add your characters to <b>{guild.name}</b>. Every guildie who signs in is tracked and moves the guild toward its next badge.
+    </SignInNudge>
   );
 }
 
@@ -392,8 +387,26 @@ function Placements({ data }) {
   );
 }
 
+/**
+ * 0.8.0: each category is a full-width section, collapsed when the page opens (a refresh collapses them again: nothing
+ * is remembered). A header opens or closes its own section only; "See all" links sit inside, so they navigate without
+ * toggling anything. A collapsed header says how many statistics it holds and the guild's best guild-board placement
+ * in that category (the same boards and rule as "On the guild boards").
+ */
+function bestLine(best) {
+  if (!best) return 'not placed on a guild board here yet';
+  return `best: #${formatNumber(best.rank)} of ${formatNumber(best.of)} in ${best.name}${best.mode === 'average' ? ' (by average)' : ''}`;
+}
+
 function TopMembers({ data }) {
   const slug = data.guild.slug;
+  const [open, setOpen] = useState(() => new Set());
+  const toggle = (key) => setOpen((o) => {
+    const n = new Set(o);
+    if (n.has(key)) n.delete(key);
+    else n.add(key);
+    return n;
+  });
   const [params, setParams] = useSearchParams();
   const asked = params.get('period');
   const period = KNOWN.includes(asked) ? asked : 'overall';
@@ -416,7 +429,7 @@ function TopMembers({ data }) {
         <h2 className="h1 stats-title" id="top-h">Top members</h2>
         <Segmented label="Period" options={PERIODS(days)} value={period} onChange={(id) => setParams(id === 'overall' ? {} : { period: id }, { replace: true, preventScrollReset: true })} />
       </div>
-      <p className="t2 small">Every statistic, the guild’s own top five{period === 'overall' ? '' : ' by what they gained'}. Ties share a rank, and a value of 0 isn’t ranked.</p>
+      <p className="t2 small">Every statistic, the guild’s own top five{period === 'overall' ? '' : ' by what they gained'}. Ties share a rank, and a value of 0 isn’t ranked. Open a category to see its statistics.</p>
       {error && <ServiceUnavailable inline title="Couldn't load the top members">{error}</ServiceUnavailable>}
       {!top && !error && <span className="t2 small" role="status">Loading…</span>}
       {top?.collecting && (
@@ -425,12 +438,21 @@ function TopMembers({ data }) {
         </EmptyState>
       )}
       {top && !top.collecting && (
-        <div className="grid-auto col-2xl gap-18 align-start-grid">
-          {top.categories.map((cat) => (
-            <div key={cat.key} className="panel clip">
-              <div className="cathead">
-                <div className="title"><h3>{cat.label}</h3><span className="muted xsmall">{cat.statistics.length} statistic{cat.statistics.length === 1 ? '' : 's'}</span></div>
+        <div className="stack gap-8">
+          {top.categories.map((cat) => {
+            const isOpen = open.has(cat.key);
+            const summary = [`${formatNumber(cat.statistics.length)} statistic${cat.statistics.length === 1 ? '' : 's'}`, data.ranked ? bestLine(data.bestByCategory?.[cat.key]) : null].filter(Boolean).join(' · ');
+            return (
+            <div key={cat.key} className="panel clip" id={`top-${cat.key}`}>
+              <div className={`cathead cat-toggle${isOpen ? '' : ' is-collapsed'}`}>
+                <button type="button" className="cat-toggle-btn" aria-expanded={isOpen} aria-controls={`top-body-${cat.key}`} onClick={() => toggle(cat.key)}>
+                  <span className="title"><h3>{cat.label}</h3><span className="muted xsmall">{summary}</span></span>
+                  <span className="spacer" />
+                  <Icon name={isOpen ? 'chevron-up' : 'chevron-down'} size="sm" />
+                </button>
               </div>
+              {isOpen && (
+              <div id={`top-body-${cat.key}`} className="grid-auto col-md guild-top-grid">
               {cat.statistics.map((s) => (
                 <div key={s.id} className="guild-top">
                   <div className="row gap-8 guild-top-head">
@@ -448,8 +470,11 @@ function TopMembers({ data }) {
                   ))}
                 </div>
               ))}
+              </div>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {top && !top.collecting && top.categories.length === 0 && <EmptyState kind="nodata" title="No statistics tracked yet"><span>The statistics appear once Everstats has fetched a character.</span></EmptyState>}

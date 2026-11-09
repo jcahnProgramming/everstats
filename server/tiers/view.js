@@ -2,6 +2,7 @@ import { pageLimit } from '../core/db.js';
 import { TRACKED_MEMBER } from '../stats/guildTotals.js';
 import { TIER_LETTERS, bandRanges } from '../stats/tiers.js';
 import { ROLE_LABELS } from './counting.js';
+import { categoryWeights } from './engine.js';
 import { countingNow, eligibleCount, tierSettings } from './store.js';
 
 /**
@@ -56,6 +57,8 @@ export async function characterTierView(db, row) {
   )).map((r) => [Number(r.statistic_id), r]));
   const cats = new Map((await db.query('SELECT * FROM character_category_tiers WHERE character_id = $1 LIMIT 200', [row.id])).map((r) => [r.category_key, r]));
 
+  // The weights this character was graded with: the stored grading's own plan and settings, never today's.
+  const weightOf = new Map(categoryWeights(plan, used).map((w) => [w.key, w]));
   const categories = [];
   for (const pc of plan.categories) {
     const c = cats.get(pc.key);
@@ -72,6 +75,8 @@ export async function characterTierView(db, row) {
       nonzero: c?.nonzero ?? 0,
       needed: c?.needed ?? null,
       counted: pc.statisticIds.length,
+      weight: weightOf.get(pc.key)?.weight ?? null,
+      weightPinned: weightOf.get(pc.key)?.pinned ?? null,
       rank: rank?.rank ?? null,
       of: rank?.of ?? null,
       reason: c && !c.letter ? { code: 'few_nonzero', text: REASONS.few_nonzero({ needed: c.needed, counted: c.counted, nonzero: c.nonzero }) } : null,
@@ -91,7 +96,7 @@ export async function characterTierView(db, row) {
     status: 'graded',
     gradedBy: t.graded_by,
     computedAt: t.computed_at,
-    settings: { shares: used.shares, categoryHalf: used.categoryHalf, overallHalf: used.overallHalf, minPopulation: used.minPopulation },
+    settings: { shares: used.shares, categoryHalf: used.categoryHalf, overallHalf: used.overallHalf, minPopulation: used.minPopulation, weighting: used.weighting ?? 'equal' },
     overall: {
       letter: t.letter,
       score: t.score,
@@ -204,7 +209,7 @@ export function countsView(counts, catalog, { admin = false } = {}) {
 /** The public "How tiers work" page: the live settings and what counts, from the owner's live decisions. */
 export async function howTiersWork(db) {
   const settings = await tierSettings(db);
-  const { catalog, counts } = await countingNow(db);
+  const { catalog, counts, plan } = await countingNow(db);
   const rulesets = await db.query(
     `SELECT r.id, r.name, t.graded, t.computed_at FROM rulesets r LEFT JOIN tier_rulesets t ON t.ruleset_id = r.id WHERE r.listed ORDER BY r.id LIMIT 50`,
   );
@@ -214,6 +219,7 @@ export async function howTiersWork(db) {
     settings: { ...settings, bands: bandRanges(settings.shares) },
     rulesets: withCounts,
     categories: countsView(counts, catalog),
+    weights: categoryWeights(plan, settings),
     lastGrading: (await db.one("SELECT finished_at FROM tier_runs WHERE status = 'done' ORDER BY finished_at DESC LIMIT 1"))?.finished_at ?? null,
   };
 }
@@ -221,7 +227,7 @@ export async function howTiersWork(db) {
 /** The admin's "What counts": every statistic's role and why, the inconsistencies, and the grading runs. */
 export async function adminTierState(db) {
   const settings = await tierSettings(db);
-  const { catalog, counts } = await countingNow(db, { fresh: true });
+  const { catalog, counts, plan } = await countingNow(db, { fresh: true });
   const summary = counts.categories.map((c) => ({
     key: c.key, label: c.label, farmable: c.farmable, inOverall: c.inOverall,
     counted: c.counted.length, overall: c.overall.length, bad: c.bad.length, named: c.named.length, duplicate: c.duplicate.length, undecided: c.undecided.length,
@@ -234,6 +240,7 @@ export async function adminTierState(db) {
   for (const r of rulesets) live.push({ id: r.id, name: r.name, eligible: await eligibleCount(db, r.id), graded: Boolean(r.graded), gradedAt: r.computed_at ?? null, gradedPopulation: r.population ?? null });
   return {
     settings,
+    weights: categoryWeights(plan, settings),
     roles: ROLE_LABELS,
     summary,
     categories: countsView(counts, catalog, { admin: true }),

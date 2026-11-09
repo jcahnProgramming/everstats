@@ -321,6 +321,9 @@ export function createAccountRouter({ db, limits, networkOf }) {
       if (!own) throw new HttpError(404, 'That isn’t one of your characters.');
       if (req.body.hidden) {
         await q.query('INSERT INTO character_render_hidden (character_id, account_id) VALUES ($1, $2) ON CONFLICT (character_id) DO UPDATE SET account_id = EXCLUDED.account_id', [id, req.session.accountId]);
+        // 0.8.0: no cached share card keeps showing the render.
+        const { forgetCharacter } = await import('../cards/store.js');
+        await forgetCharacter(q, id);
       } else {
         await q.query('DELETE FROM character_render_hidden WHERE character_id = $1', [id]);
       }

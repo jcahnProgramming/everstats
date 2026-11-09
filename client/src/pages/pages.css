@@ -393,3 +393,24 @@ button.armory-slot[aria-expanded="true"] { border-color: var(--qc, var(--es-line
 .how-steps { padding-left: var(--es-space-20); }
 .how-steps li, .how-list li { color: var(--es-text-2); }
 .how-names { line-height: var(--es-lh-relaxed); }
+
+/* 0.8.0: Worn gear | Transmog (components/GearSheet.jsx). Blizzard sends no quality for a transmog item: neutral. */
+.gear-view { align-items: center; }
+.slot.qc-tmog { --qc: var(--es-line-strong); }
+.q-tmog { color: var(--es-text); }
+.armory.is-transmog .armory-slot.is-plain { opacity: .72; }
+.item-tip .tip-tmog { color: var(--es-tip-set); font-style: italic; }
+
+/* 0.8.0: collapsible categories on the leaderboards index (the orn heading is the button) and guild Top members. */
+.lb-cat-h { margin: 0; font: inherit; }
+.lb-cat-btn { width: 100%; background: none; border: 0; padding: var(--es-space-8) 0; color: var(--es-text); font: inherit; text-align: left; cursor: pointer; flex-wrap: nowrap; }
+.lb-cat-btn:hover .h2 { color: var(--es-accent-2); }
+.lb-cat-btn:focus-visible { outline: var(--es-border-2) solid var(--es-focus); outline-offset: var(--es-space-2); border-radius: var(--es-radius-sm); }
+.lb-cat-title { display: flex; flex-direction: column; gap: var(--es-space-2); min-width: 0; flex: 0 1 auto; }
+.lb-cat-title .xsmall { overflow-wrap: anywhere; }
+.lb-cat-btn .rule { min-width: var(--es-space-16); }
+.guild-top-grid { gap: 0 var(--es-space-18); border-top: var(--es-border-1) solid var(--es-row-sep); }
+
+/* 0.8.0: /admin/tiers pinned weights: the label is for screen readers (the table header names the column). */
+.weight-pin > label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.weight-pin .inp { max-width: 9em; }
