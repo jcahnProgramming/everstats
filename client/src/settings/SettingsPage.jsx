@@ -65,7 +65,7 @@ export function SettingsPage() {
           <p className="t2">Settings belong to an account, and accounts are optional: everything public works without one.</p>
         </div>
         <ThemeSection current="forever" disabled />
-        <Link to="/sign-in" className="btn gold align-start">Sign in</Link>
+        <Link to="/sign-in" className="btn gold self-start">Sign in</Link>
       </div>
     );
   }
@@ -326,7 +326,7 @@ function TwoFactorSection({ account, onChange }) {
             <span className="stack gap-6 grow-120">
               <span className="t2 small">Can't scan? Enter this key:</span>
               <span className="mono small code-key">{setup.secret.match(/.{1,4}/g).join(' ')}</span>
-              <button type="button" className="btn sm align-start" onClick={() => navigator.clipboard?.writeText(setup.secret).then(() => toast.ok('Key copied'))}><Icon name="copy" size="sm" />Copy key</button>
+              <button type="button" className="btn sm self-start" onClick={() => navigator.clipboard?.writeText(setup.secret).then(() => toast.ok('Key copied'))}><Icon name="copy" size="sm" />Copy key</button>
             </span>
           </div>
           <div className="field">
@@ -337,7 +337,7 @@ function TwoFactorSection({ account, onChange }) {
             </div>
           </div>
           <span className="muted xsmall">Step 2 shows your ten recovery codes, once.</span>
-          <button type="button" className="btn ghost sm align-start" onClick={() => { setSetup(null); setCode(''); }}>Cancel</button>
+          <button type="button" className="btn ghost sm self-start" onClick={() => { setSetup(null); setCode(''); }}>Cancel</button>
         </form>
       )}
 
@@ -400,7 +400,7 @@ function RecoveryCodes({ codes, onDone }) {
         <button type="button" className="btn sm" onClick={print}><Icon name="print" size="sm" />Print</button>
       </div>
       <label className="check"><input type="checkbox" checked={stored} onChange={(e) => setStored(e.target.checked)} />I've stored these somewhere safe</label>
-      <button type="button" className="btn gold align-start" disabled={!stored} onClick={onDone}>Finish</button>
+      <button type="button" className="btn gold self-start" disabled={!stored} onClick={onDone}>Finish</button>
     </div>
   );
 }

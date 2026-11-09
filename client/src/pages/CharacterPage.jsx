@@ -62,7 +62,7 @@ export function CharacterPage() {
       </ServiceUnavailable>
     );
   } else if (result.status === 'not_found') {
-    body = <CharacterNotFound name={parsed.name} surname={parsed.surname}><Link className="btn gold align-start" to="/">Search again</Link></CharacterNotFound>;
+    body = <CharacterNotFound name={parsed.name} surname={parsed.surname}><Link className="btn gold self-start" to="/">Search again</Link></CharacterNotFound>;
   } else {
     body = <NotBuiltSheet parsed={parsed} />;
   }

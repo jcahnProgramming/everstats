@@ -51,6 +51,7 @@ body { background-color: var(--es-bg); color: var(--es-text); }
 .justify-center { justify-content: center; }
 .between { justify-content: space-between; }
 .align-start { align-items: flex-start; }
+.self-start { align-self: flex-start; }
 .w-60 { width: 60%; } .w-40 { width: 40%; }
 .r { text-align: right; }
 .sheet-pad { padding: var(--es-space-28); }
@@ -121,3 +122,9 @@ body { background-color: var(--es-bg); color: var(--es-text); }
 /* A shield with nothing graded in it yet (no look-up has happened): the loading shield's look without the shimmer.
    Deliberately not the Unranked "–", which means "this ruleset is below the grading population". */
 .tier.blank { --fill: var(--es-raised); --ring: var(--es-line); }
+
+@media (max-width: 719px) {
+  /* The large Unranked shield beside its text left a one-word column at 390px: stack them. */
+  .state-unranked { flex-direction: column; align-items: flex-start; }
+  .state { padding: var(--es-space-16); }
+}
