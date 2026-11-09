@@ -1,6 +1,31 @@
 {
   "releases": [
     {
+      "version": "0.2.0",
+      "date": "2026-11-08",
+      "title": "The new look, and nightly backups",
+      "sections": {
+        "New": [
+          "Everstats has its own look: \"Cartographer's Ledger\". A twilight map behind every page, character sheets in a gilt frame, shield-shaped tier badges, and Cinzel lettering for names and headings. Forever, Alliance and Horde are all redrawn; visitors still always see Forever.",
+          "The top bar has a character search on every page: type a name and surname (press / to jump to it). On a phone the bar folds into a search button and a menu.",
+          "A Guilds link in the top bar. Guild pages aren't built yet, and the page says so.",
+          "The database is backed up every night to a separate folder on the server. Each backup is read back in full before it's kept; the last 14 are kept, plus the first of every month for good. If one fails, the earlier ones stay and it tries again an hour later.",
+          "For the site owner: the admin page shows how backups are going (the last good one, its size, and why the last one failed if it did) and which addresses Cloudflare's tunnel connects from, to fill in TRUSTED_PROXIES."
+        ],
+        "Improved": [
+          "Every page that isn't built yet says so in one clear \"Coming soon\" panel, and the other empty states stay easy to tell apart: \"No data yet\" is dashed, \"No coverage here\" is hatched, and \"Unranked\" shows the dash shield.",
+          "Opening a character now really asks the server and shows a loading sheet while it does, then says plainly that character pages are coming. If the server can't be reached, or you've looked up too many characters too quickly, it says that instead.",
+          "Settings: unlinking a sign-in, removing a passkey and turning two-factor off now ask you to confirm first. Recovery codes can be downloaded, copied or printed, and Finish waits until you tick that you've stored them. Choosing a theme confirms it's saved.",
+          "The two-factor step at sign-in has a \"Use a recovery code instead\" switch.",
+          "Merging accounts asks you to tick that you understand this account will be deleted before it goes ahead."
+        ],
+        "Fixed": [
+          "The sign-in page no longer says sign-in \"isn't set up yet\" next to the passkey button. Passkeys are always offered. If your browser has no Everstats passkey, it now says: no passkey yet, sign in with Battle.net or Discord, then add one in Settings. \"Not configured\" is now shown only on a provider whose keys really aren't set.",
+          "The server now notes where Cloudflare's visitor-address header comes from on every page load, not only when someone signs in or does something else that's rate-limited, so the right TRUSTED_PROXIES value can be found."
+        ]
+      }
+    },
+    {
       "version": "0.1.0",
       "date": "2026-11-08",
       "title": "The foundations: a site you can open, sign in to, and theme",

@@ -5,3 +5,5 @@ data
 .env
 .git
 *.log
+design
+RESTORE.md
