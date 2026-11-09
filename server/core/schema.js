@@ -324,4 +324,51 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.3.2: possible duplicates are suggestions the admin approves ('duplicate'), value types can be corrected
+    // ('value_type'), and one catalog combines every finished run. discovery_catalog and discovery_combined are
+    // DERIVED (rebuilt from discovery_responses by run.js analyseCombined), like discovery_statistics.
+    id: '006_discovery_combined',
+    async up(q) {
+      await q.query(`
+        ALTER TABLE discovery_decisions DROP CONSTRAINT discovery_decisions_kind_check;
+        ALTER TABLE discovery_decisions ADD CONSTRAINT discovery_decisions_kind_check
+          CHECK (kind IN ('category', 'bad', 'grading', 'leaderboard', 'duplicate', 'value_type'));
+
+        ALTER TABLE discovery_statistics
+          ADD COLUMN value_type_guessed boolean NOT NULL DEFAULT true,
+          ADD COLUMN named_example text,
+          ADD COLUMN duplicate jsonb;
+
+        -- Every statistic seen in any finished run, with the runs it came from. A character sampled in more than one
+        -- run counts once, with its newest values.
+        CREATE TABLE discovery_catalog (
+          statistic_id         bigint PRIMARY KEY,
+          name                 text NOT NULL,
+          endpoint             text NOT NULL,
+          category_path        jsonb NOT NULL DEFAULT '[]',
+          value_type           text NOT NULL,
+          value_type_basis     text NOT NULL,
+          value_type_guessed   boolean NOT NULL DEFAULT true,
+          characters_sampled   integer NOT NULL,
+          characters_present   integer NOT NULL,
+          characters_nonzero   integer NOT NULL,
+          min_value            double precision,
+          max_value            double precision,
+          median_value         double precision,
+          has_text             boolean NOT NULL DEFAULT false,
+          named_example        text,
+          duplicate            jsonb,
+          runs                 bigint[] NOT NULL DEFAULT '{}'
+        );
+
+        -- One row: what the combined catalog was built from (runs, characters, rulesets, factions) and when.
+        CREATE TABLE discovery_combined (
+          id           smallint PRIMARY KEY CHECK (id = 1),
+          summary      jsonb NOT NULL,
+          analysed_at  timestamptz NOT NULL DEFAULT now()
+        );
+      `);
+    },
+  },
 ];

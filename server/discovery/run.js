@@ -7,7 +7,7 @@ import {
   SLUG_PROBES, characterPath,
 } from './endpoints.js';
 import { grantToken } from './grant.js';
-import { findDuplicates, suggestionsFor } from './suggest.js';
+import { findDuplicateCandidates, suggestionsFor } from './suggest.js';
 import { APP_VERSION } from '../core/version.js';
 
 /**
@@ -317,18 +317,19 @@ export async function analyseStored(db, runId, live) {
     }
   }
 
-  const raw = obs.catalog();
-  const duplicates = findDuplicates(raw);
-  const catalog = raw.map((s) => ({ ...s, suggestions: suggestionsFor(s, { duplicates }) }));
+  const catalog = withDuplicates(obs.catalog());
   await db.tx(async (q) => {
     await q.query('DELETE FROM discovery_statistics WHERE run_id = $1', [runId]);
     for (const s of catalog) {
+      // `suggestions` keeps the decision-free suggestions as analysed (a record for exports); the page computes
+      // them afresh with the admin's current decisions (suggest.js present()).
       await q.query(
         `INSERT INTO discovery_statistics (run_id, statistic_id, name, endpoint, category_path, value_type, value_type_basis, characters_sampled,
-           characters_present, characters_nonzero, min_value, max_value, median_value, has_text, suggestions)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)`,
+           characters_present, characters_nonzero, min_value, max_value, median_value, has_text, suggestions, value_type_guessed, named_example, duplicate)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16, $17, $18::jsonb)`,
         [runId, s.statisticId, s.name, s.endpoint, JSON.stringify(s.categoryPath), s.valueType, s.valueTypeBasis, s.charactersSampled, s.charactersPresent,
-          s.charactersNonzero, s.minValue, s.maxValue, s.medianValue, s.hasText, JSON.stringify(s.suggestions)],
+          s.charactersNonzero, s.minValue, s.maxValue, s.medianValue, s.hasText, JSON.stringify(suggestionsFor(s)), s.valueTypeGuessed, s.namedExample,
+          s.duplicate ? JSON.stringify(s.duplicate) : null],
       );
     }
   });
@@ -356,7 +357,7 @@ export async function analyseStored(db, runId, live) {
     mediaAssets = null;
   }
   const foreverInCatalog = base.foreverTerms.map((t) => ({ id: t.id, label: t.label, statistics: catalog.filter((s) => FOREVER_TEST[t.id].test(s.name) || s.categoryPath.some((c) => FOREVER_TEST[t.id].test(c.name))).map((s) => ({ id: s.statisticId, name: s.name, category: s.categoryPath.map((c) => c.name).join(' › ') })) }));
-  const duplicateGroups = [...new Map([...duplicates.values()].map((d) => [d.group.join(','), d.group])).values()];
+  const duplicateGroups = groupsOf(catalog);
 
   return {
     ...live,
@@ -375,11 +376,97 @@ export async function analyseStored(db, runId, live) {
 
 const FOREVER_TEST = Object.fromEntries(FOREVER_TERMS.map((t) => [t.id, t.pattern]));
 
+/** Catalog rows with their possible-duplicate info (suggest.js findDuplicateCandidates) attached as `duplicate`. */
+function withDuplicates(raw) {
+  const dups = findDuplicateCandidates(raw);
+  return raw.map((s) => ({ ...s, duplicate: dups.get(s.statisticId) ?? null }));
+}
+const groupsOf = (catalog) => [...new Map(catalog.filter((s) => s.duplicate).map((s) => [s.duplicate.group.join(','), s.duplicate.group])).values()];
+
+const MAX_COMBINED_RUNS = 200;
+
+/**
+ * The combined catalog: every statistic from every finished run's stored responses (no request to Blizzard), written
+ * to discovery_catalog (replacing it) with the runs each came from, and a summary in discovery_combined. Runs are fed
+ * newest first, so a character sampled by two runs counts once, with its newest values. Returns the summary.
+ */
+export async function analyseCombined(db) {
+  const runs = await db.query("SELECT id FROM discovery_runs WHERE status = 'done' ORDER BY id DESC LIMIT $1", [MAX_COMBINED_RUNS]);
+  const obs = createObserver();
+  const profiles = new Map(); // subject → { ruleset, faction, run }, newest run first
+  const endpoints = [...CATALOG_ENDPOINTS, 'character.profile'];
+  for (const { id: runId } of runs) {
+    for (let after = 0; ;) {
+      const rows = await db.query(
+        `SELECT id, endpoint, subject, status, body, truncated, fetched_at FROM discovery_responses
+          WHERE run_id = $1 AND id > $2 AND endpoint = ANY($3::text[]) ORDER BY id LIMIT $4`,
+        [runId, after, endpoints, ANALYSE_BATCH],
+      );
+      if (rows.length === 0) break;
+      for (const row of rows) {
+        after = row.id;
+        let json = null;
+        if (row.status === 200 && row.body !== null && !row.truncated) {
+          try {
+            json = JSON.parse(row.body);
+          } catch {
+            json = null;
+          }
+        }
+        if (row.endpoint === 'character.profile') {
+          if (json && !profiles.has(row.subject)) profiles.set(row.subject, { ruleset: isObj(json.ruleset) ? nameOf(json.ruleset.name) ?? `id ${json.ruleset.id}` : null, faction: nameOf(json.faction), run: runId });
+          continue;
+        }
+        obs.add(row.endpoint, row.subject, { status: row.status, json, body: null, headers: {}, auth: 'app', fetchedAt: new Date(row.fetched_at).toISOString() }, { catalog: true, run: Number(runId) });
+      }
+    }
+  }
+  const catalog = withDuplicates(obs.catalog());
+  const tally = (f) => {
+    const out = {};
+    for (const p of profiles.values()) out[f(p) ?? 'not stated'] = (out[f(p) ?? 'not stated'] ?? 0) + 1;
+    return out;
+  };
+  const summary = {
+    runs: runs.map((r) => Number(r.id)).sort((a, b) => a - b),
+    characters: profiles.size,
+    rulesets: tally((p) => p.ruleset),
+    factions: tally((p) => p.faction),
+    catalogSize: catalog.length,
+    duplicateGroups: groupsOf(catalog),
+    analysedWith: APP_VERSION,
+  };
+  await db.tx(async (q) => {
+    await q.query('DELETE FROM discovery_catalog');
+    for (const s of catalog) {
+      await q.query(
+        `INSERT INTO discovery_catalog (statistic_id, name, endpoint, category_path, value_type, value_type_basis, value_type_guessed, characters_sampled,
+           characters_present, characters_nonzero, min_value, max_value, median_value, has_text, named_example, duplicate, runs)
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17::bigint[])`,
+        [s.statisticId, s.name, s.endpoint, JSON.stringify(s.categoryPath), s.valueType, s.valueTypeBasis, s.valueTypeGuessed, s.charactersSampled,
+          s.charactersPresent, s.charactersNonzero, s.minValue, s.maxValue, s.medianValue, s.hasText, s.namedExample, s.duplicate ? JSON.stringify(s.duplicate) : null, s.runs],
+      );
+    }
+    await q.query(
+      `INSERT INTO discovery_combined (id, summary, analysed_at) VALUES (1, $1::jsonb, now())
+       ON CONFLICT (id) DO UPDATE SET summary = EXCLUDED.summary, analysed_at = EXCLUDED.analysed_at`,
+      [JSON.stringify(summary)],
+    );
+  });
+  return summary;
+}
+
 /** Claims and runs one queued run; records the outcome. Errors keep to this app's words (never a body or token). */
 export async function executeRun({ db, runId, fetch, sleep }) {
   try {
     const summary = await runDiscovery({ db, runId, fetch, sleep });
     await db.query("UPDATE discovery_runs SET status = 'done', finished_at = now(), heartbeat_at = now(), summary = $2::jsonb, progress = jsonb_set(progress, '{phase}', '\"done\"') WHERE id = $1", [runId, JSON.stringify(summary)]);
+    try {
+      await analyseCombined(db); // the combined catalog now includes this run
+    } catch (err) {
+      // The run itself is done and recorded; "Re-analyse all runs" rebuilds the combined catalog.
+      console.error(`[discovery] combined catalog not rebuilt after run ${runId}: ${err?.name ?? 'Error'}${err?.code ? ` (${err.code})` : ''}`);
+    }
     return 'done';
   } catch (err) {
     const problem = err instanceof SourceError ? err.message : `Stopped by an unexpected ${err?.name ?? 'Error'}${err?.code ? ` (${err.code})` : ''}`;

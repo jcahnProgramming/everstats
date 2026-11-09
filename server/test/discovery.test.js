@@ -120,7 +120,7 @@ const latestDone = async () => (await t.db.one("SELECT id FROM discovery_runs WH
 
 test('every discovery route is a plain 404 without an admin session', async () => {
   const c = t.client();
-  for (const [m, p] of [['get', '/api/admin/discovery'], ['post', '/api/admin/discovery/runs'], ['post', '/api/admin/discovery/authorize'], ['get', '/api/admin/discovery/runs/1/export.json'], ['get', '/api/admin/discovery/responses/1'], ['put', '/api/admin/discovery/decisions'], ['post', '/api/admin/discovery/runs/1/reanalyse']]) {
+  for (const [m, p] of [['get', '/api/admin/discovery'], ['post', '/api/admin/discovery/runs'], ['post', '/api/admin/discovery/authorize'], ['get', '/api/admin/discovery/runs/1/export.json'], ['get', '/api/admin/discovery/responses/1'], ['put', '/api/admin/discovery/decisions'], ['post', '/api/admin/discovery/runs/1/reanalyse'], ['get', '/api/admin/discovery/catalog'], ['post', '/api/admin/discovery/reanalyse'], ['get', '/api/admin/discovery/catalog/export.csv']]) {
     const res = await c[m](p, m === 'get' ? undefined : {});
     assert.equal(res.status, 404, p);
     assert.deepEqual(res.json, { error: 'Not found' });
@@ -217,7 +217,13 @@ test('a run records every answer, follows only Blizzard links, and builds the ca
   const byId = Object.fromEntries(catalog.map((x) => [x.statisticId, x]));
   const sug = (id, kind) => byId[id].suggestions.find((x) => x.kind === kind);
   assert.deepEqual(byId[3].categoryPath.map((x) => x.name), ['Character', 'Wealth']);
-  assert.equal(byId[3].valueType, 'gold');
+  // "Most gold ever owned": the word "gold" alone isn't evidence of a gold amount (0.3.2); a guess, labelled as one.
+  assert.equal(byId[3].valueType, 'highest-ever');
+  assert.equal(byId[3].valueTypeGuessed, true);
+  assert.equal(byId[7].valueTypeGuessed, false); // seen in the samples, not guessed
+  assert.deepEqual(byId[1].runs, [run.id]);
+  // No pairing is ever suggested from three characters.
+  assert.ok(catalog.every((x) => !x.suggestions.some((y) => y.kind === 'duplicate')));
   assert.equal(byId[1].charactersSampled, 3);
   assert.equal(byId[1].charactersNonzero, 2);
   assert.equal(sug(1, 'grading').value, 'none');
@@ -318,25 +324,107 @@ test('expired discovery tokens are swept', async () => {
   assert.equal((await t.db.one('SELECT count(*)::int AS n FROM discovery_grants')).n, 0);
 });
 
-test('exact duplicates keep both leaderboards; only one of each group is graded', async () => {
-  const { findDuplicates, suggestionsFor } = await import('../discovery/suggest.js');
-  const subjects = ['a', 'b', 'c', 'd', 'e'];
+test('equal values only suggest a possible duplicate; nothing is ungraded until the admin approves the pairing', async () => {
+  const { findDuplicateCandidates, present } = await import('../discovery/suggest.js');
+  const subjects = ['a', 'b', 'c', 'd', 'e', 'f'];
   const row = (statisticId, name, values) => ({
-    statisticId, name, categoryPath: [{ id: 132, name: 'Skills' }], valueType: 'count', charactersSampled: 5, charactersPresent: values.length,
+    statisticId, name, categoryPath: [{ id: 132, name: 'Skills' }], valueType: 'count', valueTypeGuessed: true, charactersSampled: 6, charactersPresent: values.length,
     charactersNonzero: values.filter((v) => v).length, numericSamples: values.length, minValue: Math.min(...values), maxValue: Math.max(...values),
     valuesBySubject: new Map(values.map((v, i) => [subjects[i], v])),
   });
-  const catalog = [
+  const raw = [
     row(1518, 'Fish caught', [1, 2, 3, 4, 5]), row(1456, 'Fish and other things caught', [1, 2, 3, 4, 5]), row(1519, 'Fishing skill', [1, 2, 3, 4, 6]),
+    row(1199, 'Professions learned', [1, 2, 2, 2, 1]), row(1201, 'Professions at maximum skill', [1, 2, 2, 2, 1]),
     row(70, 'Rare one', [1, 1]), row(71, 'Rare two', [1, 1]),
+    row(80, 'Always zero', [0, 0, 0, 0, 0, 0]), row(81, 'Also always zero', [0, 0, 0, 0, 0, 0]),
   ];
-  const duplicates = findDuplicates(catalog);
-  assert.deepEqual([...duplicates.keys()].sort(), [1456, 1518]); // fewer than 5 characters never counts as a duplicate
-  const grading = (s) => suggestionsFor(s, { duplicates }).find((x) => x.kind === 'grading');
-  assert.equal(grading(catalog[1]).value, 'overall'); // the lowest id is the graded one
-  assert.equal(grading(catalog[0]).value, 'none');
-  assert.match(grading(catalog[0]).reasoning, /duplicate of "Fish and other things caught"/);
-  assert.equal(suggestionsFor(catalog[0], { duplicates }).find((x) => x.kind === 'leaderboard').value, true);
+  const dups = findDuplicateCandidates(raw);
+  // Fewer than 5 characters, or one value for everyone, is never evidence of a duplicate.
+  assert.deepEqual([...dups.keys()].sort((a, b) => a - b), [1199, 1201, 1456, 1518]);
+  const catalog = raw.map((s) => ({ ...s, duplicate: dups.get(s.statisticId) ?? null }));
+  const byId = Object.fromEntries(catalog.map((s) => [s.statisticId, s]));
+  const sug = (s, kind, decisions) => present(s, decisions).suggestions.find((x) => x.kind === kind);
+
+  // Suggested, with its evidence and a confidence from the names; still graded until approved.
+  const fish = sug(byId[1518], 'duplicate');
+  assert.deepEqual(fish.value, { of: 1456 });
+  assert.equal(fish.evidence.confidence, 'likely');
+  assert.equal(fish.evidence.present, 5);
+  assert.equal(fish.evidence.nonzero, 5);
+  assert.equal(sug(byId[1201], 'duplicate').evidence.confidence, 'possible'); // the names count different things
+  assert.match(sug(byId[1201], 'duplicate').reasoning, /Possibly the same as "Professions learned".*Unknown from 5 samples/);
+  assert.equal(sug(byId[1201], 'grading').value, 'overall');
+  assert.match(sug(byId[1201], 'grading').reasoning, /if you approve that pairing/);
+  assert.equal(sug(byId[1199], 'duplicate'), undefined); // the primary has nothing to approve
+
+  // Approved: only now does it stop counting toward tiers. Its leaderboard stays.
+  const approved = new Map([['duplicate', { value: { of: 1199 }, decision: 'approved', decidedAt: 'now' }]]);
+  assert.equal(sug(byId[1201], 'duplicate', approved).decision, 'approved');
+  assert.equal(sug(byId[1201], 'grading', approved).value, 'none');
+  assert.equal(sug(byId[1201], 'leaderboard', approved).value, true);
+  // Rejected: graded as normal, the pairing hidden.
+  const rejected = new Map([['duplicate', { value: { of: 1199 }, decision: 'rejected', decidedAt: 'now' }]]);
+  assert.equal(sug(byId[1201], 'duplicate', rejected).hidden, true);
+  assert.equal(sug(byId[1201], 'grading', rejected).value, 'overall');
+  // Approved, but later samples differ: the approval stands, and the page says it no longer has support.
+  const diverged = { ...byId[1201], duplicate: null };
+  const stale = sug(diverged, 'duplicate', approved);
+  assert.equal(stale.stale, true);
+  assert.equal(stale.decision, 'approved');
+  assert.match(stale.reasoning, /no longer support/);
+  assert.equal(sug(diverged, 'grading', approved).value, 'none');
+});
+
+test('the combined catalog joins every finished run; value-type corrections and decisions survive re-analysis', async () => {
+  const c = t.client();
+  const first = await latestDone();
+  const queued = await c.post('/api/admin/discovery/runs', { name: 'Test', surname: 'Primary' }, admin);
+  await runQueued();
+  const second = queued.json.run.id;
+  assert.equal((await t.db.one('SELECT status FROM discovery_runs WHERE id = $1', [second])).status, 'done');
+
+  const { combined, catalog } = (await c.get('/api/admin/discovery/catalog', admin)).json;
+  assert.deepEqual(combined.runs, [first, second]);
+  assert.equal(combined.characters, 3); // the same three characters in both runs count once
+  assert.deepEqual(combined.rulesets, { 'Fixture Ruleset': 3 });
+  const stat = (cat, id) => cat.find((x) => x.statisticId === id);
+  assert.deepEqual(stat(catalog, 1).runs, [first, second]);
+  assert.equal(stat(catalog, 1).charactersPresent, 3);
+  assert.equal(stat(catalog, 5).valueType, 'rate');
+  assert.equal(stat(catalog, 5).valueTypeGuessed, true);
+  // Decisions made on a run's catalog show in the combined one: they belong to the statistic.
+  assert.equal(stat(catalog, 1).suggestions.find((x) => x.kind === 'grading').decision, 'rejected');
+
+  // Correct a value type from the combined view.
+  const bad = await c.put('/api/admin/discovery/decisions', { combined: true, statisticId: 5, kind: 'value_type', decision: 'approved', value: 'furlongs' }, admin);
+  assert.equal(bad.status, 400);
+  const set = await c.put('/api/admin/discovery/decisions', { combined: true, statisticId: 5, kind: 'value_type', decision: 'approved', value: 'decimal' }, admin);
+  assert.equal(set.status, 200);
+  assert.equal(set.json.statistic.valueType, 'decimal');
+  assert.equal(set.json.statistic.valueTypeGuessed, false);
+  assert.match(set.json.statistic.valueTypeBasis, /set by you/);
+  // A correction that makes it name + number feeds the grading rule at once.
+  await c.put('/api/admin/discovery/decisions', { combined: true, statisticId: 9, kind: 'value_type', decision: 'approved', value: 'name-and-number' }, admin);
+
+  const before = calls.length;
+  const re = await c.post('/api/admin/discovery/reanalyse', {}, admin);
+  assert.equal(re.status, 200);
+  assert.equal(calls.length, before); // nothing asked of Blizzard
+  assert.deepEqual(re.json.combined.runs, [first, second]);
+  const after = (await c.get('/api/admin/discovery/catalog', admin)).json.catalog;
+  assert.equal(stat(after, 5).valueType, 'decimal');
+  assert.equal(stat(after, 9).suggestions.find((x) => x.kind === 'grading').value, 'none');
+  const perRun = (await c.get(`/api/admin/discovery/runs/${second}/catalog`, admin)).json.catalog;
+  assert.equal(stat(perRun, 5).valueType, 'decimal');
+
+  // Clearing the correction goes back to the analysis.
+  const cleared = await c.put('/api/admin/discovery/decisions', { combined: true, statisticId: 5, kind: 'value_type', decision: 'cleared' }, admin);
+  assert.equal(cleared.json.statistic.valueType, 'rate');
+  assert.equal(cleared.json.statistic.valueTypeGuessed, true);
+
+  const csv = await c.get('/api/admin/discovery/catalog/export.csv', admin);
+  assert.match(csv.text.split('\r\n')[0], /,runs,value_type,value_type_guessed,/);
+  assert.ok(csv.text.includes(`,${first} ${second},`));
 });
 
 test('analysis helpers: statistic shapes, value-type guesses, slug findings', async () => {
@@ -349,6 +437,13 @@ test('analysis helpers: statistic shapes, value-type guesses, slug findings', as
   assert.equal(guessValueType('Average quests completed per day').type, 'rate');
   assert.equal(guessValueType('Bandage used most', { namedExample: 'Linen Bandage' }).type, 'name-and-number');
   assert.match(guessValueType('Gold looted').basis, /guessed/);
+  assert.equal(guessValueType('Gold looted').type, 'gold');
+  // 0.3.2: words that only hint at a unit are no evidence. These are counts, and the default is labelled a guess.
+  for (const name of ['Battlegrounds played', 'Times camped', 'Flight paths taken', 'Deaths from falling', 'Summons accepted']) {
+    assert.equal(guessValueType(name).type, 'count', name);
+    assert.equal(guessValueType(name).guessed, true, name);
+  }
+  assert.equal(guessValueType('Bandage used most', { namedExample: 'Linen Bandage' }).guessed, false);
   const f = slugFindings(['/profile/wow/character/ann-de-la-rue', '/profile/wow/character/bob-smith']);
   assert.deepEqual(f.withMoreThanOneHyphen, ['ann-de-la-rue']);
   assert.equal(pickStaticNamespace({ 'static-forever-1.0_1-us': { count: 1, firstEndpoint: 'x' } }, { region: 'us' }), 'static-forever-1.0_1-us');

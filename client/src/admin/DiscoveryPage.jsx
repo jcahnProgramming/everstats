@@ -34,6 +34,7 @@ export function DiscoveryPage() {
   const [state, setState] = useState(undefined);
   const [problem, setProblem] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [combinedVersion, setCombinedVersion] = useState(0); // bumps after any re-analysis: every catalog view reloads
   const [notice] = useState(() => {
     const q = new URLSearchParams(window.location.search);
     if (q.get('authorized') === '1') return { ok: true, text: 'Battle.net authorized for discovery.' };
@@ -94,9 +95,76 @@ export function DiscoveryPage() {
         <AuthorizePanel grant={state.grant} configured={state.configured} onChanged={load} />
         <RunPanel state={state} active={active} onQueued={(run) => { setSelected(run.id); load(); toast.ok(`Run #${run.id} queued`, 'The worker starts it within about 30 seconds.'); }} onSettings={load} />
       </div>
+      <CombinedSection key={`combined-${combinedVersion}-${state.runs.filter((r) => r.status === 'done').length}`} hasRuns={state.runs.some((r) => r.status === 'done')} onReanalysed={() => { setCombinedVersion((v) => v + 1); load(); }} />
       <RunsSection runs={state.runs} selected={selected} onSelect={setSelected} />
-      {selected && <RunDetail key={selected} runId={selected} listedStatus={state.runs.find((r) => r.id === selected)?.status} />}
+      {selected && <RunDetail key={selected} runId={selected} listedStatus={state.runs.find((r) => r.id === selected)?.status} outerVersion={combinedVersion} onReanalysed={() => setCombinedVersion((v) => v + 1)} />}
     </div>
+  );
+}
+
+const tallyText = (o) => Object.entries(o ?? {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k}: ${formatNumber(n)}`).join(' · ') || 'none';
+
+/** Every finished run's statistics in one catalog: what the admin approves from. */
+function CombinedSection({ hasRuns, onReanalysed }) {
+  const toast = useToasts();
+  const [combined, setCombined] = useState(undefined);
+  const [problem, setProblem] = useState(null);
+  const [tab, setTab] = useState('suggestions');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api('/api/admin/discovery/catalog').then((r) => {
+      if (live) setCombined(r.combined);
+    }, (err) => {
+      if (live) setProblem(err.message);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const reanalyse = async () => {
+    setBusy(true);
+    try {
+      const r = await api('/api/admin/discovery/reanalyse', { method: 'POST', body: {} });
+      toast.ok('Every run re-analysed', `${r.combined.runs.length} run${r.combined.runs.length === 1 ? '' : 's'}, ${formatNumber(r.combined.catalogSize)} statistics. Your decisions still apply.`);
+      onReanalysed();
+    } catch (err) {
+      toast.err('Couldn’t re-analyse', err.message);
+      setBusy(false);
+    }
+  };
+  if (!hasRuns) return null;
+  const button = <Button className="sm ghost" loading={busy} onClick={reanalyse} title="Re-analyse every finished run with the current rules, from the stored responses, then rebuild this catalog. Asks Blizzard nothing."><Icon name="refresh" size="sm" />Re-analyse all runs</Button>;
+  return (
+    <section className="panel clip stack" aria-labelledby="combined-h">
+      <div className="row gap-12 panel-head-row">
+        <h2 className="h2 h2-panel" id="combined-h">All runs combined</h2>
+        {combined && <span className="muted small">runs {combined.runs.map((id) => `#${id}`).join(', ')} · {formatNumber(combined.characters)} characters · analysed {formatDateTime(combined.analysedAt)} with v{combined.analysedWith}</span>}
+        <span className="spacer" />
+        {combined && <a className="btn sm" href="/api/admin/discovery/catalog/export.csv" download><Icon name="download" size="sm" />Catalog CSV</a>}
+        {button}
+      </div>
+      {problem && <div className="pad-20"><div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div></div>}
+      {combined === null && (
+        <div className="pad-20">
+          <EmptyState kind="nodata" compact title="Not built yet">
+            <span>Re-analyse all runs (top right) to combine every finished run’s statistics here, from the responses already stored.</span>
+          </EmptyState>
+        </div>
+      )}
+      {combined && (
+        <>
+          <div className="pad-x-20 stack gap-4">
+            <span className="small"><span className="muted">Rulesets sampled:</span> {tallyText(combined.rulesets)}</span>
+            <span className="small"><span className="muted">Factions sampled:</span> {tallyText(combined.factions)}</span>
+          </div>
+          <div className="pad-x-20"><Tabs tabs={[{ id: 'suggestions', label: 'Suggestions' }, { id: 'catalog', label: 'Catalog', count: combined.catalogSize }]} value={tab} onChange={setTab} label="Combined catalog" idPrefix="comb" /></div>
+          <div className="pad-20" role="tabpanel" id={`comb-panel-${tab}`} aria-labelledby={`comb-tab-${tab}`}>
+            {tab === 'catalog' ? <Catalog runId={null} /> : <Suggestions runId={null} />}
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -225,7 +293,7 @@ function RunsSection({ runs, selected, onSelect }) {
   );
 }
 
-function RunDetail({ runId, listedStatus }) {
+function RunDetail({ runId, listedStatus, outerVersion, onReanalysed }) {
   const [run, setRun] = useState(null);
   const [problem, setProblem] = useState(null);
   const [tab, setTab] = useState('overview');
@@ -237,7 +305,8 @@ function RunDetail({ runId, listedStatus }) {
     try {
       setRun((await api(`/api/admin/discovery/runs/${runId}/reanalyse`, { method: 'POST', body: {} })).run);
       setVersion((v) => v + 1);
-      toast.ok(`Run #${runId} re-analysed`, 'Catalog, suggestions and answers now follow the current rules. Your decisions still apply.');
+      toast.ok(`Run #${runId} re-analysed`, 'Catalog, suggestions and answers now follow the current rules, and the combined catalog with them. Your decisions still apply.');
+      onReanalysed?.();
     } catch (err) {
       toast.err('Couldn’t re-analyse', err.message);
     }
@@ -253,7 +322,7 @@ function RunDetail({ runId, listedStatus }) {
     return () => {
       live = false;
     };
-  }, [runId, listedStatus]);
+  }, [runId, listedStatus, outerVersion]);
 
   if (problem) return <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>;
   if (!run) return null;
@@ -296,8 +365,8 @@ function RunDetail({ runId, listedStatus }) {
       <div className="pad-20" role="tabpanel" id={`disc-panel-${tab}`} aria-labelledby={`disc-tab-${tab}`}>
         {tab === 'overview' && <Answers run={run} />}
         {tab === 'endpoints' && <Endpoints summary={run.summary} />}
-        {tab === 'catalog' && <Catalog key={version} runId={run.id} />}
-        {tab === 'suggestions' && <Suggestions key={version} runId={run.id} />}
+        {tab === 'catalog' && <Catalog key={`${version}-${outerVersion}`} runId={run.id} />}
+        {tab === 'suggestions' && <Suggestions key={`${version}-${outerVersion}`} runId={run.id} />}
         {tab === 'responses' && <Responses runId={run.id} />}
       </div>
     </section>
@@ -458,12 +527,17 @@ function Endpoints({ summary }) {
   );
 }
 
+// A catalog to show: one run's (runId), or the combined catalog of every finished run (runId null). Decisions are the
+// statistic's, so the same decision shows in both; the request just says which view to send back.
+const catalogUrl = (runId) => (runId === null ? '/api/admin/discovery/catalog' : `/api/admin/discovery/runs/${runId}/catalog`);
+const decisionScope = (runId) => (runId === null ? { combined: true } : { runId });
+
 function useCatalog(runId) {
   const [catalog, setCatalog] = useState(null);
   const [problem, setProblem] = useState(null);
   useEffect(() => {
     let live = true;
-    api(`/api/admin/discovery/runs/${runId}/catalog`).then((r) => {
+    api(catalogUrl(runId)).then((r) => {
       if (live) setCatalog(r.catalog);
     }, (err) => {
       if (live) setProblem(err.message);
@@ -476,7 +550,19 @@ function useCatalog(runId) {
   return { catalog, problem, replace };
 }
 
+// Must match server/discovery/analyze.js VALUE_TYPES (the server refuses anything else).
+const VALUE_TYPES = ['count', 'name-and-number', 'highest-ever', 'rate', 'time', 'gold', 'distance', 'decimal', 'text'];
 const TYPE_LABEL = { 'name-and-number': 'name + number' };
+const typeLabel = (t) => TYPE_LABEL[t] ?? t;
+
+function TypeTag({ stat }) {
+  return (
+    <span className="row gap-4 nowrap">
+      <span className="tag" title={stat.valueTypeBasis}>{typeLabel(stat.valueType)}</span>
+      {stat.valueTypeGuessed ? <span className="tag warn" title={stat.valueTypeBasis}>guessed</span> : stat.valueTypeSetBy === 'admin' ? <span className="tag ok" title={stat.valueTypeBasis}>set by you</span> : null}
+    </span>
+  );
+}
 const catPath = (s) => s.categoryPath.map((c) => c.name).join(' › ');
 const SORTS = {
   id: (s) => s.statisticId,
@@ -516,17 +602,22 @@ function Catalog({ runId }) {
         <Field label="Filter by name, category or ID" className="grow-col" value={filter} onChange={(e) => { setFilter(e.target.value); setShown(PAGE); }} autoComplete="off" />
         <span className="t2 small">{formatNumber(rows.length)} of {formatNumber(catalog.length)} statistics</span>
       </div>
-      <span className="muted xsmall">Value types are guesses (hover a type for its basis). “Has it” counts sampled characters whose response listed the statistic; “Non-zero” those with a value above zero.</span>
+      <span className="muted xsmall">
+        A type marked “guessed” comes from the name, or is the default; correct it under Suggestions → Guessed types (hover a type for its basis).
+        “Has it” counts sampled characters whose response listed the statistic; “Non-zero” those with a value above zero.
+        {runId === null && ' A character sampled by more than one run counts once, with its newest values.'}
+      </span>
       <div className="tblbox listbox">
         <table className="tbl disc-catalog">
-          <thead><tr>{th('id', 'ID')}{th('name', 'Statistic')}{th('category', 'Blizzard category')}{th('type', 'Type')}{th('present', 'Has it', true)}{th('nonzero', 'Non-zero', true)}<th scope="col" className="r">Min · median</th>{th('max', 'Max', true)}</tr></thead>
+          <thead><tr>{th('id', 'ID')}{th('name', 'Statistic')}{th('category', 'Blizzard category')}{th('type', 'Type')}{runId === null && <th scope="col">Runs</th>}{th('present', 'Has it', true)}{th('nonzero', 'Non-zero', true)}<th scope="col" className="r">Min · median</th>{th('max', 'Max', true)}</tr></thead>
           <tbody>
             {rows.slice(0, shown).map((s) => (
               <tr key={s.statisticId}>
                 <td className="mono small">{s.statisticId}</td>
                 <td className="strong">{s.name}</td>
                 <td className="t2 small">{catPath(s) || '—'}</td>
-                <td><span className="tag" title={s.valueTypeBasis}>{TYPE_LABEL[s.valueType] ?? s.valueType}</span></td>
+                <td><TypeTag stat={s} /></td>
+                {runId === null && <td className="mono xsmall">{s.runs.map((id) => `#${id}`).join(' ')}</td>}
                 <td className="r">{s.charactersPresent} / {s.charactersSampled}</td>
                 <td className="r">{s.charactersNonzero}</td>
                 <td className="r t2">{formatNumber(s.minValue)} · {formatNumber(s.medianValue)}</td>
@@ -541,16 +632,19 @@ function Catalog({ runId }) {
   );
 }
 
-const KIND_LABEL = { category: 'Category', grading: 'Counts toward', leaderboard: 'Leaderboard' };
+const KIND_LABEL = { category: 'Category', grading: 'Counts toward', leaderboard: 'Leaderboard', duplicate: 'Duplicate' };
 const GRADING_LABEL = { overall: 'its category tier and the overall tier', category: 'its category tier only (not the overall tier)', none: 'no tier: leaderboard only' };
-const valueLabel = (s) => {
+const valueLabel = (s, nameOf) => {
   if (s.value === null) return 'Unknown';
   if (s.kind === 'category') return s.value;
   if (s.kind === 'grading') return GRADING_LABEL[s.value] ?? String(s.value);
+  if (s.kind === 'duplicate') return `${s.stale ? 'approved' : s.evidence?.confidence === 'likely' ? 'likely' : 'possible'} duplicate of “${nameOf(s.value.of) ?? `id ${s.value.of}`}”`;
   return s.value ? 'Yes' : 'No';
 };
 const VIEWS = [
   { id: 'pending', label: 'To decide' },
+  { id: 'duplicates', label: 'Possible duplicates' },
+  { id: 'types', label: 'Guessed types' },
   { id: 'approved', label: 'Approved' },
   { id: 'rejected', label: 'Rejected' },
   { id: 'unknown', label: 'Unknown' },
@@ -558,6 +652,8 @@ const VIEWS = [
 ];
 const inView = (view) => (s) => {
   if (view === 'all') return true;
+  if (view === 'types') return false; // that view shows each row's value type, not its suggestions
+  if (view === 'duplicates') return s.kind === 'duplicate';
   if (view === 'unknown') return s.value === null;
   if (view === 'pending') return s.value !== null && !s.decision;
   return s.decision === view;
@@ -567,7 +663,10 @@ function Suggestions({ runId }) {
   const { catalog, problem, replace } = useCatalog(runId);
   const [view, setView] = useState('pending');
   const [shown, setShown] = useState(50);
-  const rows = useMemo(() => (catalog ?? []).map((s) => ({ ...s, visible: s.suggestions.filter(inView(view)) })).filter((s) => s.visible.length), [catalog, view]);
+  const names = useMemo(() => new Map((catalog ?? []).map((s) => [s.statisticId, s.name])), [catalog]);
+  const rows = useMemo(() => (catalog ?? [])
+    .map((s) => ({ ...s, visible: s.suggestions.filter(inView(view)) }))
+    .filter((s) => (view === 'types' ? s.valueTypeGuessed : s.visible.length)), [catalog, view]);
   if (problem) return <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>;
   if (!catalog) return <span className="t2 small" role="status">Loading suggestions…</span>;
   return (
@@ -576,13 +675,16 @@ function Suggestions({ runId }) {
         Suggestions, not decisions: each says why. Approve the ones you agree with; a rejected suggestion isn’t offered
         again (unless more samples change it). “Unknown” means the samples can’t settle it yet, so there’s nothing to approve.
         Nothing here becomes a leaderboard or tier category until those are built, from approved rows only.
+        A possible duplicate stops counting toward tiers only once you approve the pairing. Your decisions belong to the
+        statistic, so they show in every run and in the combined catalog, and survive re-analysis.
       </p>
       <Segmented options={VIEWS} value={view} onChange={(v) => { setView(v); setShown(50); }} label="Which suggestions" />
+      {view === 'types' && <span className="muted xsmall">Every statistic whose value type is still a guess. Confirm it or choose another; your choice replaces the guess from then on.</span>}
       {rows.length === 0 ? (
         <EmptyState kind="nodata" compact title="Nothing in this view" />
       ) : (
         <div className="listbox">
-          {rows.slice(0, shown).map((s) => <SuggestionRow key={s.statisticId} runId={runId} stat={s} onChanged={replace} />)}
+          {rows.slice(0, shown).map((s) => <SuggestionRow key={s.statisticId} runId={runId} stat={s} nameOf={(id) => names.get(id)} showType={view === 'types' || view === 'all'} onChanged={replace} />)}
         </div>
       )}
       {rows.length > shown && <button type="button" className="btn sm self-start" onClick={() => setShown((n) => n + 50)}>Show more ({formatNumber(rows.length - shown)} left)</button>}
@@ -590,13 +692,13 @@ function Suggestions({ runId }) {
   );
 }
 
-function SuggestionRow({ runId, stat, onChanged }) {
+function SuggestionRow({ runId, stat, nameOf, showType, onChanged }) {
   const toast = useToasts();
   const [busy, setBusy] = useState(null);
-  const decide = async (kind, decision) => {
+  const decide = async (kind, decision, value) => {
     setBusy(`${kind}|${decision}`);
     try {
-      const { statistic } = await api('/api/admin/discovery/decisions', { method: 'PUT', body: { runId, statisticId: stat.statisticId, kind, decision } });
+      const { statistic } = await api('/api/admin/discovery/decisions', { method: 'PUT', body: { ...decisionScope(runId), statisticId: stat.statisticId, kind, decision, ...(value !== undefined ? { value } : {}) } });
       onChanged(statistic);
     } catch (err) {
       toast.err('Couldn’t save that decision', err.message);
@@ -609,11 +711,13 @@ function SuggestionRow({ runId, stat, onChanged }) {
         <b>{stat.name}</b>
         <span className="mono muted xsmall">id {stat.statisticId}</span>
         <span className="t2 xsmall">{catPath(stat) || 'no category'}</span>
+        {runId === null && <span className="muted xsmall">runs {stat.runs.map((id) => `#${id}`).join(' ')}</span>}
       </div>
+      {showType && <ValueTypeRow stat={stat} busy={busy} onSet={(value) => decide('value_type', 'approved', value)} onClear={() => decide('value_type', 'cleared')} />}
       {stat.visible.map((s) => (
         <div key={s.kind} className="row gap-12 align-start disc-sug">
           <div className="stack gap-4 grow">
-            <span className="small"><span className="muted">{KIND_LABEL[s.kind]}:</span> <b>{valueLabel(s)}</b>{s.decision && <span className={`tag ${s.decision === 'approved' ? 'ok' : 'err'} disc-decision`}>{s.decision}</span>}</span>
+            <span className="small"><span className="muted">{KIND_LABEL[s.kind]}:</span> <b>{valueLabel(s, nameOf)}</b>{s.decision && <span className={`tag ${s.decision === 'approved' ? 'ok' : 'err'} disc-decision`}>{s.decision}</span>}{s.stale && <span className="tag warn disc-decision">no longer supported</span>}</span>
             <span className="t2 xsmall">{s.reasoning}</span>
           </div>
           <div className="row gap-6">
@@ -627,6 +731,36 @@ function SuggestionRow({ runId, stat, onChanged }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** The statistic's value type: the analysis's guess, or the admin's choice, which persists across re-analyses. */
+function ValueTypeRow({ stat, busy, onSet, onClear }) {
+  const [editing, setEditing] = useState(false);
+  const [choice, setChoice] = useState(stat.valueType);
+  return (
+    <div className="row gap-12 align-start disc-sug">
+      <div className="stack gap-6 grow">
+        <span className="small row gap-6"><span className="muted">Value type:</span> <TypeTag stat={stat} /></span>
+        <span className="t2 xsmall">{stat.valueTypeBasis}</span>
+        {editing && (
+          <div className="stack gap-8">
+            <Segmented options={VALUE_TYPES.map((t) => ({ id: t, label: typeLabel(t) }))} value={choice} onChange={setChoice} label={`Value type for ${stat.name}`} />
+            <div className="row gap-6">
+              <Button className="sm" loading={busy === 'value_type|approved'} onClick={async () => { await onSet(choice); setEditing(false); }}><Icon name="check" size="sm" />{choice === stat.valueType ? 'Confirm' : 'Save'}</Button>
+              <Button className="sm ghost" onClick={() => { setChoice(stat.valueType); setEditing(false); }}>Cancel</Button>
+            </div>
+          </div>
+        )}
+      </div>
+      {!editing && (
+        <div className="row gap-6">
+          {stat.valueTypeGuessed && <Button className="sm" loading={busy === 'value_type|approved'} onClick={() => onSet(stat.valueType)}><Icon name="check" size="sm" />Confirm</Button>}
+          <Button className="sm ghost" onClick={() => { setChoice(stat.valueType); setEditing(true); }}>Change</Button>
+          {stat.valueTypeSetBy === 'admin' && <Button className="sm ghost" loading={busy === 'value_type|cleared'} onClick={onClear}>Undo</Button>}
+        </div>
+      )}
     </div>
   );
 }

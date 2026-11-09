@@ -22,7 +22,9 @@ request as hostile: CSRF origin check, rate limits, httpOnly cookies, nothing se
   discovery run 1 (2026-11-09): **every statistic gets a leaderboard** (ties and name + number ones too, ranked by
   the number); deaths & mishaps, duels lost, Quests abandoned and name + number statistics are leaderboard-only;
   **farmable categories (Social emotes; Camping & Hearth) get their own category tier on the character page but are
-  excluded from the overall tier**; of exact duplicates only one is graded. A ruleset below the minimum
+  excluded from the overall tier**; a duplicate pair keeps both leaderboards, and one of them stops counting toward
+  tiers **only once the owner approves the pairing** (after run 2: equal values in low-level samples aren't proof,
+  and World vs Total Honorable Kills turned out to differ). A ruleset below the minimum
   population shows **"Unranked — grading opens at N tracked characters"** (N = admin setting
   `grading.minPopulation`, default 500).
 - **Freshness:** a search refreshes the character immediately; every tracked character re-syncs at least daily
@@ -117,12 +119,20 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   authorization (OAuth intent `discovery`, same `/auth/battlenet/callback`; the flow, not the Strict admin cookie,
   is the proof). Token sealed in `discovery_grants`.
 - `discovery_responses` keeps every raw body forever (evidence). `discovery_statistics` is a per-run catalog;
-  `discovery_decisions` is append-only. **These are discovery tables, not production character tables**, and
+  `discovery_catalog` (+ `discovery_combined`, one summary row) combines every finished run, a character in two runs
+  counted once with its newest values. `discovery_decisions` is append-only and belongs to the **statistic**, not a
+  run, so a decision shows in every view. **These are discovery tables, not production character tables**, and
   approving a suggestion builds nothing yet.
-- Suggestions (`suggest.js`) are `category`, `grading` (`overall` | `category` | `none`) and `leaderboard`, from name
-  and Blizzard-category rules, never statistic ids. The catalog is derived: **Re-analyse** rebuilds a run's
-  `discovery_statistics` rows and summary from its stored responses with the current rules (no Blizzard request);
-  the raw responses are the record and are never rebuilt. Old `bad` decisions stay in the append-only history.
+- Suggestions (`suggest.js`) are `category`, `grading` (`overall` | `category` | `none`), `leaderboard` (always yes)
+  and `duplicate` (`{ of }`, only when equal values suggest one: "possible", or "likely" when the names agree too),
+  from name, value and Blizzard-category rules, never statistic ids. They are computed **when the catalog is read**
+  (`present()`), from the analysed row plus the current decisions, so an approval takes effect at once. The
+  `value_type` decision is the owner's correction of a guessed type and overrides the analysis. Value types are
+  guesses unless the samples show them (name + number, text, fractions); time/gold/distance need a stated unit.
+- The catalog is derived: **Re-analyse** (one run) and **Re-analyse all runs** rebuild `discovery_statistics`, the
+  summaries and the combined catalog from stored responses with the current rules (no Blizzard request); a finished
+  run rebuilds the combined catalog too. The raw responses are the record and are never rebuilt. Old `bad` decisions
+  stay in the append-only history.
 
 ## Themes and design
 

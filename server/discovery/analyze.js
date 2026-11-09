@@ -93,27 +93,36 @@ export function statisticsIn(json) {
   return out;
 }
 
+/** Every value type the Discovery page can show or the admin can set (a correction is a `value_type` decision). */
+export const VALUE_TYPES = ['count', 'name-and-number', 'highest-ever', 'rate', 'time', 'gold', 'distance', 'decimal', 'text'];
+
 /**
- * A value type guessed from the name and the samples. The basis says it's a guess, and from what.
+ * A value type from the name and the samples: { type, basis, guessed }. `guessed: false` only when the samples
+ * themselves show it (a text name beside the number, text instead of a number, fractions); everything read from a
+ * name is a guess, and so is the `count` default. Anything still guessed shows "guessed" on the Discovery page, where
+ * the admin can correct it (the correction is a decision and survives re-analysis).
+ *
+ * 0.3.2: time, gold and distance need the name to state a unit or an unmistakable phrase. Plain words that merely
+ * suggest one ("played", "time", "days", "travelled", "fallen") no longer count: "Battlegrounds played" is a count.
  *   name-and-number  a number plus a text `description` naming what it counts ("979", "Undead"): ranked by the number
- *   rate             an average per unit of time ("… per day"), checked before `time` so "day" doesn't make it a duration
+ *   rate             an average or a per-unit-of-time figure, checked first so "… per day" isn't read as a duration
  */
 export function guessValueType(name, { anyText = false, anyFraction = false, namedExample = null } = {}) {
-  if (namedExample !== null) return { type: 'name-and-number', basis: `carries a name beside its number (e.g. "${namedExample.slice(0, 40)}")` };
+  if (namedExample !== null) return { type: 'name-and-number', basis: `seen: the samples carry a name beside the number (e.g. "${namedExample.slice(0, 40)}")`, guessed: false };
   const rules = [
-    ['rate', /\bper (?:day|hour|minute|second|week)\b|\baverage\b/i],
-    ['gold', /\bgold\b|\bcopper\b|\bmoney\b/i],
-    ['time', /\btime\b|\bplayed\b|\bduration\b|\bseconds?\b|\bminutes?\b|\bhours?\b|\bdays?\b/i],
-    ['distance', /\bdistance\b|\byards?\b|\btravel(?:l)?ed\b|\bmiles?\b|\bfallen\b/i],
-    ['highest-ever', /^(?:highest|most|largest|greatest|biggest|longest|fastest|best|max(?:imum)?)\b|\b(?:highest|largest|greatest|biggest)\b/i],
+    ['rate', /\bper (?:day|hour|minute|second|week)\b|^average\b/i],
+    ['time', /\btime (?:played|spent|online)\b|\bplay ?time\b|\bduration\b|\((?:in )?(?:seconds|minutes|hours|days)\)/i],
+    ['gold', /\b(?:gold|money|copper) (?:looted|earned|spent|gained|lost|acquired|from)\b|\b(?:looted|earned|spent|total) (?:gold|money)\b/i],
+    ['distance', /\b(?:yards|miles)\b|\bdistance\b/i],
+    ['highest-ever', /^(?:highest|largest|greatest|biggest|longest|fastest|best|most)\b/i],
   ];
   for (const [type, re] of rules) {
     const m = re.exec(name);
-    if (m) return { type, basis: `guessed from the name ("${m[0]}")` };
+    if (m) return { type, basis: `guessed from the name ("${m[0].trim()}")`, guessed: true };
   }
-  if (anyText) return { type: 'text', basis: 'some samples carry text instead of a number' };
-  if (anyFraction) return { type: 'decimal', basis: 'some samples are fractions' };
-  return { type: 'count', basis: 'guessed: whole numbers and no unit word in the name' };
+  if (anyText) return { type: 'text', basis: 'seen: some samples carry text instead of a number', guessed: false };
+  if (anyFraction) return { type: 'decimal', basis: 'seen: some samples are fractions', guessed: false };
+  return { type: 'count', basis: 'guessed: the default (whole numbers, and no unit in the name)', guessed: true };
 }
 
 export function createObserver() {
@@ -157,7 +166,7 @@ export function createObserver() {
 
   return {
     /** One response (the source's get() result) for endpoint `endpoint` about `subject`. */
-    add(endpoint, subject, r, { catalog = false } = {}) {
+    add(endpoint, subject, r, { catalog = false, run = null } = {}) {
       requests += 1;
       if (r.attempts > 1) retried += 1;
       if (r.status === 429) throttled += 1;
@@ -215,7 +224,10 @@ export function createObserver() {
       sampled.add(subject);
       catalogSamples.set(endpoint, sampled);
       for (const s of statisticsIn(r.json)) {
-        const a = stats.get(s.id) ?? { id: s.id, name: s.name, endpoint, categoryPath: s.categoryPath, subjects: new Set(), values: [], bySubject: new Map(), nonzero: 0, anyText: false, anyFraction: false, namedExample: null, names: new Set(), lastUpdated: [] };
+        const a = stats.get(s.id) ?? { id: s.id, name: s.name, endpoint, categoryPath: s.categoryPath, subjects: new Set(), values: [], bySubject: new Map(), nonzero: 0, anyText: false, anyFraction: false, namedExample: null, names: new Set(), lastUpdated: [], runs: new Set() };
+        if (run !== null) a.runs.add(run);
+        // A character seen more than once (in two runs) counts once: the first response fed in wins, so the
+        // combined analysis feeds the newest run first.
         if (a.subjects.has(subject)) continue;
         a.subjects.add(subject);
         a.names.add(s.name);
@@ -247,6 +259,8 @@ export function createObserver() {
           categoryPath: a.categoryPath,
           valueType: vt.type,
           valueTypeBasis: vt.basis,
+          valueTypeGuessed: vt.guessed,
+          runs: [...a.runs].sort((x, y) => x - y),
           charactersSampled: catalogSamples.get(a.endpoint)?.size ?? 0,
           charactersPresent: a.subjects.size,
           charactersNonzero: a.nonzero,

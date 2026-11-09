@@ -1,8 +1,10 @@
+import { VALUE_TYPES } from './analyze.js';
+
 /**
- * Suggestions for each catalog statistic: SUGGEST, never assert. Three kinds, each { kind, value, reasoning,
- * evidence }; `value: null` means the samples can't settle it ("unknown from N samples") and there's nothing to
- * approve yet. The admin approves or rejects each on the Discovery page (discovery_decisions); a rejected suggestion
- * is not offered again. Nothing here creates a leaderboard or a tier category.
+ * Suggestions for each catalog statistic: SUGGEST, never assert. Each is { kind, value, reasoning, evidence };
+ * `value: null` means the samples can't settle it ("unknown from N samples") and there's nothing to approve yet. The
+ * admin approves or rejects each on the Discovery page (discovery_decisions); a rejected suggestion is not offered
+ * again. Nothing here creates a leaderboard or a tier category.
  *
  *   category     which Everstats category (CATEGORY_RULES, from Blizzard's own grouping and the name)
  *   grading      what the statistic counts toward:
@@ -10,17 +12,24 @@
  *                  'category'  its category's tier only (shown on the character page), never the overall tier
  *                  'none'      no tier at all: a leaderboard only
  *   leaderboard  always true: every statistic gets a leaderboard; the reasoning says what the ranking looks like
+ *   duplicate    { of: id }, only when the samples show it equal to another statistic: a POSSIBLE duplicate (or a
+ *                likely one, when the names say the same thing too). Nothing is ungraded as a duplicate until the
+ *                admin approves the pairing; then its grading suggestion becomes 'none'.
  *
- * The owner's decisions these rules encode (2026-11-09, after discovery run 1):
+ * Suggestions are computed when the catalog is read (present()), from the analysed row and the admin's current
+ * decisions, so an approval takes effect at once and a value-type correction feeds the rules.
+ *
+ * The owner's decisions these rules encode (2026-11-09, after discovery runs 1 and 2):
  *   - Every statistic gets a leaderboard, ties, rare ones and name + number ones (ranked by their number) included.
  *   - "Bad" statistics (deaths and mishaps, duels lost) and Quests abandoned: leaderboard only, no tier.
  *   - Farmable categories (Social emotes; Times camped and hearthing) get their own category tier, shown on the
  *     character page, but are EXCLUDED from the overall tier.
- *   - Exact duplicates keep both leaderboards; only one of each group is graded.
+ *   - Duplicates keep both leaderboards; one of a pair stops counting toward tiers only once the admin approves the
+ *     pairing (0.3.2: equal values in low-level samples aren't proof, e.g. Professions learned / at maximum skill).
  * Rules match names and Blizzard categories, never statistic ids (a new statistic in a patch is still sorted).
  */
 export const MIN_SAMPLES = 10; // below this many sampled characters, "everyone has the same value" proves little
-export const DUPLICATE_MIN_PRESENT = 5; // two statistics count as duplicates only if this many characters have them
+export const DUPLICATE_MIN_PRESENT = 5; // equal values are only worth a suggestion if this many characters have both
 
 const top = (s) => s.categoryPath[0]?.name ?? null;
 const sub = (s) => s.categoryPath[1]?.name ?? null;
@@ -57,16 +66,34 @@ export function categoryFor(s) {
   return null;
 }
 
+// Words that don't change what a statistic counts, for comparing names ("Fish caught" / "Fish and other things
+// caught"). A name relationship only raises a suggestion's confidence: the values must be equal as well.
+const NAME_FILLER = new Set(['total', 'world', 'the', 'and', 'other', 'things', 'of', 'a', 'an', 'at', 'in', 'on', 'by', 'from', 'number', 'times']);
+const nameCore = (name) => new Set(String(name).toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').split(/\s+/).filter((w) => w && !NAME_FILLER.has(w)));
+/** True when one name's meaningful words are all in the other's. */
+export function namesRelated(a, b) {
+  const x = nameCore(a);
+  const y = nameCore(b);
+  if (!x.size || !y.size) return false;
+  const [small, large] = x.size <= y.size ? [x, y] : [y, x];
+  return [...small].every((w) => large.has(w));
+}
+
 /**
- * Exact duplicates: statistics whose per-character values are identical for every character that has either, with
- * at least DUPLICATE_MIN_PRESENT characters. Map(statisticId → { graded: id, graded name, group: [ids] }). The graded
- * one is the lowest id that isn't a name + number statistic. Needs `valuesBySubject` (analyze.js catalog rows).
+ * Possible duplicates: statistics whose per-character values are identical for every character that has either, with
+ * at least DUPLICATE_MIN_PRESENT characters and at least two different values among them (a column of zeros matches
+ * every other column of zeros). Map(statisticId → duplicate info), stored on each catalog row as `duplicate`:
+ *   { role: 'candidate', of, ofName, confidence: 'possible' | 'likely', present, nonzero, distinct, group }
+ *   { role: 'primary', group }   the one that keeps counting if the admin approves the others' pairings
+ * The primary is the lowest id that isn't a name + number statistic. Needs `valuesBySubject` (analyze.js rows).
+ * Equal values are evidence, not proof: these become suggestions the admin approves or rejects.
  */
-export function findDuplicates(catalog) {
+export function findDuplicateCandidates(catalog) {
   const groups = new Map();
   for (const s of catalog) {
-    if (!s.valuesBySubject || s.valuesBySubject.size < DUPLICATE_MIN_PRESENT || s.charactersPresent !== s.valuesBySubject.size) continue;
-    const sig = JSON.stringify([...s.valuesBySubject].sort(([a], [b]) => (a < b ? -1 : 1)));
+    const v = s.valuesBySubject;
+    if (!v || v.size < DUPLICATE_MIN_PRESENT || s.charactersPresent !== v.size || new Set(v.values()).size < 2) continue;
+    const sig = JSON.stringify([...v].sort(([a], [b]) => (a < b ? -1 : 1)));
     if (!groups.has(sig)) groups.set(sig, []);
     groups.get(sig).push(s);
   }
@@ -74,11 +101,33 @@ export function findDuplicates(catalog) {
   for (const members of groups.values()) {
     if (members.length < 2) continue;
     const ranked = [...members].sort((a, b) => (a.valueType === 'name-and-number') - (b.valueType === 'name-and-number') || a.statisticId - b.statisticId);
-    const graded = ranked[0];
-    for (const m of members) out.set(m.statisticId, { gradedId: graded.statisticId, gradedName: graded.name, group: members.map((x) => x.statisticId), present: m.charactersPresent });
+    const primary = ranked[0];
+    const group = members.map((x) => x.statisticId).sort((a, b) => a - b);
+    out.set(primary.statisticId, { role: 'primary', group });
+    for (const m of ranked.slice(1)) {
+      out.set(m.statisticId, {
+        role: 'candidate', of: primary.statisticId, ofName: primary.name, confidence: namesRelated(m.name, primary.name) ? 'likely' : 'possible',
+        present: m.charactersPresent, nonzero: m.charactersNonzero, distinct: new Set(m.valuesBySubject.values()).size, group,
+      });
+    }
   }
   return out;
 }
+
+/** The admin's value-type correction, if any, applied over the analysis's guess. */
+export function effectiveValueType(stat, decisions) {
+  const d = decisions.get('value_type');
+  if (d?.decision === 'approved' && VALUE_TYPES.includes(d.value)) {
+    const same = d.value === stat.valueType;
+    return { valueType: d.value, valueTypeBasis: same ? `confirmed by you (the analysis guessed the same: ${stat.valueTypeBasis})` : `set by you (the analysis said "${stat.valueType}": ${stat.valueTypeBasis})`, valueTypeGuessed: false, valueTypeSetBy: 'admin', analysedValueType: stat.valueType };
+  }
+  return { valueType: stat.valueType, valueTypeBasis: stat.valueTypeBasis, valueTypeGuessed: stat.valueTypeGuessed !== false, valueTypeSetBy: 'analysis', analysedValueType: stat.valueType };
+}
+
+const approvedDuplicate = (decisions) => {
+  const d = decisions.get('duplicate');
+  return d?.decision === 'approved' && Number.isSafeInteger(d.value?.of) ? d.value.of : null;
+};
 
 function suggestCategory(s) {
   const c = categoryFor(s);
@@ -103,16 +152,37 @@ function suggestGrading(s, ctx) {
   if (s.valueType === 'name-and-number') {
     return { kind: 'grading', value: 'none', reasoning: `A name + number statistic: its number counts a different thing for each character (one counts "${s.namedExample ?? 'one thing'}", another something else), so it can't be graded fairly. Its leaderboard ranks by the number.`, evidence: { ...evidence, namedExample: s.namedExample ?? null } };
   }
-  const dup = ctx.duplicates?.get(s.statisticId);
-  if (dup && dup.gradedId !== s.statisticId) {
-    return { kind: 'grading', value: 'none', reasoning: `An exact duplicate of "${dup.gradedName}" (id ${dup.gradedId}): identical for all ${dup.present} characters that have either. Both keep their leaderboards; only "${dup.gradedName}" is graded. Unknown from ${dup.present} samples whether they ever differ.`, evidence: { ...evidence, duplicateOf: dup.gradedId, group: dup.group } };
+  const approvedOf = approvedDuplicate(ctx.decisions ?? new Map());
+  if (approvedOf !== null) {
+    return { kind: 'grading', value: 'none', reasoning: `You approved it as a duplicate of id ${approvedOf}, so only that one counts toward tiers. It keeps its own leaderboard.`, evidence: { ...evidence, duplicateOf: approvedOf } };
   }
   const c = categoryFor(s);
+  const dup = s.duplicate ?? null;
+  const pending = dup?.role === 'candidate' ? ` It may be a duplicate of "${dup.ofName}" (id ${dup.of}): if you approve that pairing, this one stops counting.` : '';
   if (c?.rule.farmable) {
-    return { kind: 'grading', value: 'category', reasoning: `Counts toward its own "${c.rule.label}" tier on the character page, but not the overall tier: anyone can raise it at will.`, evidence: { ...evidence, category: c.rule.label } };
+    return { kind: 'grading', value: 'category', reasoning: `Counts toward its own "${c.rule.label}" tier on the character page, but not the overall tier: anyone can raise it at will.${pending}`, evidence: { ...evidence, category: c.rule.label } };
   }
-  const also = dup ? ` (It has exact duplicates, ids ${dup.group.filter((id) => id !== s.statisticId).join(', ')}; this one is the graded one.)` : '';
-  return { kind: 'grading', value: 'overall', reasoning: `Counts toward its category's tier and the overall tier.${also}`, evidence };
+  return { kind: 'grading', value: 'overall', reasoning: `Counts toward its category's tier and the overall tier.${pending}`, evidence };
+}
+
+function suggestDuplicate(s, ctx) {
+  const dup = s.duplicate ?? null;
+  const approvedOf = approvedDuplicate(ctx.decisions ?? new Map());
+  if (dup?.role === 'candidate') {
+    const why = dup.confidence === 'likely'
+      ? `Likely the same thing as "${dup.ofName}" (id ${dup.of}): the names say so, and the values are identical`
+      : `Possibly the same as "${dup.ofName}" (id ${dup.of}): the values are identical, but the names count different things, so this may only hold for these samples`;
+    return {
+      kind: 'duplicate', value: { of: dup.of },
+      reasoning: `${why} for all ${dup.present} characters that have either (${dup.nonzero} non-zero, ${dup.distinct} different values). Unknown from ${dup.present} samples whether they ever differ. Approve to stop counting this one toward tiers; both keep their leaderboards.`,
+      evidence: { of: dup.of, confidence: dup.confidence, present: dup.present, nonzero: dup.nonzero, distinct: dup.distinct, group: dup.group },
+    };
+  }
+  if (approvedOf !== null) {
+    // The admin's approval stands; the evidence for it no longer does. Say so, so it can be undone.
+    return { kind: 'duplicate', value: { of: approvedOf }, stale: true, reasoning: `You approved this as a duplicate of id ${approvedOf}, but the current samples no longer support it (their values differ, or fewer than ${DUPLICATE_MIN_PRESENT} characters have both). Consider undoing it.`, evidence: { of: approvedOf } };
+  }
+  return null;
 }
 
 function suggestLeaderboard(s) {
@@ -126,10 +196,28 @@ function suggestLeaderboard(s) {
   return { kind: 'leaderboard', value: true, reasoning: `${every} It varies: non-zero for ${s.charactersNonzero} of ${n} sampled characters (from ${s.minValue} to ${s.maxValue}).`, evidence };
 }
 
-export const SUGGESTERS = [suggestCategory, suggestGrading, suggestLeaderboard];
+export const SUGGESTERS = [suggestCategory, suggestGrading, suggestLeaderboard, suggestDuplicate];
+export const SUGGESTION_KINDS = ['category', 'grading', 'leaderboard', 'duplicate'];
 
-/** Suggestions for one statistic. `ctx.duplicates` comes from findDuplicates over the whole run's catalog. */
-export const suggestionsFor = (stat, ctx = {}) => SUGGESTERS.map((f) => f(stat, ctx));
+/**
+ * Suggestions for one statistic (a catalog row with its `duplicate` info). `ctx.decisions` is the admin's current
+ * decisions for it, Map(kind → { value, decision }); suggesters that have nothing to say return null.
+ */
+export const suggestionsFor = (stat, ctx = {}) => SUGGESTERS.map((f) => f(stat, ctx)).filter(Boolean);
+
+/**
+ * A catalog row as the Discovery page shows it: the admin's value-type correction applied, suggestions computed with
+ * the current decisions, and each suggestion marked with its decision.
+ */
+export function present(row, decisions = new Map()) {
+  const stat = { ...row, ...effectiveValueType(row, decisions) };
+  const vt = decisions.get('value_type');
+  return {
+    ...stat,
+    valueTypeDecidedAt: vt?.decision === 'approved' ? vt.decidedAt ?? null : null,
+    suggestions: withDecisions(suggestionsFor(stat, { decisions }), decisions),
+  };
+}
 
 /**
  * Applies the admin's current decisions to a statistic's suggestions: each gets `decision` (approved / rejected /

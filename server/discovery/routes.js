@@ -6,15 +6,18 @@ import { isConfigured } from '../credentials/store.js';
 import { getSource } from '../sources/registry.js';
 import { characterSlug } from '../stats/slug.js';
 import { forgetGrant, grantStatus, startGrant } from './grant.js';
-import { withDecisions } from './suggest.js';
-import { analyseStored } from './run.js';
+import { VALUE_TYPES } from './analyze.js';
+import { SUGGESTION_KINDS, present } from './suggest.js';
+import { analyseCombined, analyseStored } from './run.js';
 
 /**
  * /api/admin/discovery/*: mounted INSIDE the admin router, after its gate, so without an admin session every one of
  * these is the same plain 404 as a path that doesn't exist. Raw payloads leave the server only through here.
  */
 const MAX_CATALOG_ROWS = 20_000;
-const KINDS = ['category', 'grading', 'leaderboard'];
+const MAX_REANALYSE_RUNS = 50;
+const KINDS = SUGGESTION_KINDS; // decisions on a suggestion
+const DECISION_KINDS = [...SUGGESTION_KINDS, 'value_type']; // … plus the admin's own value-type corrections
 const DECISIONS = ['approved', 'rejected', 'cleared'];
 
 const intParam = (v) => {
@@ -50,7 +53,7 @@ async function currentDecisions(db, statisticIds) {
       `SELECT DISTINCT ON (statistic_id, kind) statistic_id, kind, value, decision, decided_at
          FROM discovery_decisions WHERE statistic_id = ANY($1::bigint[])
         ORDER BY statistic_id, kind, decided_at DESC, id DESC LIMIT $2`,
-      [statisticIds, MAX_CATALOG_ROWS * KINDS.length],
+      [statisticIds, MAX_CATALOG_ROWS * DECISION_KINDS.length],
     )
     : [];
   const out = new Map();
@@ -61,16 +64,24 @@ async function currentDecisions(db, statisticIds) {
   return out;
 }
 
+/**
+ * A catalog with suggestions computed against the admin's current decisions (suggest.js present()). `runId` null is
+ * the combined catalog of every finished run; a number is that run's own catalog. Only the decision-free stored
+ * `suggestions` snapshot is ignored here: what the page shows always follows the current decisions.
+ */
 async function loadCatalog(db, runId) {
-  const rows = await db.query('SELECT * FROM discovery_statistics WHERE run_id = $1 ORDER BY statistic_id LIMIT $2', [runId, MAX_CATALOG_ROWS]);
+  const rows = runId === null
+    ? await db.query('SELECT * FROM discovery_catalog ORDER BY statistic_id LIMIT $1', [MAX_CATALOG_ROWS])
+    : await db.query('SELECT * FROM discovery_statistics WHERE run_id = $1 ORDER BY statistic_id LIMIT $2', [runId, MAX_CATALOG_ROWS]);
   const decisions = await currentDecisions(db, rows.map((r) => r.statistic_id));
-  return rows.map((r) => ({
+  return rows.map((r) => present({
     statisticId: r.statistic_id,
     name: r.name,
     endpoint: r.endpoint,
     categoryPath: r.category_path,
     valueType: r.value_type,
     valueTypeBasis: r.value_type_basis,
+    valueTypeGuessed: r.value_type_guessed,
     charactersSampled: r.characters_sampled,
     charactersPresent: r.characters_present,
     charactersNonzero: r.characters_nonzero,
@@ -78,8 +89,27 @@ async function loadCatalog(db, runId) {
     maxValue: r.max_value,
     medianValue: r.median_value,
     hasText: r.has_text,
-    suggestions: withDecisions(r.suggestions, decisions.get(r.statistic_id) ?? new Map()),
-  }));
+    namedExample: r.named_example ?? null,
+    duplicate: r.duplicate ?? null,
+    runs: (r.runs ?? (runId === null ? [] : [runId])).map(Number), // pg returns bigint[] elements as strings
+  }, decisions.get(r.statistic_id) ?? new Map()));
+}
+
+const combinedView = async (db) => {
+  const row = await db.one('SELECT summary, analysed_at FROM discovery_combined WHERE id = 1');
+  return row ? { ...row.summary, analysedAt: row.analysed_at } : null;
+};
+
+/** Re-analyses every finished run (newest MAX_REANALYSE_RUNS), then rebuilds the combined catalog. No Blizzard request. */
+async function reanalyseAll(db) {
+  const runs = await db.query("SELECT id, summary FROM discovery_runs WHERE status = 'done' AND summary IS NOT NULL ORDER BY id DESC LIMIT $1", [MAX_REANALYSE_RUNS]);
+  for (const run of runs) {
+    const summary = await analyseStored(db, run.id, run.summary);
+    await db.query('UPDATE discovery_runs SET summary = $2::jsonb WHERE id = $1', [run.id, JSON.stringify(summary)]);
+  }
+  const combined = await analyseCombined(db);
+  await db.query("INSERT INTO admin_events (type, detail) VALUES ('discovery.reanalysed', $1::jsonb)", [JSON.stringify({ runs: runs.map((r) => r.id) })]);
+  return combined;
 }
 
 // ---- CSV
@@ -90,8 +120,14 @@ const cell = (v, { text = false } = {}) => {
   if (text && FORMULA.test(s)) s = `'${s}`; // a spreadsheet must never run a Blizzard string as a formula
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
+const csvValue = (s) => {
+  if (!s) return '';
+  if (s.value === null) return 'unknown';
+  if (s.kind === 'duplicate') return `duplicate of ${s.value.of}`;
+  return s.value;
+};
 export function catalogCsv(catalog) {
-  const head = ['statistic_id', 'name', 'blizzard_category', 'blizzard_subcategory', 'category_path', 'endpoint', 'value_type', 'value_type_basis',
+  const head = ['statistic_id', 'name', 'blizzard_category', 'blizzard_subcategory', 'category_path', 'endpoint', 'runs', 'value_type', 'value_type_guessed', 'value_type_basis',
     'characters_sampled', 'characters_present', 'characters_nonzero', 'min', 'median', 'max', 'has_text',
     ...KINDS.flatMap((k) => [`suggested_${k}`, `${k}_decision`, `${k}_reasoning`])];
   const lines = [head.join(',')];
@@ -99,9 +135,10 @@ export function catalogCsv(catalog) {
     const sug = Object.fromEntries(s.suggestions.map((x) => [x.kind, x]));
     lines.push([
       cell(s.statisticId), cell(s.name, { text: true }), cell(s.categoryPath[0]?.name, { text: true }), cell(s.categoryPath[1]?.name, { text: true }),
-      cell(s.categoryPath.map((c) => c.name).join(' > '), { text: true }), cell(s.endpoint), cell(s.valueType), cell(s.valueTypeBasis, { text: true }),
+      cell(s.categoryPath.map((c) => c.name).join(' > '), { text: true }), cell(s.endpoint), cell((s.runs ?? []).join(' ')), cell(s.valueType), cell(s.valueTypeGuessed),
+      cell(s.valueTypeBasis, { text: true }),
       cell(s.charactersSampled), cell(s.charactersPresent), cell(s.charactersNonzero), cell(s.minValue), cell(s.medianValue), cell(s.maxValue), cell(s.hasText),
-      ...KINDS.flatMap((k) => [cell(sug[k]?.value === null ? 'unknown' : sug[k]?.value, { text: true }), cell(sug[k]?.decision ?? ''), cell(sug[k]?.reasoning, { text: true })]),
+      ...KINDS.flatMap((k) => [cell(csvValue(sug[k]), { text: true }), cell(sug[k]?.decision ?? ''), cell(sug[k]?.reasoning, { text: true })]),
     ].join(','));
   }
   return `${lines.join('\r\n')}\r\n`;
@@ -176,8 +213,23 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy }) {
       await q.query('UPDATE discovery_runs SET summary = $2::jsonb WHERE id = $1', [id, JSON.stringify(summary)]);
       await q.query("INSERT INTO admin_events (type, detail) VALUES ('discovery.reanalysed', $1::jsonb)", [JSON.stringify({ run: id })]);
     });
+    await analyseCombined(db); // the combined catalog follows the same rules
     const row = await db.one('SELECT * FROM discovery_runs WHERE id = $1', [id]);
     res.json({ run: runView(row) });
+  }));
+
+  // ---- the combined catalog of every finished run: what the admin approves from
+  r.get('/catalog', route(async (req, res) => {
+    res.json({ combined: await combinedView(db), catalog: await loadCatalog(db, null) });
+  }));
+  r.post('/reanalyse', writes, route(async (req, res) => {
+    await reanalyseAll(db);
+    res.json({ combined: await combinedView(db) });
+  }));
+  r.get('/catalog/export.csv', route(async (req, res) => {
+    const csv = catalogCsv(await loadCatalog(db, null));
+    res.set('Content-Disposition', 'attachment; filename="everstats-discovery-combined-catalog.csv"');
+    res.type('text/csv; charset=utf-8').send(csv);
   }));
 
   r.get('/runs/:id/catalog', route(async (req, res) => {
@@ -210,23 +262,39 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy }) {
     res.json({ response: row });
   }));
 
+  // A decision on the statistic as the page shows it: `runId` names a run's catalog, `combined: true` the combined
+  // one. Decisions belong to the statistic, not the run, so they apply in every view and survive re-analysis.
+  //   kind = a suggestion kind: approve / reject / clear the suggestion currently shown
+  //   kind = 'value_type': set the value type (decision 'approved', `value` one of VALUE_TYPES) or clear it
   r.put('/decisions', writes, route(async (req, res) => {
     const { statisticId, kind, decision } = req.body ?? {};
-    const runId = intParam(req.body?.runId);
-    if (!KINDS.includes(kind) || !DECISIONS.includes(decision) || !Number.isSafeInteger(statisticId)) throw new HttpError(400, 'That isn’t a decision.', 'invalid');
-    const row = await db.one('SELECT suggestions FROM discovery_statistics WHERE run_id = $1 AND statistic_id = $2', [runId, statisticId]);
-    const suggestion = row?.suggestions.find((s) => s.kind === kind);
-    if (!suggestion) throw new HttpError(404, 'Not found');
-    if (suggestion.value === null && decision !== 'cleared') throw new HttpError(400, 'There’s nothing to decide yet: the samples can’t settle this one.', 'unknown');
+    const runId = req.body?.combined === true ? null : intParam(req.body?.runId);
+    if (!DECISION_KINDS.includes(kind) || !DECISIONS.includes(decision) || !Number.isSafeInteger(statisticId)) throw new HttpError(400, 'That isn’t a decision.', 'invalid');
+    const [stat] = (await loadCatalog(db, runId)).filter((s) => s.statisticId === statisticId);
+    if (!stat) throw new HttpError(404, 'Not found');
+    let value;
+    let reasoning;
+    if (kind === 'value_type') {
+      if (decision === 'rejected') throw new HttpError(400, 'Choose a value type, or clear your correction.', 'invalid');
+      value = decision === 'cleared' ? stat.analysedValueType : req.body?.value;
+      if (!VALUE_TYPES.includes(value)) throw new HttpError(400, 'That isn’t a value type.', 'invalid');
+      reasoning = decision === 'cleared' ? 'Correction cleared: back to the analysis.' : `Set by the admin (the analysis said "${stat.analysedValueType}").`;
+    } else {
+      const suggestion = stat.suggestions.find((s) => s.kind === kind);
+      if (!suggestion) throw new HttpError(404, 'Not found');
+      if (suggestion.value === null && decision !== 'cleared') throw new HttpError(400, 'There’s nothing to decide yet: the samples can’t settle this one.', 'unknown');
+      value = suggestion.value;
+      reasoning = suggestion.reasoning;
+    }
     await db.tx(async (q) => {
       await q.query(
         'INSERT INTO discovery_decisions (statistic_id, kind, value, decision, reasoning, run_id) VALUES ($1, $2, $3::jsonb, $4, $5, $6)',
-        [statisticId, kind, JSON.stringify(suggestion.value), decision, String(suggestion.reasoning).slice(0, 600), runId],
+        [statisticId, kind, JSON.stringify(value), decision, String(reasoning).slice(0, 600), runId],
       );
       await q.query("INSERT INTO admin_events (type, detail) VALUES ('discovery.decided', $1::jsonb)", [JSON.stringify({ statisticId, kind, decision })]);
     });
-    const [stat] = (await loadCatalog(db, runId)).filter((s) => s.statisticId === statisticId);
-    res.json({ statistic: stat });
+    const [after] = (await loadCatalog(db, runId)).filter((s) => s.statisticId === statisticId);
+    res.json({ statistic: after });
   }));
 
   // ---- exports (GET, so a plain download link works; the admin cookie is SameSite=Strict and same-origin)
