@@ -121,3 +121,14 @@ ol.codes { margin: 0; list-style: none; }
   body.printing-codes .es > *:not(.app-main), body.printing-codes .app-main > * > *:not(.main) { display: none !important; }
   body.printing-codes .main > *:not(#twofa), body.printing-codes #twofa > *:not(.recovery), body.printing-codes .recovery > *:not(.print-codes) { display: none !important; }
 }
+
+/* ---------------------------------------------------------------- admin */
+.admin-title { font-size: var(--es-fs-40); }
+.panel-head-row { padding: var(--es-space-18) var(--es-space-20); border-bottom: var(--es-border-1) solid var(--es-line); }
+.admin-keys { min-width: var(--es-size-col-min-2xl); }
+.admin-keys td { white-space: normal; vertical-align: top; }
+.env-names { font-size: var(--es-fs-11-5); }
+.actions-cell { justify-content: flex-end; flex-wrap: nowrap; }
+.key-edit td { background: var(--es-sunken); }
+.align-start-grid { align-items: start; }
+@media (max-width: 719px) { .admin-title { font-size: var(--es-fs-30); } }
