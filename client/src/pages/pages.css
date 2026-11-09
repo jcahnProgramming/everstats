@@ -81,3 +81,43 @@
   .auth-page { padding: var(--es-space-24) 0; }
   .auth-card { padding: var(--es-space-24) var(--es-space-18); }
 }
+
+/* ---------------------------------------------------------------- account settings, merge */
+.narrow-wrap { max-width: var(--es-size-container-narrow); }
+.settings { gap: var(--es-space-32); }
+.settings-nav { flex: 1 1 var(--es-space-120); max-width: var(--es-size-sidebar); }
+.settings-title { font-size: var(--es-fs-32); }
+.settings-since { margin-bottom: var(--es-space-14); }
+.settings-hr { margin: var(--es-space-12) 0; }
+.theme-card { display: flex; flex-direction: column; color: var(--es-text); }
+.theme-card:disabled { cursor: not-allowed; opacity: var(--es-opacity-disabled); }
+.theme-preview { padding: var(--es-space-16); background: var(--es-hero); min-height: var(--es-space-120); }
+.swatch-bar { height: var(--es-space-8); border-radius: var(--es-radius-xs); }
+.swatch-bar.accent { width: 40%; background: var(--es-accent); }
+.swatch-bar.line { width: 25%; background: var(--es-line-strong); }
+.theme-name { justify-content: space-between; align-items: flex-end; padding: var(--es-space-12) var(--es-space-16); color: var(--es-text); flex-wrap: nowrap; gap: var(--es-space-8); }
+.theme-title { font-size: var(--es-fs-16); }
+.grow-col { flex: 1 1 var(--es-size-col-min); min-width: 0; }
+.grow-120 { flex: 1 1 var(--es-space-120); min-width: 0; }
+.passkey-row { flex-direction: column; align-items: stretch; }
+.passkey-item { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--es-space-12); align-items: center; padding: var(--es-space-10) var(--es-space-14); }
+.align-end { align-items: flex-end; }
+.nowrap { flex-wrap: nowrap; }
+.code-key { letter-spacing: var(--es-tracking-code); word-break: break-all; }
+.qr-img { padding: var(--es-space-6); object-fit: contain; }
+/* Anything with its own light background sets its own text colour (CLAUDE.md, "Bugs that cost us"). */
+ol.codes { margin: 0; list-style: none; }
+.codes li { color: var(--es-text); }
+.code-n { font-size: var(--es-fs-11); }
+.merge-boxes { --col: var(--es-size-col-min); align-items: center; }
+.merge-target { border: var(--es-border-1) dashed var(--es-line-strong); border-radius: var(--es-radius-lg); }
+@media (max-width: 719px) {
+  .settings-nav { max-width: none; }
+  .passkey-item { grid-template-columns: minmax(0, 1fr) auto; }
+  .passkey-item > .muted { grid-column: 1; grid-row: 2; }
+}
+/* Print: only the recovery codes, when printing them. */
+@media print {
+  body.printing-codes .es > *:not(.app-main), body.printing-codes .app-main > * > *:not(.main) { display: none !important; }
+  body.printing-codes .main > *:not(#twofa), body.printing-codes #twofa > *:not(.recovery), body.printing-codes .recovery > *:not(.print-codes) { display: none !important; }
+}

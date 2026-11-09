@@ -2,26 +2,47 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { authError } from '../authMessages.js';
+import { Icon } from '../chrome/Icon.jsx';
+import { Button, Field, Modal } from '../components/Controls.jsx';
 import { EmptyState } from '../components/EmptyState.jsx';
-import { startProvider } from '../pages/SignInPages.jsx';
+import { TierBadge } from '../components/Tier.jsx';
+import { useToasts } from '../components/Toasts.jsx';
+import { formatDate } from '../format.js';
+import { providerNames, startProvider } from '../pages/SignInPages.jsx';
 import { passkeyRegister, passkeySignIn, passkeysSupported, wasCancelled } from '../passkeyClient.js';
 import { useSession } from '../session.jsx';
-import '../pages/pages.css';
 
+/**
+ * Account settings (design/v1/pages/account-settings): a side nav and five sections. Behaviour is the scaffold's,
+ * unchanged (same endpoints, same rules); this is the design pass.
+ *
+ * Different from the mockup, on purpose:
+ *   - Merge runs the other way round. The mockup keeps THIS account and absorbs the other; Everstats (CLAUDE.md
+ *     "Merge") merges the signed-in account INTO the one you prove, and deletes this one. The layout follows the app.
+ *   - No "Reduce motion" toggle: the site already follows the system's reduce-motion setting, and an account setting
+ *     for it would be new account data this pass doesn't add.
+ *   - Provider rows don't say "imports your US characters": that isn't built.
+ */
 export const THEMES = [
   { id: 'forever', name: 'Forever', blurb: 'Twilight blue, gold and white' },
   { id: 'alliance', name: 'Alliance', blurb: 'Royal blue, gold trim, parchment' },
   { id: 'horde', name: 'Horde', blurb: 'Crimson and charcoal, bronze and ember' },
 ];
 
-const fmt = (iso) => (iso ? new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : null);
+const SECTIONS = [
+  ['appearance', 'Appearance'],
+  ['signin', 'Sign-in methods'],
+  ['twofa', 'Two-factor'],
+  ['characters', 'Characters'],
+  ['merge', 'Merge accounts'],
+];
 
 export function SettingsPage() {
   const session = useSession();
   const [params, setParams] = useSearchParams();
   const [account, setAccount] = useState(null);
   const [loadError, setLoadError] = useState(null);
-  const notice = params.get('linked') ? { kind: 'success', text: 'Linked. You can now sign in with it too.' } : params.get('error') ? { kind: 'danger', text: authError(params.get('error')) } : null;
+  const notice = params.get('linked') ? { kind: 'ok', text: 'Linked. You can now sign in with it too.' } : params.get('error') ? { kind: 'err', text: authError(params.get('error')) } : null;
 
   const load = useCallback(async () => {
     try {
@@ -34,104 +55,104 @@ export function SettingsPage() {
     if (session.signedIn) load();
   }, [session.signedIn, load]);
 
-  if (session.loading) return <div className="page-head"><h1>Settings</h1></div>;
+  if (session.loading) return <div className="wrap page-pad"><h1 className="h1">Account</h1></div>;
 
   if (!session.signedIn) {
     return (
-      <>
-        <div className="page-head">
-          <h1>Settings</h1>
-          <p className="muted">Settings belong to an account. Everything public works without one.</p>
+      <div className="wrap page-pad stack gap-28 narrow-wrap">
+        <div className="stack gap-10">
+          <h1 className="h1">Account</h1>
+          <p className="t2">Settings belong to an account, and accounts are optional: everything public works without one.</p>
         </div>
         <ThemeSection current="forever" disabled />
-        <p><Link to="/sign-in" className="btn btn-primary">Sign in</Link></p>
-      </>
+        <Link to="/sign-in" className="btn gold align-start">Sign in</Link>
+      </div>
     );
   }
 
   return (
-    <>
-      <div className="page-head">
-        <h1>Settings</h1>
-        {account && <p className="faint">Account #{account.id} · since {fmt(account.createdAt)}</p>}
+    <div className="wrap page-pad split settings">
+      <nav aria-label="Settings" className="stack gap-2 settings-nav">
+        <h1 className="h1 settings-title">Account</h1>
+        {account && <span className="muted xsmall settings-since">Account #{account.id} · since {formatDate(account.createdAt)}</span>}
+        {SECTIONS.map(([id, label]) => <a key={id} className="btn ghost left" href={`#${id}`}>{label}</a>)}
+        <span className="hr settings-hr" />
+        <SignOut />
+      </nav>
+      <div className="main stack gap-28">
+        {notice && (
+          <div className={`note ${notice.kind} small`} role="status">
+            <Icon name={notice.kind === 'ok' ? 'check' : 'error'} />
+            <span className="grow">{notice.text}</span>
+            <button type="button" className="btn ghost sm" onClick={() => setParams({})}>Dismiss</button>
+          </div>
+        )}
+        {loadError && <div className="note err small" role="alert"><Icon name="error" /><span>{loadError}</span></div>}
+        <ThemeSection current={session.theme} onChange={session.setTheme} />
+        {account && (
+          <>
+            <MethodsSection account={account} providers={session.providers} onChange={setAccount} />
+            <TwoFactorSection account={account} onChange={setAccount} />
+            <CharactersSection account={account} />
+            <MergeSection account={account} providers={session.providers} />
+          </>
+        )}
       </div>
-      {notice && (
-        <div className={`notice notice-${notice.kind} row-between`} role="status">
-          <span>{notice.text}</span>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setParams({})}>Dismiss</button>
-        </div>
-      )}
-      {loadError && <p className="notice notice-danger">{loadError}</p>}
-      <ThemeSection current={session.theme} onChange={session.setTheme} />
-      {account && (
-        <>
-          <MethodsSection account={account} providers={session.providers} onChange={setAccount} />
-          <PasskeysSection account={account} onChange={setAccount} />
-          <TwoFactorSection account={account} onChange={setAccount} />
-          <CharactersSection account={account} />
-          <MergeSection providers={session.providers} />
-        </>
-      )}
-      <SignOut />
-    </>
+    </div>
   );
 }
 
+/** Theme cards (role=radio), each previewing its own tokens. Applies at once and saves to the account. */
 function ThemeSection({ current, onChange, disabled = false }) {
-  const [problem, setProblem] = useState(null);
+  const toast = useToasts();
   const choose = async (id) => {
+    if (id === current) return;
     const before = current;
     onChange(id);
     try {
       await api('/api/account/theme', { method: 'PUT', body: { theme: id } });
-      setProblem(null);
+      toast.ok('Theme saved', `${THEMES.find((t) => t.id === id).name} follows your account to every device.`);
     } catch (err) {
       onChange(before);
-      setProblem(err.message);
+      toast.err("Couldn't save the theme", err.message);
     }
   };
   return (
-    <section className="panel" aria-labelledby="theme-h">
-      <div className="panel-head">
-        <h2 id="theme-h">Theme</h2>
-        {disabled && <span className="chip">Signed-in accounts only</span>}
+    <section id="appearance" className="panel pad-24 stack gap-18" aria-labelledby="theme-h">
+      <div className="row gap-10">
+        <h2 className="h2 h2-panel" id="theme-h">Theme</h2>
+        <span className="tag gold">Signed-in perk</span>
+        <span className="muted small">{disabled ? 'Visitors always see Forever. Sign in to choose; it follows your account to every device.' : 'Visitors always see Forever. Your choice applies at once.'}</span>
       </div>
-      {disabled && <p className="muted">Visitors always see Forever. Sign in to choose a theme; it follows your account to every device.</p>}
-      <div className="choices" role="radiogroup" aria-label="Theme">
+      <div className="grid-auto col-sm gap-14" role="radiogroup" aria-label="Theme">
         {THEMES.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="radio"
-            className="choice"
-            aria-checked={current === t.id}
-            disabled={disabled}
-            onClick={() => choose(t.id)}
-          >
-            <span className="swatch" data-theme={t.id} aria-hidden="true">
-              <span className="sw-bg" /><span className="sw-surface" /><span className="sw-accent" /><span className="sw-highlight" />
+          <button key={t.id} type="button" role="radio" className="theme-card" data-theme={t.id} aria-checked={current === t.id} disabled={disabled} onClick={() => choose(t.id)}>
+            <span className="stack gap-10 theme-preview">
+              <span className="row gap-6">{['S', 'A', 'B', 'C', 'D'].map((l) => <TierBadge key={l} letter={l} size="sm" />)}</span>
+              <span className="row gap-6"><span className="swatch-bar accent" /><span className="swatch-bar line" /></span>
             </span>
-            <span className="display">{t.name}</span>
-            <span className="faint">{t.blurb}</span>
+            <span className="row theme-name">
+              <span className="stack gap-2"><span className="h3 theme-title">{t.name}</span><span className="muted xsmall">{t.blurb}</span></span>
+              <span className="muted xsmall act">Active</span>
+            </span>
           </button>
         ))}
       </div>
-      {problem && <p className="notice notice-danger">{problem}</p>}
     </section>
   );
 }
 
 function MethodsSection({ account, providers, onChange }) {
+  const toast = useToasts();
+  const [confirm, setConfirm] = useState(null); // { kind: 'unlink' | 'passkey', id, label }
+  const [busy, setBusy] = useState(false);
+  const [name, setName] = useState('');
+  const [adding, setAdding] = useState(false);
   const [problem, setProblem] = useState(null);
   const linked = new Set(account.identities.map((i) => i.provider));
-  const unlink = async (id) => {
-    try {
-      onChange((await api(`/api/account/identities/${id}`, { method: 'DELETE' })).account);
-      setProblem(null);
-    } catch (err) {
-      setProblem(err.message);
-    }
-  };
+  const ways = account.identities.length + account.passkeys.length;
+  const lastWay = ways <= 1;
+
   const link = async (id) => {
     try {
       await startProvider(id, 'link', '/settings');
@@ -139,118 +160,146 @@ function MethodsSection({ account, providers, onChange }) {
       setProblem(err.message);
     }
   };
-  return (
-    <section className="panel" aria-labelledby="methods-h">
-      <div className="panel-head"><h2 id="methods-h">Sign-in providers</h2></div>
-      <ul className="list">
-        {account.identities.map((i) => (
-          <li key={i.id} className="list-item">
-            <span className="list-item-main">
-              <span>{i.label} <span className="chip chip-success">Linked</span></span>
-              <span className="faint">{i.displayName || 'No display name'} · linked {fmt(i.linkedAt)}</span>
-            </span>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => unlink(i.id)}>Unlink</button>
-          </li>
-        ))}
-        {providers.filter((p) => !linked.has(p.id)).map((p) => (
-          <li key={p.id} className="list-item">
-            <span className="list-item-main"><span>{p.label}</span><span className="faint">Not linked</span></span>
-            {p.configured
-              ? <button type="button" className="btn btn-sm" onClick={() => link(p.id)}>Link {p.label}</button>
-              : <span className="chip">Not set up yet</span>}
-          </li>
-        ))}
-      </ul>
-      {problem && <p className="notice notice-danger">{problem}</p>}
-    </section>
-  );
-}
-
-function PasskeysSection({ account, onChange }) {
-  const [problem, setProblem] = useState(null);
-  const [name, setName] = useState('');
-  const [busy, setBusy] = useState(false);
   const add = async () => {
-    setBusy(true);
+    setAdding(true);
     setProblem(null);
     try {
       const r = await passkeyRegister('/api/account/passkeys/options', '/api/account/passkeys/verify', { verifyBody: { name } });
       onChange(r.account);
       setName('');
+      toast.ok('Passkey added', 'You can sign in with it now. Passkey sign-ins skip the two-factor code.');
     } catch (err) {
       if (!wasCancelled(err)) setProblem(err.message);
     }
+    setAdding(false);
+  };
+  const doConfirm = async () => {
+    setBusy(true);
+    try {
+      const path = confirm.kind === 'unlink' ? `/api/account/identities/${confirm.id}` : `/api/account/passkeys/${confirm.id}`;
+      onChange((await api(path, { method: 'DELETE' })).account);
+      toast.ok(confirm.kind === 'unlink' ? `${confirm.label} unlinked` : 'Passkey removed');
+      setConfirm(null);
+    } catch (err) {
+      toast.err(confirm.kind === 'unlink' ? "Couldn't unlink" : "Couldn't remove the passkey", err.message);
+      setConfirm(null);
+    }
     setBusy(false);
   };
-  const remove = async (id) => {
-    try {
-      onChange((await api(`/api/account/passkeys/${id}`, { method: 'DELETE' })).account);
-    } catch (err) {
-      setProblem(err.message);
-    }
-  };
+  const lastTitle = lastWay ? "It's your only way to sign in. Add another first." : undefined;
+
   return (
-    <section className="panel" aria-labelledby="passkeys-h">
-      <div className="panel-head"><h2 id="passkeys-h">Passkeys</h2></div>
-      <p className="muted">Sign in with your device's fingerprint, face or PIN. A passkey sign-in doesn't ask for a 2FA code.</p>
-      {account.passkeys.length === 0 ? (
-        <EmptyState kind="nodata" title="No passkeys on this account" />
-      ) : (
-        <ul className="list">
-          {account.passkeys.map((p) => (
-            <li key={p.id} className="list-item">
-              <span className="list-item-main"><span>{p.name}</span><span className="faint">Added {fmt(p.createdAt)}{p.lastUsedAt ? ` · last used ${fmt(p.lastUsedAt)}` : ' · never used'}</span></span>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => remove(p.id)}>Remove</button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {passkeysSupported() ? (
-        <div className="row">
-          <div className="field">
-            <label htmlFor="pk-name">Name (optional)</label>
-            <input id="pk-name" className="input" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="e.g. My phone" />
+    <section id="signin" className="panel pad-24 stack gap-16" aria-labelledby="methods-h">
+      <div className="stack gap-4">
+        <h2 className="h2 h2-panel" id="methods-h">Sign-in methods</h2>
+        <span className="muted small">Sign in with any of these. New ones can only be added here, while you're signed in.</span>
+      </div>
+      <div className="listbox">
+        {account.identities.map((i) => (
+          <div key={i.id} className="listrow">
+            <span className="provider-ico"><Icon name="provider-account" size="md" /></span>
+            <span className="stack grow-col"><b>{i.label}</b><span className="muted xsmall">{i.displayName ? `Linked as ${i.displayName}` : 'Linked'} · since {formatDate(i.linkedAt)}</span></span>
+            <span className="tag ok">Linked</span>
+            <button type="button" className="btn sm danger" disabled={lastWay} title={lastTitle} onClick={() => setConfirm({ kind: 'unlink', id: i.id, label: i.label })}>Unlink</button>
           </div>
-          <button type="button" className="btn" onClick={add} aria-disabled={busy}>{busy ? 'Waiting for your device…' : 'Add a passkey'}</button>
+        ))}
+        {providers.filter((p) => !linked.has(p.id)).map((p) => (
+          <div key={p.id} className="listrow">
+            <span className="provider-ico"><Icon name="provider-account" size="md" /></span>
+            <span className="stack grow-col"><b>{p.label}</b><span className="muted xsmall">Not linked</span></span>
+            {p.configured
+              ? <button type="button" className="btn sm" onClick={() => link(p.id)}>Link {p.label}</button>
+              : <span className="tag">Not configured</span>}
+          </div>
+        ))}
+        <div className="listrow passkey-row">
+          <div className="row gap-14">
+            <span className="provider-ico"><Icon name="passkey" size="md" /></span>
+            <span className="stack grow-col"><b>Passkeys</b><span className="muted xsmall">Your device's fingerprint, face or PIN. A passkey sign-in skips the two-factor step.</span></span>
+          </div>
+          {account.passkeys.length > 0 && (
+            <div className="raised">
+              {account.passkeys.map((p, i) => (
+                <div key={p.id}>
+                  {i > 0 && <div className="hr" />}
+                  <div className="passkey-item">
+                    <span><b>{p.name}</b></span>
+                    <span className="muted xsmall">{p.lastUsedAt ? `Last used ${formatDate(p.lastUsedAt)}` : `Added ${formatDate(p.createdAt)} · never used`}</span>
+                    <button type="button" className="btn sm ghost" disabled={lastWay} title={lastTitle} onClick={() => setConfirm({ kind: 'passkey', id: p.id, label: p.name })}>Remove</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {passkeysSupported() ? (
+            <div className="row gap-8 align-end">
+              <Field label="Name (optional)" className="grow" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="e.g. My phone" />
+              <Button className="gold" loading={adding} onClick={add}><Icon name="plus" size="sm" />Add a passkey</Button>
+            </div>
+          ) : (
+            <span className="muted xsmall">This browser doesn't support passkeys.</span>
+          )}
         </div>
-      ) : (
-        <p className="faint">This browser doesn't support passkeys.</p>
+      </div>
+      {problem && <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>}
+      {confirm && (
+        <Modal
+          title={confirm.kind === 'unlink' ? `Unlink ${confirm.label}?` : `Remove “${confirm.label}”?`}
+          busy={busy}
+          onClose={() => setConfirm(null)}
+          actions={<><button type="button" className="btn ghost" onClick={() => setConfirm(null)} disabled={busy}>Cancel</button><Button className="danger" loading={busy} onClick={doConfirm}>{confirm.kind === 'unlink' ? 'Unlink' : 'Remove'}</Button></>}
+        >
+          <p className="t2 small">
+            {confirm.kind === 'unlink'
+              ? `You won't be able to sign in with ${confirm.label} any more. Signing in with it later would make a new, separate account; link it again from here instead.`
+              : 'This passkey stops working for Everstats. Remove it from your device too if you no longer want it.'}
+          </p>
+        </Modal>
       )}
-      {problem && <p className="notice notice-danger">{problem}</p>}
     </section>
   );
 }
 
 function TwoFactorSection({ account, onChange }) {
+  const toast = useToasts();
   const [setup, setSetup] = useState(null);
   const [codes, setCodes] = useState(null);
   const [code, setCode] = useState('');
   const [problem, setProblem] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [confirmOff, setConfirmOff] = useState(false);
   const on = account.twoFactor.state === 'on';
 
-  const act = (fn) => async (e) => {
+  const act = (name, fn) => async (e) => {
     e?.preventDefault();
     setProblem(null);
+    setBusy(name);
     try {
       await fn();
     } catch (err) {
       setProblem(err.message);
     }
+    setBusy(null);
   };
-  const begin = act(async () => setSetup((await api('/api/account/2fa/setup', { method: 'POST', body: {} })).setup));
-  const enable = act(async () => {
+  const begin = act('begin', async () => setSetup((await api('/api/account/2fa/setup', { method: 'POST', body: {} })).setup));
+  const enable = act('enable', async () => {
     const r = await api('/api/account/2fa/enable', { method: 'POST', body: { code } });
     setCodes(r.recoveryCodes);
     setSetup(null);
     setCode('');
     onChange(r.account);
   });
-  const disable = act(async () => {
-    const r = await api('/api/account/2fa/disable', { method: 'POST', body: { code } });
-    setCode('');
-    onChange(r.account);
+  const disable = act('disable', async () => {
+    try {
+      const r = await api('/api/account/2fa/disable', { method: 'POST', body: { code } });
+      setCode('');
+      onChange(r.account);
+      toast.ok('Two-factor is off');
+    } finally {
+      setConfirmOff(false);
+    }
   });
-  const regenerate = act(async () => {
+  const regenerate = act('regenerate', async () => {
     const r = await api('/api/account/2fa/recovery-codes', { method: 'POST', body: { code } });
     setCodes(r.recoveryCodes);
     setCode('');
@@ -258,79 +307,122 @@ function TwoFactorSection({ account, onChange }) {
   });
 
   return (
-    <section className="panel" aria-labelledby="tfa-h">
-      <div className="panel-head">
-        <h2 id="tfa-h">Two-factor authentication</h2>
-        <span className={`chip ${on ? 'chip-success' : ''}`}>{on ? `On since ${fmt(account.twoFactor.enabledAt)}` : 'Off'}</span>
+    <section id="twofa" className="panel pad-24 stack gap-18" aria-labelledby="tfa-h">
+      <div className="row gap-10">
+        <h2 className="h2 h2-panel" id="tfa-h">Two-factor authentication</h2>
+        <span className={`tag ${on ? 'ok' : ''}`}>{on ? `On since ${formatDate(account.twoFactor.enabledAt)}` : 'Optional · off'}</span>
+        <span className="muted small">An authenticator-app code after a Battle.net or Discord sign-in. Passkey sign-ins skip it.</span>
       </div>
-      <p className="muted">With 2FA on, signing in with Battle.net or Discord also asks for a code from an authenticator app. Passkey sign-ins don't.</p>
 
-      {codes && (
-        <div className="parchment stack" role="status">
-          <strong>Your recovery codes. This is the only time they are shown.</strong>
-          <span>Each one works once if you lose your authenticator. Save them somewhere safe now.</span>
-          <ul className="list codes">{codes.map((c) => <li key={c}>{c}</li>)}</ul>
-          <div className="row">
-            <button type="button" className="btn btn-sm" onClick={() => navigator.clipboard?.writeText(codes.join('\n'))}>Copy all</button>
-            <button type="button" className="btn btn-sm btn-primary" onClick={() => setCodes(null)}>I've saved them</button>
-          </div>
-        </div>
-      )}
+      {codes && <RecoveryCodes codes={codes} onDone={() => { setCodes(null); toast.ok('Two-factor is on', 'Your recovery codes are put away. Each works once.'); }} />}
 
-      {!on && !setup && <div><button type="button" className="btn" onClick={begin}>Turn on 2FA</button></div>}
+      {!on && !setup && !codes && <div><Button loading={busy === 'begin'} onClick={begin}>Turn on two-factor</Button></div>}
 
       {!on && setup && (
-        <form className="stack" onSubmit={enable}>
-          <div className="row">
-            <img className="qr" src={setup.qr} alt="QR code for your authenticator app" />
-            <div className="stack">
-              <span>Scan this with your authenticator app, or enter the key by hand:</span>
-              <code className="mono">{setup.secret.match(/.{1,4}/g).join(' ')}</code>
+        <form className="raised stack gap-14 pad-20" onSubmit={enable}>
+          <span className="eyebrow">Step 1 · Scan</span>
+          <div className="row gap-16">
+            <img className="qr qr-img" src={setup.qr} alt="QR code for your authenticator app" />
+            <span className="stack gap-6 grow-120">
+              <span className="t2 small">Can't scan? Enter this key:</span>
+              <span className="mono small code-key">{setup.secret.match(/.{1,4}/g).join(' ')}</span>
+              <button type="button" className="btn sm align-start" onClick={() => navigator.clipboard?.writeText(setup.secret).then(() => toast.ok('Key copied'))}><Icon name="copy" size="sm" />Copy key</button>
+            </span>
+          </div>
+          <div className="field">
+            <label htmlFor="tfa-code">Enter the 6-digit code</label>
+            <div className="row gap-8 nowrap">
+              <input id="tfa-code" className="inp otp grow" value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" placeholder="000 000" maxLength={7} />
+              <Button type="submit" className="gold" loading={busy === 'enable'}>Verify</Button>
             </div>
           </div>
-          <div className="row">
-            <div className="field">
-              <label htmlFor="tfa-code">Code from the app</label>
-              <input id="tfa-code" className="input input-code" value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={7} />
-            </div>
-            <button type="submit" className="btn btn-primary">Turn on</button>
-            <button type="button" className="btn btn-ghost" onClick={() => setSetup(null)}>Cancel</button>
-          </div>
+          <span className="muted xsmall">Step 2 shows your ten recovery codes, once.</span>
+          <button type="button" className="btn ghost sm align-start" onClick={() => { setSetup(null); setCode(''); }}>Cancel</button>
         </form>
       )}
 
-      {on && (
-        <form className="stack" onSubmit={(e) => e.preventDefault()}>
-          <p className="faint">{account.twoFactor.recoveryCodesLeft} of 10 recovery codes left.</p>
-          <div className="row">
-            <div className="field">
-              <label htmlFor="tfa-current">Current code (or a recovery code)</label>
-              <input id="tfa-current" className="input input-code" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" maxLength={11} />
-            </div>
-            <button type="button" className="btn" onClick={regenerate}>New recovery codes</button>
-            <button type="button" className="btn btn-danger" onClick={disable}>Turn off 2FA</button>
+      {on && !codes && (
+        <form className="stack gap-14" onSubmit={(e) => e.preventDefault()}>
+          <span className="t2 small">{account.twoFactor.recoveryCodesLeft} of 10 recovery codes left.</span>
+          <div className="row gap-8 align-end">
+            <Field label="Current code (or a recovery code)" inputClassName="otp" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" maxLength={11} />
+            <Button loading={busy === 'regenerate'} onClick={regenerate}>Regenerate codes</Button>
+            <button type="button" className="btn danger" onClick={() => setConfirmOff(true)}>Turn off</button>
           </div>
         </form>
       )}
-      {problem && <p className="notice notice-danger">{problem}</p>}
+      {problem && <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>}
+      {confirmOff && (
+        <Modal
+          title="Turn off two-factor?"
+          busy={busy === 'disable'}
+          onClose={() => setConfirmOff(false)}
+          actions={<><button type="button" className="btn ghost" onClick={() => setConfirmOff(false)} disabled={busy === 'disable'}>Cancel</button><Button className="danger" loading={busy === 'disable'} onClick={disable}>Turn off</Button></>}
+        >
+          <p className="t2 small">Battle.net and Discord sign-ins stop asking for a code. Your secret and remaining recovery codes are deleted; turning it on again starts fresh. It uses the code you entered above.</p>
+        </Modal>
+      )}
     </section>
+  );
+}
+
+/**
+ * The ten recovery codes, shown exactly once (on turning 2FA on, or regenerating). Download / Copy / Print, and
+ * "I've stored these" before Finish. Nothing keeps them after this: only an HMAC of each is stored.
+ */
+function RecoveryCodes({ codes, onDone }) {
+  const toast = useToasts();
+  const [stored, setStored] = useState(false);
+  const text = `Everstats recovery codes. Each works once.\n\n${codes.join('\n')}\n`;
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'everstats-recovery-codes.txt';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const print = () => {
+    document.body.classList.add('printing-codes');
+    window.print();
+    document.body.classList.remove('printing-codes');
+  };
+  return (
+    <div className="sheet stack gap-14 pad-20 recovery" role="status">
+      <span className="eyebrow">Recovery codes — shown once</span>
+      <div className="note warn small"><Icon name="warning" /><span>Save these now. Each works once if you lose your authenticator. We can't show them again — only generate a new set.</span></div>
+      <ol className="codes print-codes">
+        {codes.map((c, i) => <li key={c}><span className="muted code-n">{String(i + 1).padStart(2, '0')}</span> {c}</li>)}
+      </ol>
+      <div className="row gap-8">
+        <button type="button" className="btn sm" onClick={download}><Icon name="download" size="sm" />Download .txt</button>
+        <button type="button" className="btn sm" onClick={() => navigator.clipboard?.writeText(text).then(() => toast.ok('Codes copied'))}><Icon name="copy" size="sm" />Copy all</button>
+        <button type="button" className="btn sm" onClick={print}><Icon name="print" size="sm" />Print</button>
+      </div>
+      <label className="check"><input type="checkbox" checked={stored} onChange={(e) => setStored(e.target.checked)} />I've stored these somewhere safe</label>
+      <button type="button" className="btn gold align-start" disabled={!stored} onClick={onDone}>Finish</button>
+    </div>
   );
 }
 
 function CharactersSection({ account }) {
   const hasBnet = account.identities.some((i) => i.provider === 'battlenet');
   return (
-    <section className="panel" aria-labelledby="chars-h">
-      <div className="panel-head"><h2 id="chars-h">Your characters</h2></div>
-      <EmptyState kind="nodata" title="You haven't added any characters" />
-      <EmptyState kind="soon" title="Add all your Forever characters at once">
+    <section id="characters" className="panel pad-24 stack gap-16" aria-labelledby="chars-h">
+      <h2 className="h2 h2-panel" id="chars-h">Your characters</h2>
+      <EmptyState kind="soon" compact title="Add all your Forever characters at once">
         <span>{hasBnet ? 'Your Battle.net login will be able to list every Forever character on your account.' : 'Link Battle.net above, and it will be able to list every Forever character on your account.'}</span>
       </EmptyState>
     </section>
   );
 }
 
-function MergeSection({ providers }) {
+/**
+ * Merge: THIS account moves into the one you prove, and this one is deleted (CLAUDE.md "Merge"). The design's
+ * "Keep this / absorb the other" is the wrong way round for Everstats, so the two boxes read "Moves · this account"
+ * and "Keeps · the other account". The confirmation is the merge page itself (/settings/merge), shown after proof.
+ */
+function MergeSection({ account, providers }) {
   const navigate = useNavigate();
   const [problem, setProblem] = useState(null);
   const viaProvider = async (id) => {
@@ -348,17 +440,30 @@ function MergeSection({ providers }) {
       if (!wasCancelled(err)) setProblem(err.message);
     }
   };
+  const configured = providers.filter((p) => p.configured);
   return (
-    <section className="panel" aria-labelledby="merge-h">
-      <div className="panel-head"><h2 id="merge-h">Merge into another account</h2></div>
-      <p className="muted">Made a second account by signing in with a provider you hadn't linked? Prove the account you want to keep by signing in to it here; this account's logins and passkeys move into it, and this account is deleted.</p>
-      <div className="row">
-        {providers.filter((p) => p.configured).map((p) => (
-          <button key={p.id} type="button" className="btn btn-sm" onClick={() => viaProvider(p.id)}>Sign in to the other account with {p.label}</button>
-        ))}
-        {passkeysSupported() && <button type="button" className="btn btn-sm" onClick={viaPasskey}>…with its passkey</button>}
+    <section id="merge" className="panel pad-24 stack gap-16" aria-labelledby="merge-h">
+      <div className="stack gap-4">
+        <h2 className="h2 h2-panel" id="merge-h">Merge accounts</h2>
+        <span className="muted small">Signed in with {providerNames(providers) || 'a provider'} that you hadn't linked, and got a second account? Move this one into the account you want to keep.</span>
       </div>
-      {problem && <p className="notice notice-danger">{problem}</p>}
+      <div className="grid-auto gap-16 merge-boxes">
+        <div className="raised stack gap-4 pad-16">
+          <span className="eyebrow">Moves · this account</span>
+          <b>{account.identities.map((i) => i.label).join(' + ') || 'Passkeys only'}</b>
+          <span className="muted xsmall">{account.identities.length} login(s) · {account.passkeys.length} passkey(s) · then deleted</span>
+        </div>
+        <div className="stack gap-8 pad-16 merge-target">
+          <span className="eyebrow">Keeps · the other account</span>
+          <span className="t2 small">Sign in to it here to prove it's yours.</span>
+          <div className="row gap-8">
+            {configured.map((p) => <button key={p.id} type="button" className="btn sm" onClick={() => viaProvider(p.id)}>{p.label}</button>)}
+            {passkeysSupported() && <button type="button" className="btn sm" onClick={viaPasskey}><Icon name="passkey" size="sm" />Its passkey</button>}
+          </div>
+        </div>
+      </div>
+      <div className="note small"><Icon name="info" /><span>This account's logins and passkeys move to the other account; its theme and 2FA settings are dropped and the other account keeps its own. You'll see exactly what happens and confirm before anything changes. It can't be undone.</span></div>
+      {problem && <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>}
     </section>
   );
 }
@@ -367,10 +472,8 @@ function SignOut() {
   const session = useSession();
   const navigate = useNavigate();
   return (
-    <div>
-      <button type="button" className="btn btn-ghost" onClick={async () => { await api('/api/auth/sign-out', { method: 'POST', body: {} }); await session.refresh(); navigate('/'); }}>
-        Sign out
-      </button>
-    </div>
+    <button type="button" className="btn ghost left" onClick={async () => { await api('/api/auth/sign-out', { method: 'POST', body: {} }); await session.refresh(); navigate('/'); }}>
+      <Icon name="arrow-left" size="sm" />Sign out
+    </button>
   );
 }
