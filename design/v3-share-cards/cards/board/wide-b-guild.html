@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en" data-theme="forever">
+<head>
+<meta charset="utf-8">
+<title>Everstats board card · wide · layout B</title>
+<link rel="stylesheet" href="../../../v1/assets/fonts/fonts.css">
+<link rel="stylesheet" href="../../../v1/tokens/themes.css">
+<link rel="stylesheet" href="../../../v1/components/components.css">
+<link rel="stylesheet" href="../../../v2-badges/tokens/badges.css">
+<link rel="stylesheet" href="../../../v2-guild-badges/tokens/guild-badges.css">
+<link rel="stylesheet" href="../../tokens/cards.css">
+<link rel="stylesheet" href="../../cards/cards.css">
+</head>
+<body>
+<!-- TEMPLATE board/wide-b (example wiring for a guild subject; same template). Server: inject <script>window.CARD_DATA = {…}</script> in place of the example data script, render
+     at exactly the card size (see tokens), wait for <html data-ready="1">, screenshot [data-card]. Bindings are documented in ../fill.js. -->
+<div class="card fmt-wide t-board v-b" data-card>
+<div class="bgfx mapbg" aria-hidden="true"></div><div class="frame" aria-hidden="true"></div>
+<div class="body">
+  <div class="hero a-h" data-class="rank_cls" data-slot="rank"></div>
+  <div class="a-s"><div class="statname" data-fit data-slot="stat"></div><div class="cmeta scope" data-slot="scope"></div></div>
+  <div class="bigval a-v"><span data-slot="value"></span><small data-slot="unit"></small></div>
+  <div class="who solid a-w"><span class="thumb"><img data-if="render" data-slot-src="render" alt=""><span data-if-not="render" data-slot-html="subject_svg"></span></span><span class="ident"><b data-slot="subject"></b><span data-slot="sub"></span></span></div>
+  <div class="ctx solid a-x" data-repeat="neighbours"><div class="crow" data-item><span class="rk" data-f="rank"></span><span class="n" data-f="name"></span><span class="val" data-f="value"></span></div></div>
+</div>
+<footer class="card-foot"><span class="wm"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" style="fill:none;stroke:var(--es-accent);stroke-width:3"/><path d="M32 6 L35 29 L58 32 L35 35 L32 58 L29 35 L6 32 L29 29 Z" style="fill:var(--es-accent);opacity:var(--es-opacity-ornament)"/><text x="32" y="42" text-anchor="middle" font-size="28" style="font-family:var(--es-font-display);font-weight:var(--es-weight-black);fill:var(--es-text)">E</text></svg>Everstats</span><span class="info"><span class="url" data-fit data-slot="url"></span><span class="attr">Data: Blizzard Entertainment · as of <span data-slot="asof"></span></span></span></footer>
+</div>
+<script src="../data/board-guild.example.js"></script>
+<script src="../fill.js"></script>
+</body>
+</html>

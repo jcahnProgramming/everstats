@@ -1,0 +1,267 @@
+{
+  "$description": "Share card tokens. Formats are fixed pixel canvases; every size inside a card comes from its format block.",
+  "formats": {
+    "square": {
+      "w": {
+        "$type": "dimension",
+        "$value": "1080px",
+        "$description": ""
+      },
+      "h": {
+        "$type": "dimension",
+        "$value": "1080px",
+        "$description": ""
+      },
+      "safe": {
+        "$type": "dimension",
+        "$value": "64px",
+        "$description": "Safe margin: nothing important closer to the edge (Discord/X crop rounded corners)."
+      },
+      "gap": {
+        "$type": "dimension",
+        "$value": "32px",
+        "$description": ""
+      },
+      "name": {
+        "$type": "dimension",
+        "$value": "84px",
+        "$description": "Name / headline size."
+      },
+      "name-sm": {
+        "$type": "dimension",
+        "$value": "64px",
+        "$description": ""
+      },
+      "meta": {
+        "$type": "dimension",
+        "$value": "30px",
+        "$description": ""
+      },
+      "stat-val": {
+        "$type": "dimension",
+        "$value": "54px",
+        "$description": ""
+      },
+      "stat-label": {
+        "$type": "dimension",
+        "$value": "24px",
+        "$description": ""
+      },
+      "stat-rank": {
+        "$type": "dimension",
+        "$value": "22px",
+        "$description": ""
+      },
+      "foot": {
+        "$type": "dimension",
+        "$value": "24px",
+        "$description": "Footer text size \u2014 the floor for anything on the card (link, attribution, date)."
+      },
+      "foot-h": {
+        "$type": "dimension",
+        "$value": "96px",
+        "$description": "Footer band height."
+      },
+      "hero": {
+        "$type": "dimension",
+        "$value": "220px",
+        "$description": "Leaderboard \u201c#1\u201d / big number size."
+      },
+      "tier": {
+        "$type": "dimension",
+        "$value": "200px",
+        "$description": "Tier shield width on tier cards."
+      }
+    },
+    "story": {
+      "w": {
+        "$type": "dimension",
+        "$value": "1080px",
+        "$description": ""
+      },
+      "h": {
+        "$type": "dimension",
+        "$value": "1920px",
+        "$description": ""
+      },
+      "safe": {
+        "$type": "dimension",
+        "$value": "80px",
+        "$description": "Safe margin: nothing important closer to the edge (Discord/X crop rounded corners)."
+      },
+      "gap": {
+        "$type": "dimension",
+        "$value": "40px",
+        "$description": ""
+      },
+      "name": {
+        "$type": "dimension",
+        "$value": "96px",
+        "$description": "Name / headline size."
+      },
+      "name-sm": {
+        "$type": "dimension",
+        "$value": "72px",
+        "$description": ""
+      },
+      "meta": {
+        "$type": "dimension",
+        "$value": "34px",
+        "$description": ""
+      },
+      "stat-val": {
+        "$type": "dimension",
+        "$value": "60px",
+        "$description": ""
+      },
+      "stat-label": {
+        "$type": "dimension",
+        "$value": "26px",
+        "$description": ""
+      },
+      "stat-rank": {
+        "$type": "dimension",
+        "$value": "24px",
+        "$description": ""
+      },
+      "foot": {
+        "$type": "dimension",
+        "$value": "26px",
+        "$description": "Footer text size \u2014 the floor for anything on the card (link, attribution, date)."
+      },
+      "foot-h": {
+        "$type": "dimension",
+        "$value": "150px",
+        "$description": "Footer band height."
+      },
+      "hero": {
+        "$type": "dimension",
+        "$value": "280px",
+        "$description": "Leaderboard \u201c#1\u201d / big number size."
+      },
+      "tier": {
+        "$type": "dimension",
+        "$value": "260px",
+        "$description": "Tier shield width on tier cards."
+      }
+    },
+    "wide": {
+      "w": {
+        "$type": "dimension",
+        "$value": "1200px",
+        "$description": ""
+      },
+      "h": {
+        "$type": "dimension",
+        "$value": "630px",
+        "$description": ""
+      },
+      "safe": {
+        "$type": "dimension",
+        "$value": "48px",
+        "$description": "Safe margin: nothing important closer to the edge (Discord/X crop rounded corners)."
+      },
+      "gap": {
+        "$type": "dimension",
+        "$value": "24px",
+        "$description": ""
+      },
+      "name": {
+        "$type": "dimension",
+        "$value": "64px",
+        "$description": "Name / headline size."
+      },
+      "name-sm": {
+        "$type": "dimension",
+        "$value": "50px",
+        "$description": ""
+      },
+      "meta": {
+        "$type": "dimension",
+        "$value": "24px",
+        "$description": ""
+      },
+      "stat-val": {
+        "$type": "dimension",
+        "$value": "40px",
+        "$description": ""
+      },
+      "stat-label": {
+        "$type": "dimension",
+        "$value": "19px",
+        "$description": ""
+      },
+      "stat-rank": {
+        "$type": "dimension",
+        "$value": "18px",
+        "$description": ""
+      },
+      "foot": {
+        "$type": "dimension",
+        "$value": "20px",
+        "$description": "Footer text size \u2014 the floor for anything on the card (link, attribution, date)."
+      },
+      "foot-h": {
+        "$type": "dimension",
+        "$value": "64px",
+        "$description": "Footer band height."
+      },
+      "hero": {
+        "$type": "dimension",
+        "$value": "150px",
+        "$description": "Leaderboard \u201c#1\u201d / big number size."
+      },
+      "tier": {
+        "$type": "dimension",
+        "$value": "150px",
+        "$description": "Tier shield width on tier cards."
+      }
+    }
+  },
+  "shared": {
+    "card-radius": {
+      "$type": "dimension",
+      "$value": "24px"
+    },
+    "card-border": {
+      "$type": "dimension",
+      "$value": "3px"
+    },
+    "card-inner-inset": {
+      "$type": "dimension",
+      "$value": "14px"
+    },
+    "card-panel-radius": {
+      "$type": "dimension",
+      "$value": "16px"
+    },
+    "card-gem": {
+      "$type": "dimension",
+      "$value": "18px"
+    },
+    "card-badge": {
+      "$type": "dimension",
+      "$value": "72px"
+    },
+    "card-badge-sm": {
+      "$type": "dimension",
+      "$value": "52px"
+    },
+    "card-gear": {
+      "$type": "dimension",
+      "$value": "64px"
+    },
+    "card-preview-w": {
+      "$type": "dimension",
+      "$value": "520px"
+    },
+    "card-preview-w-phone": {
+      "$type": "dimension",
+      "$value": "358px"
+    },
+    "card-thumb": {
+      "$type": "dimension",
+      "$value": "96px"
+    }
+  }
+}
