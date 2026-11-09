@@ -337,10 +337,11 @@ test('equal values only suggest a possible duplicate; nothing is ungraded until 
     row(1199, 'Professions learned', [1, 2, 2, 2, 1]), row(1201, 'Professions at maximum skill', [1, 2, 2, 2, 1]),
     row(70, 'Rare one', [1, 1]), row(71, 'Rare two', [1, 1]),
     row(80, 'Always zero', [0, 0, 0, 0, 0, 0]), row(81, 'Also always zero', [0, 0, 0, 0, 0, 0]),
+    row(90, 'Total deaths', [5, 4, 3, 2, 1]), row(91, 'Deaths', [5, 4, 3, 2, 1]),
   ];
   const dups = findDuplicateCandidates(raw);
   // Fewer than 5 characters, or one value for everyone, is never evidence of a duplicate.
-  assert.deepEqual([...dups.keys()].sort((a, b) => a - b), [1199, 1201, 1456, 1518]);
+  assert.deepEqual([...dups.keys()].sort((a, b) => a - b), [90, 91, 1199, 1201, 1456, 1518]);
   const catalog = raw.map((s) => ({ ...s, duplicate: dups.get(s.statisticId) ?? null }));
   const byId = Object.fromEntries(catalog.map((s) => [s.statisticId, s]));
   const sug = (s, kind, decisions) => present(s, decisions).suggestions.find((x) => x.kind === kind);
@@ -348,10 +349,12 @@ test('equal values only suggest a possible duplicate; nothing is ungraded until 
   // Suggested, with its evidence and a confidence from the names; still graded until approved.
   const fish = sug(byId[1518], 'duplicate');
   assert.deepEqual(fish.value, { of: 1456 });
-  assert.equal(fish.evidence.confidence, 'likely');
+  // "and other things" widens the count: the names differ, so only possible. Names equal but for filler: likely.
+  assert.equal(fish.evidence.confidence, 'possible');
+  assert.equal(sug(byId[91], 'duplicate').evidence.confidence, 'likely');
   assert.equal(fish.evidence.present, 5);
   assert.equal(fish.evidence.nonzero, 5);
-  assert.equal(sug(byId[1201], 'duplicate').evidence.confidence, 'possible'); // the names count different things
+  assert.equal(sug(byId[1201], 'duplicate').evidence.confidence, 'possible');
   assert.match(sug(byId[1201], 'duplicate').reasoning, /Possibly the same as "Professions learned".*Unknown from 5 samples/);
   assert.equal(sug(byId[1201], 'grading').value, 'overall');
   assert.match(sug(byId[1201], 'grading').reasoning, /if you approve that pairing/);

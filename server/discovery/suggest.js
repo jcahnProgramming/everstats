@@ -66,17 +66,17 @@ export function categoryFor(s) {
   return null;
 }
 
-// Words that don't change what a statistic counts, for comparing names ("Fish caught" / "Fish and other things
-// caught"). A name relationship only raises a suggestion's confidence: the values must be equal as well.
-const NAME_FILLER = new Set(['total', 'world', 'the', 'and', 'other', 'things', 'of', 'a', 'an', 'at', 'in', 'on', 'by', 'from', 'number', 'times']);
+// Words that don't change what a statistic counts, for comparing names. Qualifiers that narrow or widen a count
+// ("world", "battleground", "and other things") are NOT filler: World Honorable Kills is part of Total Honorable Kills
+// (run 2: 7 world + 26 battleground = 33 total), and "Fish and other things caught" counts more than fish. A name
+// match only raises a suggestion's confidence; the values must be equal as well.
+const NAME_FILLER = new Set(['total', 'the', 'of', 'a', 'an', 'number', 'times']);
 const nameCore = (name) => new Set(String(name).toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').split(/\s+/).filter((w) => w && !NAME_FILLER.has(w)));
-/** True when one name's meaningful words are all in the other's. */
-export function namesRelated(a, b) {
+/** True when two names say the same thing once filler words are dropped ("Total deaths" / "Deaths"). */
+export function namesMatch(a, b) {
   const x = nameCore(a);
   const y = nameCore(b);
-  if (!x.size || !y.size) return false;
-  const [small, large] = x.size <= y.size ? [x, y] : [y, x];
-  return [...small].every((w) => large.has(w));
+  return x.size > 0 && x.size === y.size && [...x].every((w) => y.has(w));
 }
 
 /**
@@ -106,7 +106,7 @@ export function findDuplicateCandidates(catalog) {
     out.set(primary.statisticId, { role: 'primary', group });
     for (const m of ranked.slice(1)) {
       out.set(m.statisticId, {
-        role: 'candidate', of: primary.statisticId, ofName: primary.name, confidence: namesRelated(m.name, primary.name) ? 'likely' : 'possible',
+        role: 'candidate', of: primary.statisticId, ofName: primary.name, confidence: namesMatch(m.name, primary.name) ? 'likely' : 'possible',
         present: m.charactersPresent, nonzero: m.charactersNonzero, distinct: new Set(m.valuesBySubject.values()).size, group,
       });
     }
@@ -171,7 +171,7 @@ function suggestDuplicate(s, ctx) {
   if (dup?.role === 'candidate') {
     const why = dup.confidence === 'likely'
       ? `Likely the same thing as "${dup.ofName}" (id ${dup.of}): the names say so, and the values are identical`
-      : `Possibly the same as "${dup.ofName}" (id ${dup.of}): the values are identical, but the names count different things, so this may only hold for these samples`;
+      : `Possibly the same as "${dup.ofName}" (id ${dup.of}): the values are identical, but the names differ, so this may only hold for these samples`;
     return {
       kind: 'duplicate', value: { of: dup.of },
       reasoning: `${why} for all ${dup.present} characters that have either (${dup.nonzero} non-zero, ${dup.distinct} different values). Unknown from ${dup.present} samples whether they ever differ. Approve to stop counting this one toward tiers; both keep their leaderboards.`,

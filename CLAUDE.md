@@ -124,7 +124,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   run, so a decision shows in every view. **These are discovery tables, not production character tables**, and
   approving a suggestion builds nothing yet.
 - Suggestions (`suggest.js`) are `category`, `grading` (`overall` | `category` | `none`), `leaderboard` (always yes)
-  and `duplicate` (`{ of }`, only when equal values suggest one: "possible", or "likely" when the names agree too),
+  and `duplicate` (`{ of }`, only when equal values suggest one: "possible", or "likely" when the names are the same apart from filler like "total"),
   from name, value and Blizzard-category rules, never statistic ids. They are computed **when the catalog is read**
   (`present()`), from the analysed row plus the current decisions, so an approval takes effect at once. The
   `value_type` decision is the owner's correction of a guessed type and overrides the analysis. Value types are
