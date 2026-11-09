@@ -1,1 +1,46 @@
-/* App additions to the design stylesheet (components.css). Only var(--es-…) values; colours live in tokens.css. */
+/* App additions to the design stylesheet (components.css, copied verbatim from design/v1). Only var(--es-…) values;
+   colours live in tokens.css. Each block says why the design's own rules weren't enough. */
+
+/* ---------------------------------------------------------------- base */
+html { scroll-padding-top: calc(var(--es-size-topbar) + var(--es-space-16)); -webkit-text-size-adjust: 100%; }
+/* The design applies .es to its mockup <body>; here it is the shell's root, so the body itself needs the ground. */
+body { background-color: var(--es-bg); color: var(--es-text); }
+/* "Every number uses Inter with tabular, lining figures" (design/v1/tokens/typography.md): set once for everything. */
+.es { font-variant-numeric: tabular-nums lining-nums; }
+/* The map motif is fixed to the viewport so long pages don't stretch the rings. */
+.es.mapbg { background-attachment: fixed; }
+.app-main { flex: 1 0 auto; display: flex; flex-direction: column; }
+.es h1:focus { outline: none; }
+.es h1:focus-visible { outline: var(--es-border-2) solid var(--es-focus); outline-offset: var(--es-space-4); }
+.es button { font-family: inherit; }
+.es ul.plain, .es ol.plain { list-style: none; margin: 0; padding: 0; }
+
+.skip-link { position: absolute; left: var(--es-space-16); top: calc(var(--es-space-64) * -1); z-index: var(--es-z-toast); background: var(--es-raised); color: var(--es-text) !important; padding: var(--es-space-10) var(--es-space-14); border-radius: var(--es-radius-md); border: var(--es-border-1) solid var(--es-accent); }
+.skip-link:focus { top: var(--es-space-8); }
+
+/* ---------------------------------------------------------------- top bar */
+/* CLAUDE.md: the top bar is sticky. The design's .topbar is translucent (82% bg), so it reads over the map. */
+.topbar-sticky { position: sticky; top: 0; z-index: var(--es-z-sticky); }
+.topbar { -webkit-backdrop-filter: blur(var(--es-space-8)); backdrop-filter: blur(var(--es-space-8)); }
+.brand svg .mark-ring { fill: none; stroke: var(--es-accent); stroke-width: 3; }
+.brand svg .mark-rose { fill: var(--es-accent); opacity: var(--es-opacity-ornament); }
+.brand svg .mark-letter { font-family: var(--es-font-display); font-weight: var(--es-weight-black); fill: var(--es-text); }
+.top-search { position: relative; margin: 0; }
+.search-problem { position: absolute; left: 0; right: 0; top: calc(100% + var(--es-space-6)); padding: var(--es-space-8) var(--es-space-12); background: var(--es-raised); border: var(--es-border-1) solid color-mix(in oklab, var(--es-danger) 55%, var(--es-line)); border-radius: var(--es-radius-md); color: var(--es-text); font-size: var(--es-fs-13); box-shadow: var(--es-shadow-toast); z-index: var(--es-z-dropdown); }
+.top-search.full .search-problem { position: static; grid-column: 1 / -1; }
+.top-search.full { flex-wrap: wrap; height: auto; min-height: var(--es-size-control); }
+/* The account button keeps its place while the session loads. */
+.btn.is-placeholder { visibility: hidden; }
+.navlinks a[aria-current="page"], .phone-sheet a[aria-current="page"] { color: var(--es-text); }
+.phone-sheet { background: var(--es-topbar-bg); border-bottom: var(--es-border-1) solid var(--es-line); padding: var(--es-space-12) 0; -webkit-backdrop-filter: blur(var(--es-space-8)); backdrop-filter: blur(var(--es-space-8)); }
+.phone-sheet .btn.block { min-height: var(--es-size-control); }
+@media (min-width: 720px) { .phone-sheet { display: none; } }
+
+/* ---------------------------------------------------------------- footer */
+/* CLAUDE.md: the bottom strip reads "v0.x.y · What's new" and is the only route to /changelog. */
+.foot a.ver { gap: var(--es-space-6); }
+.foot .ver-sep { color: var(--es-muted); }
+.foot .ver-new { font-family: var(--es-font-body); font-size: var(--es-fs-12-5); }
+
+/* ---------------------------------------------------------------- toasts */
+.toast .x { flex: none; }
