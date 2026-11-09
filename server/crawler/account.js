@@ -45,6 +45,17 @@ export async function importAccountCharacters({ db, accountId, providerId, userT
     }
   });
   const result = await record(db, accountId, providerId, 'ok', list.length, null, queued);
+  // 0.9.0: collections at sign-in priority (collections/fetch.js), and opt-in gold: the protected-character data is
+  // read NOW, with this same token, because it answers only to the owner's token and the token is never kept.
+  try {
+    const { queueCollections } = await import('../collections/fetch.js');
+    for (const c of list) if (Number.isInteger(c.level) && c.level >= MIN_TRACKED_LEVEL) await queueCollections(db, c.slug, PRIORITY.auto);
+    const { importGold, protectedPath } = await import('../collections/gold.js');
+    const source = await openSource(db, 'blizzard', { fetch, maxAttempts: 1, perSecond: 20 });
+    result.gold = await importGold({ db, accountId, characters: list.map((c) => ({ id: c.id, protectedPath: protectedPath(c.protectedHref) })), source, userToken });
+  } catch (err) {
+    console.error(`[collections] after sign-in: ${err.code ?? err.name}`);
+  }
   // 0.7.1 Activity: characters looked up because their owner signed in (a count, nothing else).
   const { countActivity } = await import('../activity/count.js');
   countActivity(db, 'character.signin', queued);

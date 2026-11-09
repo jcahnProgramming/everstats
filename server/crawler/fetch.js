@@ -83,6 +83,9 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
     if (!(await db.one('SELECT 1 AS x FROM character_tiers WHERE character_id = $1', [p.id]))) await gradeQuietly(db, p.id);
     await maybeRoster({ db }, p);
     await badgesForOwner(db, p.id);
+    // 0.9.0: a character that hasn't logged in still gets its weekly collections refresh.
+    const { maybeQueueCollections } = await import('../collections/fetch.js');
+    await maybeQueueCollections(db, p.id, p.slug ?? slug, priority).catch(() => {});
     return 'unchanged';
   }
 
@@ -111,6 +114,13 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
   });
   // 0.6.0: its tier from its new values, before the item finishes, so a lookup's page shows it.
   await gradeQuietly(db, p.id);
+  // 0.9.0: collections refresh weekly, as part of the full fetch (collections/fetch.js).
+  try {
+    const { maybeQueueCollections } = await import('../collections/fetch.js');
+    await maybeQueueCollections(db, p.id, p.slug, priority);
+  } catch (err) {
+    console.error(`[collections] couldn't queue: ${err.code ?? err.name}`);
+  }
   await maybeRoster({ db }, p);
   await badgesForOwner(db, p.id);
   return 'fetched';

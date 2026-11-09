@@ -61,6 +61,33 @@ export const BLIZZARD = [
     sweep: async (q, cutoff) => n(await q.query("DELETE FROM share_card_images WHERE data_at < $1 OR created_at < now() - interval '6 hours' RETURNING 1", [cutoff])),
   },
   {
+    // 0.9.0: parsed collection lists per character and kind. data_fetched_at is when the data in the row came from
+    // Blizzard (a failed refresh keeps the old data and its old date); a row whose data is older than the window goes,
+    // and a "not returned" row with no data goes by when it was checked.
+    table: 'character_collections', holds: 'Each character’s collections: mounts, pets, toys, titles, achievements, reputations, professions, encounters, quests, PvP summary, appearance ids', fetched: 'data_fetched_at (checked_at when no data)',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM character_collections WHERE coalesce(data_fetched_at, checked_at) < $1 RETURNING 1', [cutoff])),
+  },
+  {
+    table: 'collection_catalog', holds: 'Blizzard’s static catalogs: names, icons, appearance slots and items, achievement rewards and criteria, faction groups, item qualities', fetched: 'fetched_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM collection_catalog WHERE fetched_at < $1 RETURNING 1', [cutoff])),
+  },
+  {
+    // Counts and the static namespace string read from Blizzard's links; a state row with nothing fresh behind it goes
+    // (the catalogs job starts that catalog again).
+    table: 'collection_catalog_state', holds: 'Each catalog’s size and refresh progress; the static namespace Blizzard’s links name', fetched: 'fetched_at',
+    sweep: async (q, cutoff) => n(await q.query("DELETE FROM collection_catalog_state WHERE fetched_at < $1 AND state NOT IN ('queued', 'building') RETURNING 1", [cutoff])),
+  },
+  {
+    table: 'collection_sharing', holds: 'Whether an account’s characters have identical collections (derived from collections)', fetched: 'computed_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM collection_sharing WHERE computed_at < $1 RETURNING 1', [cutoff])),
+  },
+  {
+    // 0.9.0: opt-in gold. Only the four money numbers (collections/gold.js); read with the owner's token at sign-in, so
+    // an owner who hasn't signed in for the window loses it ("Gold updates when the owner signs in").
+    table: 'character_gold', holds: 'Gold on hand, total gold gained and lost, item value gained (protected-character data, the owner’s token)', fetched: 'fetched_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM character_gold WHERE fetched_at < $1 RETURNING 1', [cutoff])),
+  },
+  {
     table: 'item_media', holds: 'Item icon URLs (render host)', fetched: 'fetched_at',
     sweep: async (q, cutoff) => n(await q.query('DELETE FROM item_media WHERE fetched_at < $1 RETURNING 1', [cutoff])),
   },
@@ -115,7 +142,7 @@ export const BLIZZARD = [
         const ids = gone.map((r) => r.id);
         // Their guilds' totals lose them: rebuilt by the worker (0.5.0).
         await q.query('UPDATE guilds SET totals_dirty_at = now() WHERE id IN (SELECT guild_id FROM characters WHERE id = ANY($1::bigint[]) AND guild_id IS NOT NULL)', [ids]);
-        for (const t of ['character_statistics', 'character_snapshots', 'period_baselines', 'stat_gains', 'pin_rank_history', 'character_category_tiers', 'character_tiers']) {
+        for (const t of ['character_collections', 'character_gold', 'character_statistics', 'character_snapshots', 'period_baselines', 'stat_gains', 'pin_rank_history', 'character_category_tiers', 'character_tiers']) {
           await q.query(`DELETE FROM ${t} WHERE character_id = ANY($1::bigint[])`, [ids]);
         }
         await q.query(
@@ -164,7 +191,8 @@ export const BLIZZARD = [
   {
     table: 'statistics', holds: 'Statistic names and Blizzard’s category names (the ids, and the owner’s decisions on them, are ours)', fetched: 'last_seen_at',
     sweep: async (q, cutoff) => n(await q.query(
-      `UPDATE statistics SET name = NULL, category_path = '[]', named_example = NULL WHERE name IS NOT NULL AND last_seen_at < $1 RETURNING 1`,
+      // 0.9.0: a statistic Everstats counts (derived) has OUR name and category, never Blizzard's: it keeps them.
+      `UPDATE statistics SET name = NULL, category_path = '[]', named_example = NULL WHERE name IS NOT NULL AND derived IS NULL AND last_seen_at < $1 RETURNING 1`,
       [cutoff],
     )),
   },
@@ -268,6 +296,7 @@ export const OURS = {
   account_bans: 'Bans: temporary or permanent, the reason, the message to the player, and how each was lifted (0.8.2)',
   ban_identities: 'The sign-in identities and passkey ids a banned account had when its ban started (ban evasion) (0.8.2)',
   moderation_actions: 'Moderation log: warnings, forced renames, field resets, bans, unbans, role changes, reveals, report decisions (0.8.2)',
+  character_gold_public: 'The owner’s “Show my gold stats publicly” choice per character (character id, account id, since) (0.9.0)',
   reports: 'Player reports about profiles and guild descriptions: what, an optional note, the reported text as it was; no reporter (0.8.2)',
 };
 
@@ -280,6 +309,9 @@ export const OLDEST = [
   ['characters (renders)', 'SELECT min(media_fetched_at) AS t FROM characters WHERE media IS NOT NULL'],
   ['characters (gear, attributes)', 'SELECT min(last_fetched_at) AS t FROM characters WHERE equipment IS NOT NULL OR attributes IS NOT NULL'],
   ['item_media', 'SELECT min(fetched_at) AS t FROM item_media'],
+  ['character_collections', 'SELECT min(coalesce(data_fetched_at, checked_at)) AS t FROM character_collections'],
+  ['collection_catalog', 'SELECT min(fetched_at) AS t FROM collection_catalog'],
+  ['character_gold', 'SELECT min(fetched_at) AS t FROM character_gold'],
   ['share_card_images', 'SELECT min(data_at) AS t FROM share_card_images'],
   ['guilds', 'SELECT min(updated_at) AS t FROM guilds'],
   ['guilds (profiles)', 'SELECT min(profile_fetched_at) AS t FROM guilds'],
@@ -291,7 +323,7 @@ export const OLDEST = [
   ['character_category_tiers', 'SELECT min(computed_at) AS t FROM character_category_tiers'],
   ['tier_rulesets', 'SELECT min(computed_at) AS t FROM tier_rulesets'],
   ['rulesets', 'SELECT min(updated_at) AS t FROM rulesets'],
-  ['statistics (names)', 'SELECT min(last_seen_at) AS t FROM statistics WHERE name IS NOT NULL'],
+  ['statistics (names)', 'SELECT min(last_seen_at) AS t FROM statistics WHERE name IS NOT NULL AND derived IS NULL'],
   ['pin_rank_history', 'SELECT min(day)::timestamptz AS t FROM pin_rank_history'],
   ['account_character_checks', 'SELECT min(checked_at) AS t FROM account_character_checks'],
   ['discovery_runs', 'SELECT min(requested_at) AS t FROM discovery_runs'],

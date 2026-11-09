@@ -90,7 +90,9 @@ const STATS = (deaths, camped, killed, named = 'Undead') => [
   { cat: 'kill', s: stat(107, 'Creatures killed', killed) },
   { cat: 'kill', s: stat(1336, 'Creature type killed the most', killed, named) },
 ];
-const countSince = (mark, re = /\/profile\/wow\/|\/data\/wow\//) => calls.slice(mark).filter((p) => re.test(p)).length;
+// 0.9.0: collections (queued behind a full fetch, measured in collections.test.js) are left out of these counts.
+const COLLECTIONS = /\/profile\/wow\/character\/[^/]+\/(collections|titles|achievements$|reputations|professions|quests|encounters|pvp-summary|hunter-pets)/;
+const countSince = (mark, re = /\/profile\/wow\/|\/data\/wow\//) => calls.slice(mark).filter((p) => re.test(p) && !COLLECTIONS.test(p)).length;
 
 test('a lookup fetches the character at once: profile, statistics, attributes, gear and render: 5 requests', async () => {
   addCharacter('alpha-fixture', { id: 101, stats: STATS(3, 5, 900) });

@@ -23,6 +23,7 @@ import { createModerationPlayerRouter } from './moderation/player.js';
 import { createCardApiRouter, createCardImageRouter } from './cards/routes.js';
 import { createCardRenderer } from './cards/render.js';
 import { spaWithPreviews } from './cards/meta.js';
+import { createCollectionsRouter } from './collections/routes.js';
 import { getSetting } from './admin/settings.js';
 
 /**
@@ -105,6 +106,8 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   app.use('/api', createModerationPlayerRouter({ db, limits, networkOf }));
   // 0.8.0: share cards (the maker's state, "Save as my default").
   app.use('/api', createCardApiRouter({ db, limits, networkOf }));
+  // 0.9.0: collections, the transmog tracker, Legacy Points and opt-in gold (collections/routes.js).
+  app.use('/api', createCollectionsRouter({ db, limits, networkOf }));
 
   app.use('/api/auth', createAuthRouter({ db, limits, networkOf, fetch }));
   app.use('/api/admin', createAdminRouter({

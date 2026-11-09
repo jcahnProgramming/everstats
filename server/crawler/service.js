@@ -4,6 +4,8 @@ import { openSource as defaultOpenSource } from '../sources/registry.js';
 import { createBackoff, createBudget } from './budget.js';
 import { RetryableError, fetchCharacter, fetchGuildRoster } from './fetch.js';
 import { fetchItemMedia } from './items.js';
+import { fetchCollections } from '../collections/fetch.js';
+import { fetchCatalogStep } from '../collections/catalog.js';
 import { PRIORITY, claim, finish, retryLater, sweepQueue } from './queue.js';
 import { countRequests } from './stats.js';
 
@@ -70,7 +72,7 @@ export function createCrawler({ db, fetch = globalThis.fetch, now = Date.now, sl
 
   /** The one way the crawler asks Blizzard anything: per-endpoint back-off, then the shared budget, then the GET. */
   const client = {
-    async request(endpoint, path, { priority = PRIORITY.daily, namespace } = {}) {
+    async request(endpoint, path, { priority = PRIORITY.daily, namespace, query = null } = {}) {
       const wait = backoff.waitMs(endpoint);
       if (wait > 0) {
         if (priority === PRIORITY.lookup && wait > 15_000) throw new RetryableError(`${endpoint}: Blizzard asked us to slow down`, 'backoff');
@@ -79,7 +81,7 @@ export function createCrawler({ db, fetch = globalThis.fetch, now = Date.now, sl
       await budget.take(priority);
       const src = await ensureSource();
       if (!src) throw new RetryableError('Blizzard keys are not configured', 'not_configured');
-      const r = await src.get(path, { namespace });
+      const r = await src.get(path, { namespace, query });
       tally('requests');
       const bad = r.status === null || r.status === 429 || r.status >= 500;
       if (bad) {
@@ -99,7 +101,7 @@ export function createCrawler({ db, fetch = globalThis.fetch, now = Date.now, sl
     inFlight.set(item.id, { priority: item.priority, kind: item.kind, key: item.key, startedAt: new Date(now()).toISOString() });
     try {
       const ctx = { db, client, now };
-      const handler = { guild: fetchGuildRoster, items: fetchItemMedia, character: fetchCharacter }[item.kind] ?? fetchCharacter;
+      const handler = { guild: fetchGuildRoster, items: fetchItemMedia, character: fetchCharacter, collections: fetchCollections, catalog: fetchCatalogStep }[item.kind] ?? fetchCharacter;
       const outcome = await handler(ctx, item);
       await finish(db, item.id, 'done', outcome);
     } catch (err) {

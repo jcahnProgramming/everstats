@@ -224,6 +224,9 @@ export function parseAccountCharacters(json) {
       out.push({
         id: c.id, slug, name: c.name.slice(0, 60), surname: str(c.surname, 60) ?? '', level: int(c.level),
         class: nameOf(c.playable_class), race: nameOf(c.playable_race), faction: nameOf(c.faction), gender: nameOf(c.gender),
+        // 0.9.0: Blizzard's own protected-character link (realm id + character id), read once at sign-in for opt-in gold
+        // (collections/gold.js) and never stored.
+        protectedHref: typeof c.protected_character?.href === 'string' ? c.protected_character.href.slice(0, 300) : null,
       });
     }
   }

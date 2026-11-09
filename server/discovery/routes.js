@@ -86,6 +86,7 @@ async function loadCatalog(db, runId) {
     duplicate: r.duplicate ?? null,
     runs: (r.runs ?? (runId === null ? [] : [runId])).map(Number), // pg returns bigint[] elements as strings
     fromProduction: Boolean(r.from_production),
+    derived: r.derived ?? null,
   }, decisions.get(r.statistic_id) ?? new Map()));
 }
 
@@ -97,7 +98,7 @@ async function loadCatalog(db, runId) {
 async function productionOnly(db) {
   const sampled = (await db.one('SELECT count(*)::int AS n FROM characters WHERE stats_fetched_at IS NOT NULL')).n;
   const rows = await db.query(
-    `SELECT s.id, s.name, s.category_path, s.has_text, s.named_example,
+    `SELECT s.id, s.name, s.category_path, s.has_text, s.named_example, s.derived,
             (SELECT count(*)::int FROM character_statistics cs WHERE cs.statistic_id = s.id) AS present,
             (SELECT count(*)::int FROM character_statistics cs WHERE cs.statistic_id = s.id AND cs.value <> 0) AS nonzero,
             (SELECT min(value) FROM character_statistics cs WHERE cs.statistic_id = s.id) AS min_value,
@@ -109,7 +110,8 @@ async function productionOnly(db) {
   return rows.map((r) => {
     const g = guessValueType(r.name, { namedExample: r.named_example });
     return {
-      statistic_id: r.id, name: r.name, endpoint: 'character.achievement-statistics', category_path: r.category_path,
+      // 0.9.0: a collection count names the collection it is counted from.
+      statistic_id: r.id, name: r.name, endpoint: r.derived ? `everstats.collections.${r.derived}` : 'character.achievement-statistics', category_path: r.category_path, derived: r.derived ?? null,
       value_type: g.type, value_type_basis: g.basis, value_type_guessed: g.guessed,
       characters_sampled: sampled, characters_present: r.present, characters_nonzero: r.nonzero,
       min_value: r.min_value, max_value: r.max_value, median_value: null, has_text: r.has_text, named_example: r.named_example,

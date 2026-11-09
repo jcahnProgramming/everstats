@@ -31,6 +31,19 @@ export const MERGE_STEPS = [
     run: (q, from, to) => q.query('UPDATE characters SET owner_account_id = $2 WHERE owner_account_id = $1', [from, to]),
   },
   {
+    // 0.9.0: gold read with the source's token, and its "Show my gold stats publicly" choices, follow the characters.
+    // Account-wide detection is recomputed for the kept account (its characters changed).
+    id: 'gold',
+    describe: 'Your gold stats and your choices about showing them move to the account you keep.',
+    run: async (q, from, to) => {
+      await q.query('UPDATE character_gold SET account_id = $2 WHERE account_id = $1', [from, to]);
+      await q.query('UPDATE character_gold_public SET account_id = $2 WHERE account_id = $1', [from, to]);
+      await q.query('DELETE FROM collection_sharing WHERE account_id = $1', [from]);
+      const { detectSharing } = await import('../collections/store.js');
+      await detectSharing(q, to);
+    },
+  },
+  {
     // 0.7.1
     id: 'feedback',
     describe: 'Your feedback messages and Everstats’ replies move to the account you keep.',

@@ -351,4 +351,25 @@ export function guildBadgesJob() {
   };
 }
 
-export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob(), tiersJob(), badgesJob(), guildBadgesJob()]);
+
+/**
+ * 0.9.0: Blizzard's static collection catalogs (collections/catalog.js). Hourly: queues every catalog that was never
+ * built, is older than its refresh age (inside the 30-day window), or got stuck; the crawler fetches them in short
+ * items at the lowest priority. Nothing is asked before a character fetch has named the static namespace.
+ */
+export function catalogsJob() {
+  return {
+    id: 'catalogs',
+    label: 'Collection catalogs from Blizzard',
+    everyMs: 60 * 60 * 1000,
+    async run({ db }) {
+      const { getSetting } = await import('../admin/settings.js');
+      if (await getSetting(db, 'crawler.paused')) return { summary: 'Paused' };
+      const { queueDueCatalogs } = await import('../collections/catalog.js');
+      const r = await queueDueCatalogs(db);
+      return { summary: r.why ? `Waiting: ${r.why}` : r.queued ? `Queued ${r.queued} catalog(s)` : 'Every catalog is fresh' };
+    },
+  };
+}
+
+export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob(), tiersJob(), badgesJob(), guildBadgesJob(), catalogsJob()]);

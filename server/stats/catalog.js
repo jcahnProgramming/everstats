@@ -57,6 +57,7 @@ export function classify(row, discovery, decisions) {
     hasText: Boolean(row.has_text),
     namedExample: discovery?.named_example ?? row.named_example ?? null,
     duplicate: discovery?.duplicate ?? null,
+    derived: row.derived ?? null,
   };
   if (discovery) {
     Object.assign(base, { valueType: discovery.value_type, valueTypeBasis: discovery.value_type_basis, valueTypeGuessed: discovery.value_type_guessed });
@@ -103,6 +104,8 @@ export function classify(row, discovery, decisions) {
     gradingSource: grading.source ?? 'suggestion',
     valueType: shown.valueType,
     named: shown.valueType === 'name-and-number' || Boolean(row.has_text),
+    // 0.9.0: the registry key of a count Everstats makes from collections (collections/registry.js), else null.
+    derived: row.derived ?? null,
     decided,
   };
 }
@@ -121,7 +124,7 @@ export async function loadCatalogFresh(db, opts) {
 
 export async function loadCatalog(db, { now = Date.now } = {}) {
   if (cache && cache.db === db && now() - cache.at < CACHE_MS) return cache.value;
-  const rows = await db.query('SELECT id, name, category_path, has_text, named_example FROM statistics ORDER BY id LIMIT $1', [MAX_STATISTICS]);
+  const rows = await db.query('SELECT id, name, category_path, has_text, named_example, derived FROM statistics ORDER BY id LIMIT $1', [MAX_STATISTICS]);
   const ids = rows.map((r) => r.id);
   const disc = ids.length ? await db.query('SELECT * FROM discovery_catalog WHERE statistic_id = ANY($1::bigint[]) LIMIT $2', [ids, MAX_STATISTICS]) : [];
   const discById = new Map(disc.map((d) => [d.statistic_id, d]));

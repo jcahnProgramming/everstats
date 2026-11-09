@@ -1576,4 +1576,93 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.9.0: Collections (server/collections/) and opt-in gold (server/collections/gold.js). Shapes follow the 0.8.3
+    // endpoint probe (run #4's stored responses). Every table here is classified in retention/registry.js.
+    //   statistics.derived     the registry key of a statistic Everstats COUNTS from Blizzard's collections (mounts
+    //                          collected …); null = one of Blizzard's own. Their values live in character_statistics
+    //                          like any statistic, so they get boards, pins, snapshots and gains with no second system.
+    //   character_collections  one row per character and collection kind: the PARSED list (never a raw body), whether
+    //                          Blizzard returned it, and when the data in it was fetched (kept on a failed refresh).
+    //   collection_catalog     Blizzard's static catalogs (mounts, pets, toys, titles, achievements, appearances …),
+    //                          shared by everyone; collection_catalog_state says how far each one's refresh got.
+    //   collection_sharing     account-wide detection per account and kind (derived from character_collections).
+    //   character_gold         the protected-character money fields ONLY, as fixed columns: there is no column (and
+    //                          no jsonb) that could hold a position, a bind position or a WoW account id.
+    //   character_gold_public  the owner's opt-in ("Show my gold stats publicly"); ours.
+    id: '023_collections',
+    async up(q) {
+      await q.query(`
+        ALTER TABLE statistics ADD COLUMN derived text;
+        ALTER TABLE crawl_queue DROP CONSTRAINT crawl_queue_kind_check;
+        ALTER TABLE crawl_queue ADD CONSTRAINT crawl_queue_kind_check CHECK (kind IN ('character', 'guild', 'items', 'collections', 'catalog'));
+        ALTER TABLE characters ADD COLUMN collections_fetched_at timestamptz, ADD COLUMN collections_first_at timestamptz;
+
+        CREATE TABLE character_collections (
+          character_id     bigint NOT NULL REFERENCES characters (id) ON DELETE CASCADE,
+          kind             text NOT NULL CHECK (kind ~ '^[a-z][a-z0-9-]{1,30}$'),
+          state            text NOT NULL CHECK (state IN ('ok', 'empty', 'not_returned')),
+          http_status      smallint,
+          data             jsonb,
+          checked_at       timestamptz NOT NULL DEFAULT now(),
+          data_fetched_at  timestamptz,
+          PRIMARY KEY (character_id, kind)
+        );
+        CREATE INDEX character_collections_fetched ON character_collections (data_fetched_at);
+        CREATE INDEX character_collections_checked ON character_collections (character_id, checked_at);
+
+        CREATE TABLE collection_catalog (
+          kind        text NOT NULL CHECK (kind ~ '^[a-z][a-z0-9-]{1,30}$'),
+          id          bigint NOT NULL,
+          name        text,
+          data        jsonb NOT NULL DEFAULT '{}',
+          fetched_at  timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (kind, id)
+        );
+        CREATE INDEX collection_catalog_fetched ON collection_catalog (fetched_at);
+
+        CREATE TABLE collection_catalog_state (
+          kind         text PRIMARY KEY CHECK (kind ~ '^[a-z][a-z0-9-]{1,30}$'),
+          state        text NOT NULL CHECK (state IN ('queued', 'building', 'ok', 'empty', 'failed')),
+          total        integer,
+          requests     integer NOT NULL DEFAULT 0,
+          bytes        bigint NOT NULL DEFAULT 0,
+          detail       text CHECK (char_length(detail) <= 300),
+          started_at   timestamptz,
+          finished_at  timestamptz,
+          fetched_at   timestamptz
+        );
+
+        CREATE TABLE collection_sharing (
+          account_id   bigint NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+          kind         text NOT NULL,
+          shared       boolean NOT NULL,
+          characters   integer NOT NULL,
+          computed_at  timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (account_id, kind)
+        );
+        CREATE INDEX collection_sharing_kind ON collection_sharing (kind, shared);
+        CREATE INDEX collection_sharing_computed ON collection_sharing (computed_at);
+
+        CREATE TABLE character_gold (
+          character_id       bigint PRIMARY KEY REFERENCES characters (id) ON DELETE CASCADE,
+          account_id         bigint NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+          money              bigint CHECK (money >= 0),
+          gold_gained        bigint,
+          gold_lost          bigint,
+          item_value_gained  bigint,
+          fetched_at         timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX character_gold_fetched ON character_gold (fetched_at);
+        CREATE INDEX character_gold_account ON character_gold (account_id);
+
+        CREATE TABLE character_gold_public (
+          character_id  bigint PRIMARY KEY,
+          account_id    bigint NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+          since         timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX character_gold_public_account ON character_gold_public (account_id);
+      `);
+    },
+  },
 ];

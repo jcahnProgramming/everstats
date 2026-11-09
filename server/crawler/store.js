@@ -2,6 +2,7 @@ import { recordStatistics } from '../stats/catalog.js';
 import { ROLLING_START, periodStart, utcDay } from '../stats/periods.js';
 import { retentionPolicy } from '../retention/policy.js';
 import { EQUIPMENT_VERSION } from './parse.js';
+import { DERIVED_BASE } from '../collections/registry.js';
 
 /**
  * Writing what the crawler fetched. Parsed values only (crawler/parse.js): never a raw body.
@@ -150,7 +151,8 @@ export async function storeDetails(q, characterId, { stats, attributes, equipmen
   if (stats && ch.ruleset_id !== null) {
     await recordStatistics(q, stats);
     const list = stats.slice(0, MAX_STATS_PER_CHARACTER);
-    await q.query('DELETE FROM character_statistics WHERE character_id = $1 AND NOT (statistic_id = ANY($2::bigint[]))', [characterId, list.map((s) => s.id)]);
+    // 0.9.0: statistics Everstats counts from collections (ids from DERIVED_BASE) aren't in Blizzard's list: they stay.
+    await q.query('DELETE FROM character_statistics WHERE character_id = $1 AND statistic_id < $3 AND NOT (statistic_id = ANY($2::bigint[]))', [characterId, list.map((s) => s.id), DERIVED_BASE]);
     await q.query(
       `INSERT INTO character_statistics (character_id, statistic_id, ruleset_id, hidden, value, text, blizzard_updated_at, fetched_at)
        SELECT $1, v.id, $2, $3, v.value, v.text, v.updated, now()
@@ -214,7 +216,7 @@ export async function takeSnapshot(q, characterId, { now = Date.now } = {}) {
  * day as the sweep deletes older ones; this runs on every daily check).
  */
 export async function updateGains(q, characterId, { now = Date.now } = {}) {
-  const ch = await q.one('SELECT ruleset_id, hidden FROM characters WHERE id = $1', [characterId]);
+  const ch = await q.one('SELECT ruleset_id, hidden, collections_first_at FROM characters WHERE id = $1', [characterId]);
   if (!ch || ch.ruleset_id === null) return;
   const { cutoff } = await retentionPolicy(q, now());
   const oldest = await q.one(
@@ -232,8 +234,11 @@ export async function updateGains(q, characterId, { now = Date.now } = {}) {
   }
   for (const period of ['week', 'rolling']) {
     const start = periodStart(period, now());
-    const base = await q.one('SELECT 1 AS x FROM period_baselines WHERE period = $1 AND period_start = $2 AND character_id = $3', [period, start, characterId]);
+    const base = await q.one('SELECT taken_at FROM period_baselines WHERE period = $1 AND period_start = $2 AND character_id = $3', [period, start, characterId]);
     if (!base) continue;
+    // 0.9.0: a collection count only has a gain once its baseline was taken AFTER collections were first fetched;
+    // otherwise a character's first collections fetch would read as "412 appearances gained this week".
+    const derivedOk = Boolean(ch.collections_first_at && new Date(ch.collections_first_at) <= new Date(base.taken_at));
     await q.query('DELETE FROM stat_gains WHERE period = $1 AND period_start = $2 AND character_id = $3', [period, start, characterId]);
     await q.query(
       `INSERT INTO stat_gains (period, period_start, statistic_id, ruleset_id, character_id, hidden, gain)
@@ -241,8 +246,8 @@ export async function updateGains(q, characterId, { now = Date.now } = {}) {
          FROM character_statistics cs
          LEFT JOIN (SELECT unnest(stat_ids) AS id, unnest(stat_values) AS value FROM period_baselines
                      WHERE period = $1 AND period_start = $2 AND character_id = $3) b ON b.id = cs.statistic_id
-        WHERE cs.character_id = $3 AND cs.value - coalesce(b.value, 0) > 0`,
-      [period, start, characterId, ch.ruleset_id, ch.hidden],
+        WHERE cs.character_id = $3 AND cs.value - coalesce(b.value, 0) > 0 AND (cs.statistic_id < $6 OR $7::boolean)`,
+      [period, start, characterId, ch.ruleset_id, ch.hidden, DERIVED_BASE, derivedOk],
     );
   }
 }

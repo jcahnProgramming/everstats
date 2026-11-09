@@ -7,6 +7,7 @@ import './theme/components.css';
 import './theme/badges.css';
 import './theme/guild-badges.css';
 import './theme/card-maker.css';
+import './theme/collections.css';
 import './theme/app.css';
 import './pages/pages.css';
 import { App } from './App.jsx';
