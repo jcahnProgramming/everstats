@@ -31,3 +31,20 @@ export function parseSlug(slug) {
   const r = characterSlug(value.slice(0, i), value.slice(i + 1));
   return r.ok && r.slug === value.toLowerCase() ? { name: value.slice(0, i), surname: value.slice(i + 1), slug: r.slug } : null;
 }
+
+/**
+ * Guild slugs (0.5.0). Blizzard addresses a Forever guild by its slug alone, region-wide, with no realm or ruleset in
+ * the path (/data/wow/guild/post-nerf-clarity, discovery runs 1–2), and its profile answers with that slug. Lower case
+ * letters (accents included), digits, apostrophes and hyphens. → the normalized slug, or null.
+ */
+const GUILD_SLUG = /^[\p{L}\p{M}\p{N}'][\p{L}\p{M}\p{N}'-]{0,119}$/u;
+export function parseGuildSlug(slug) {
+  let value;
+  try {
+    value = decodeURIComponent(String(slug ?? ''));
+  } catch {
+    return null;
+  }
+  value = value.normalize('NFC').trim().toLowerCase();
+  return GUILD_SLUG.test(value) ? value : null;
+}

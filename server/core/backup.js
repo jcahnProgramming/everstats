@@ -2,30 +2,42 @@ import { execFile } from 'node:child_process';
 import { closeSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
 import { devNull } from 'node:os';
 import { join } from 'node:path';
-import { BACKUP_KEEP_DAYS, DAY_MS } from '../retention/policy.js';
+import { BACKUP_KEEP_NIGHTLY, DAY_MS, LEGACY_BACKUP_KEEP_DAYS } from '../retention/policy.js';
+import { BLIZZARD } from '../retention/registry.js';
 
 /**
- * Nightly backups of the Everstats database (RESTORE.md says how to put one back). The worker runs them
+ * Nightly backups of EVERSTATS' OWN DATA (RESTORE.md says how to put one back). The worker runs them
  * (worker/jobs.js); `node server/tools/backup.js now` runs one by hand.
  *
+ * 0.5.0: a backup holds no Blizzard data. The retention registry (retention/registry.js) is the list: every table it
+ * classifies as Blizzard data is dumped as SCHEMA ONLY (pg_dump --exclude-table-data), so a restore recreates it empty
+ * and the crawler fills it again. Three of those tables also hold something of ours, copied into a `backup_stubs`
+ * schema just before the dump (and dropped after):
+ *   backup_stubs.characters           id, owner, owned since, hidden, tracked since, how it was found (no name, slug,
+ *                                     level or anything else Blizzard returned)
+ *   backup_stubs.statistics           statistic ids and when we first saw them (no names)
+ *   backup_stubs.discovery_decisions  the owner's decisions, with the reasoning text (which quotes Blizzard names)
+ *                                     blanked and the run link (a Blizzard-data run) dropped
+ * plus backup_stubs.restore(), which a restore calls between the data and the constraints to put them back.
+ *
  * How one backup goes:
- *   1. pg_dump writes a custom-format archive (compressed, restorable table by table) as a hidden
- *      `.everstats-YYYY-MM-DD.dump.partial` in BACKUP_DIR (/backups in the worker container). The password travels
- *      in the environment (PGPASSWORD), never in the command line.
- *   2. It is checked: `pg_restore --list` must read its table of contents and find our own _migrations data (an
- *      archive that isn't ours, or is cut short, fails here), then `pg_restore --file=/dev/null` reads the WHOLE
- *      archive, decompressing every table's data, so a damaged byte anywhere fails the backup instead of a restore.
- *   3. Only then is it renamed to `everstats-YYYY-MM-DD.dump` (the UTC date; a second backup the same day replaces
- *      the first), and old ones are pruned.
+ *   1. The stubs are written (one transaction), then pg_dump writes a custom-format archive as a hidden
+ *      `.everstats-ours-YYYY-MM-DD.dump.partial` in BACKUP_DIR. The password travels in PGPASSWORD, never the command
+ *      line.
+ *   2. It is checked: `pg_restore --list` must show our _migrations data and the stubs, and must show NO table data for
+ *      any Blizzard table (a dump that would carry Blizzard data fails here and is deleted); then `pg_restore
+ *      --file=/dev/null` reads the WHOLE archive, so a damaged byte anywhere fails the backup instead of a restore.
+ *   3. Only then is it renamed to `everstats-ours-YYYY-MM-DD.dump` (a second backup the same day replaces the first),
+ *      and old ones are pruned.
  * A run that fails at any step removes its partial file, records the failure (backup_runs) and logs
- * `[backup] FAILED`; the earlier backups are untouched.
+ * `[backup] FAILED`; the earlier backups are untouched. The stubs schema is dropped either way.
  *
- * Kept: 0.4.2, for Blizzard's 30-day rule, each backup for BACKUP_KEEP_DAYS (3) from when it was taken, then deleted
- * (by a good run, and by the hourly retention sweep: retention/sweep.js). No monthly copies. Nothing else in the folder
- * is ever touched.
+ * Kept (retention/policy.js): the newest BACKUP_KEEP_NIGHTLY (14) plus the first backup of every month, indefinitely:
+ * none of it is Blizzard data. Dumps from before 0.5.0 (everstats-YYYY-MM-DD.dump) hold Blizzard data and are still
+ * deleted LEGACY_BACKUP_KEEP_DAYS (3) after they were taken. Nothing else in the folder is ever touched.
  *
- * A dump holds everything in the database: account identities, session hashes, sealed keys and 2FA secrets (sealed
- * with the root key, which is NOT in the dump). The folder must be as private as the database.
+ * A dump holds account identities, session hashes, sealed keys and 2FA secrets (sealed with the root key, which is NOT
+ * in the dump). The folder must be as private as the database.
  */
 // When the nightly backup becomes due, in UTC. The dump is consistent at any hour (one transaction snapshot).
 export const BACKUP_HOUR_UTC = 4;
@@ -34,14 +46,23 @@ export const RETRY_AFTER_MS = 60 * 60 * 1000;
 // A lock file older than this is left over from a crashed run.
 const STALE_LOCK_MS = 6 * 60 * 60 * 1000;
 const LOCK = '.everstats-backup.lock';
-const NAME = /^everstats-(\d{4}-\d{2}-\d{2})\.dump$/;
+const NAME = /^everstats-ours-(\d{4}-\d{2}-\d{2})\.dump$/;
+const LEGACY_NAME = /^everstats-(\d{4}-\d{2}-\d{2})\.dump$/;
+export const STUB_SCHEMA = 'backup_stubs';
 
-export const backupName = (ms) => `everstats-${new Date(ms).toISOString().slice(0, 10)}.dump`;
+export const backupName = (ms) => `everstats-ours-${new Date(ms).toISOString().slice(0, 10)}.dump`;
 
-/** The backups in `dir`, newest first: [{ name, date, takenAt (ms: the file's modification time) }]. */
+/**
+ * The backups in `dir`, newest first: [{ name, date, takenAt (ms: the file's modification time), legacy }]. legacy:
+ * a dump from before 0.5.0, which holds Blizzard data.
+ */
 export function listBackups(dir) {
   return readdirSync(dir)
-    .map((name) => ({ name, date: NAME.exec(name)?.[1] }))
+    .map((name) => {
+      const ours = NAME.exec(name);
+      const legacy = ours ? null : LEGACY_NAME.exec(name);
+      return { name, date: (ours ?? legacy)?.[1], legacy: Boolean(legacy) };
+    })
     .filter((b) => b.date)
     .map((b) => {
       let takenAt = Date.parse(`${b.date}T00:00:00Z`);
@@ -52,22 +73,30 @@ export function listBackups(dir) {
       }
       return { ...b, takenAt };
     })
-    .sort((a, b) => (a.date < b.date ? 1 : -1));
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : Number(a.legacy) - Number(b.legacy)));
 }
 
 /**
- * 0.4.2, Blizzard's 30-day rule: which backups to delete. A dump holds every Blizzard row as it was that night, so it
- * may be kept only BACKUP_KEEP_DAYS (retention/policy.js) from the moment it was taken, measured in hours, not dates.
- * No exception for the newest or for month-firsts any more: if backups have been failing for days, the old ones still
- * go. Pure, so the rule is tested on its own. Returns names.
+ * Which backups to delete. Pure, so the rule is tested on its own. Returns names.
+ *   ours    keep the newest `nightly`, and the first (earliest) backup of every calendar month, forever
+ *   legacy  (0.4.x, holds Blizzard data) delete once older than `legacyKeepMs`, measured from when it was taken
  */
-export function planPrune(backups, { keepMs, now = Date.now() }) {
-  return backups.filter((b) => now - b.takenAt > keepMs).map((b) => b.name);
+export function planPrune(backups, { now = Date.now(), nightly = BACKUP_KEEP_NIGHTLY, legacyKeepMs = LEGACY_BACKUP_KEEP_DAYS * DAY_MS } = {}) {
+  const out = backups.filter((b) => b.legacy && now - b.takenAt > legacyKeepMs).map((b) => b.name);
+  const ours = backups.filter((b) => !b.legacy).sort((a, b) => (a.date < b.date ? 1 : -1));
+  const firstOfMonth = new Map();
+  for (const b of ours) {
+    const month = b.date.slice(0, 7);
+    if (!firstOfMonth.has(month) || b.date < firstOfMonth.get(month).date) firstOfMonth.set(month, b);
+  }
+  const keep = new Set([...ours.slice(0, nightly), ...firstOfMonth.values()].map((b) => b.name));
+  for (const b of ours) if (!keep.has(b.name)) out.push(b.name);
+  return out;
 }
 
-/** Deletes backups past their keep time. → how many. (The retention sweep calls this every hour; so does a backup.) */
-export function pruneBackups(dir, { keepMs, now = Date.now() }) {
-  const removed = planPrune(listBackups(dir), { keepMs, now });
+/** Deletes backups the rule says go. → the names removed. (The hourly retention sweep calls this; so does a backup.) */
+export function pruneBackups(dir, { now = Date.now() } = {}) {
+  const removed = planPrune(listBackups(dir), { now });
   for (const old of removed) rmSync(join(dir, old), { force: true });
   return removed;
 }
@@ -96,6 +125,84 @@ export function run(cmd, args, { env = {}, maxBuffer = 64 * 1024 * 1024 } = {}) 
     });
   });
 }
+
+/** The Blizzard tables (retention registry): dumped without their data. */
+export const blizzardTables = () => BLIZZARD.map((e) => e.table);
+
+/** pg_dump's arguments: custom format, every Blizzard table's data left out. */
+export const dumpArgs = (file) => [
+  '--format=custom', '--compress=6', '--no-password', `--file=${file}`,
+  ...blizzardTables().map((t) => `--exclude-table-data=public.${t}`),
+];
+
+/**
+ * What `pg_restore --list` says is in an archive → { ours, stubs, blizzard: [tables with data] }. A good backup has
+ * ours (our _migrations data) and stubs, and no Blizzard table data at all.
+ */
+export function archiveContents(listing) {
+  const lines = String(listing).split('\n');
+  const data = new Set(lines.map((l) => / TABLE DATA (\S+) (\S+) /.exec(l)).filter(Boolean).map((m) => `${m[1]}.${m[2]}`));
+  return {
+    ours: data.has('public._migrations'),
+    stubs: data.has(`${STUB_SCHEMA}.characters`),
+    blizzard: blizzardTables().filter((t) => data.has(`public.${t}`)),
+    tables: data.size,
+  };
+}
+
+/** Throws unless `listing` is an Everstats backup with no Blizzard data in it. */
+export function checkArchive(listing) {
+  const c = archiveContents(listing);
+  if (!c.ours) throw Object.assign(new Error("the dump's contents don't include Everstats' own tables"), { code: 'BACKUP_UNVERIFIED' });
+  if (c.blizzard.length) throw Object.assign(new Error(`the dump holds Blizzard data (${c.blizzard.join(', ')}): not kept`), { code: 'BACKUP_HAS_BLIZZARD_DATA' });
+  if (!c.stubs) throw Object.assign(new Error("the dump's contents don't include the character stubs"), { code: 'BACKUP_UNVERIFIED' });
+  return c;
+}
+
+/**
+ * Writes the stubs schema (see the header). backup_stubs.restore() is the restore step: it runs after the data and
+ * before the constraints (RESTORE.md), so the stubs are back before the foreign keys that point at them.
+ */
+export async function prepareStubs(db) {
+  await db.tx(async (q) => {
+    await q.query(`DROP SCHEMA IF EXISTS ${STUB_SCHEMA} CASCADE`);
+    await q.query(`CREATE SCHEMA ${STUB_SCHEMA}`);
+    // Whole-table copies on purpose (a backup is the whole of our data): not a read anything pages through.
+    await q.query(`CREATE TABLE ${STUB_SCHEMA}.characters AS
+      SELECT id, owner_account_id, owned_since, hidden, tracked_since, source FROM public.characters`);
+    await q.query(`CREATE TABLE ${STUB_SCHEMA}.statistics AS SELECT id, first_seen_at FROM public.statistics`);
+    await q.query(`CREATE TABLE ${STUB_SCHEMA}.discovery_decisions AS
+      SELECT id, statistic_id, kind, value, decision, decided_at FROM public.discovery_decisions`);
+    await q.query(`
+      CREATE FUNCTION ${STUB_SCHEMA}.restore() RETURNS text LANGUAGE plpgsql AS $fn$
+      DECLARE s int; c int; d int;
+      BEGIN
+        -- Runs BEFORE the restore's post-data section: no primary keys exist yet, so no ON CONFLICT (found by the
+        -- 0.5.0 restore proof on a real Postgres 17); NOT EXISTS keeps it safe to run twice.
+        -- Statistic ids (their names come back with the next crawl that returns them).
+        INSERT INTO public.statistics (id, name, first_seen_at, last_seen_at)
+          SELECT s.id, NULL, s.first_seen_at, s.first_seen_at FROM ${STUB_SCHEMA}.statistics s
+           WHERE NOT EXISTS (SELECT 1 FROM public.statistics x WHERE x.id = s.id);
+        GET DIAGNOSTICS s = ROW_COUNT;
+        -- Character stubs: exactly what the retention sweep leaves of a purged character. A sign-in or a look-up
+        -- brings each one back from Blizzard.
+        INSERT INTO public.characters (id, name, surname, profile_state, source, tracked_since, owner_account_id, owned_since, hidden, purged_at)
+          SELECT s.id, NULL, '', 'purged', s.source, s.tracked_since, s.owner_account_id, s.owned_since, s.hidden, now() FROM ${STUB_SCHEMA}.characters s
+           WHERE NOT EXISTS (SELECT 1 FROM public.characters x WHERE x.id = s.id);
+        GET DIAGNOSTICS c = ROW_COUNT;
+        INSERT INTO public.discovery_decisions (id, statistic_id, kind, value, decision, reasoning, run_id, decided_at) OVERRIDING SYSTEM VALUE
+          SELECT s.id, s.statistic_id, s.kind, s.value, s.decision, '', NULL, s.decided_at FROM ${STUB_SCHEMA}.discovery_decisions s
+           WHERE NOT EXISTS (SELECT 1 FROM public.discovery_decisions x WHERE x.id = s.id);
+        GET DIAGNOSTICS d = ROW_COUNT;
+        -- No snapshot survived, so the weekly and "last N days" boards start collecting again from now.
+        DELETE FROM public.pipeline_facts WHERE key = 'first_snapshot_at';
+        RETURN format('restored %s statistic ids, %s character stubs, %s decisions', s, c, d);
+      END
+      $fn$`);
+  });
+}
+
+export const dropStubs = (db) => db.query(`DROP SCHEMA IF EXISTS ${STUB_SCHEMA} CASCADE`);
 
 /**
  * One backup at a time per folder (the nightly job and a hand-run `backup.js now` share the worker container). The
@@ -131,35 +238,41 @@ function takeLock(dir, now) {
 }
 
 /**
- * Takes one backup now. Resolves { name, bytes, durationMs, removed } or rejects (partial file removed).
- * `exec` is the program runner (tests pass a fake: they have no pg_dump).
+ * Takes one backup now. Resolves { name, bytes, durationMs, removed, tables } or rejects (partial file removed).
+ * `exec` is the program runner (tests pass a fake: they have no pg_dump). `db` writes the stubs.
  */
-export async function runBackup({ dir, databaseUrl, now = Date.now(), exec = run, keepMs = BACKUP_KEEP_DAYS * DAY_MS }) {
+export async function runBackup({ db, dir, databaseUrl, now = Date.now(), exec = run }) {
   const started = Date.now();
   const unlock = takeLock(dir, now);
   const name = backupName(now);
   const partial = join(dir, `.${name}.partial`);
   try {
     rmSync(partial, { force: true });
+    await prepareStubs(db);
     const env = pgEnv(databaseUrl);
-    await exec('pg_dump', ['--format=custom', '--compress=6', '--no-password', `--file=${partial}`], { env });
+    await exec('pg_dump', dumpArgs(partial), { env });
     const { stdout } = await exec('pg_restore', ['--list', partial]);
-    if (!/TABLE DATA public _migrations /.test(stdout)) throw Object.assign(new Error("the dump's contents don't include Everstats' own tables"), { code: 'BACKUP_UNVERIFIED' });
+    const contents = checkArchive(stdout);
     await exec('pg_restore', [`--file=${devNull}`, partial]);
     renameSync(partial, join(dir, name));
     const bytes = statSync(join(dir, name)).size;
-    const removed = pruneBackups(dir, { keepMs, now });
-    return { name, bytes, durationMs: Date.now() - started, removed };
+    const removed = pruneBackups(dir, { now });
+    return { name, bytes, durationMs: Date.now() - started, removed, tables: contents.tables };
   } catch (err) {
     rmSync(partial, { force: true });
     throw err;
   } finally {
+    await dropStubs(db).catch(() => {});
     unlock();
   }
 }
 
-/** A backup is due when it's past BACKUP_HOUR_UTC, today's file doesn't exist yet, and no attempt failed lately. */
-export function isDue({ now, backups, lastFailureAt = null }) {
+/**
+ * A backup is due when it's past BACKUP_HOUR_UTC, today's file doesn't exist yet, and no attempt failed lately.
+ * Only 0.5.0+ backups count: after the upgrade the first one of ours runs at once, whatever older dumps exist.
+ */
+export function isDue({ now, backups: all, lastFailureAt = null }) {
+  const backups = all.filter((b) => !b.legacy);
   const today = new Date(now).toISOString().slice(0, 10);
   if (new Date(now).getUTCHours() < BACKUP_HOUR_UTC) {
     // Before the hour: only catch up when the newest backup is older than yesterday (a missed night).
@@ -178,10 +291,10 @@ export function isDue({ now, backups, lastFailureAt = null }) {
 export async function recordedBackup({ db, dir, databaseUrl, trigger, now = Date.now, exec, log = console }) {
   const row = await db.one("INSERT INTO backup_runs (trigger, outcome) VALUES ($1, 'running') RETURNING id", [trigger]);
   try {
-    const r = await runBackup({ dir, databaseUrl, now: now(), exec });
+    const r = await runBackup({ db, dir, databaseUrl, now: now(), exec });
     await db.query("UPDATE backup_runs SET outcome = 'ok', finished_at = now(), file_name = $2, bytes = $3, detail = $4 WHERE id = $1",
       [row.id, r.name, r.bytes, r.removed.length ? `removed ${r.removed.length} older backup(s)` : null]);
-    log.log(`[backup] ${r.name}: ${r.bytes} bytes, verified, ${r.durationMs} ms${r.removed.length ? `; removed ${r.removed.length} older` : ''}`);
+    log.log(`[backup] ${r.name}: ${r.bytes} bytes, ${r.tables} tables with data, no Blizzard data, verified, ${r.durationMs} ms${r.removed.length ? `; removed ${r.removed.length} older` : ''}`);
     return { outcome: 'ok', ...r };
   } catch (err) {
     // Messages here are written by this file or are pg_dump / file-system errors (paths, never data from the database).

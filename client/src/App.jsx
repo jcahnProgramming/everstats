@@ -5,6 +5,7 @@ import { AppShell } from './chrome/AppShell.jsx';
 import { BetaPage } from './pages/BetaPage.jsx';
 import { ChangelogPage } from './pages/ChangelogPage.jsx';
 import { CharacterPage } from './pages/CharacterPage.jsx';
+import { GuildBoardPage, GuildMemberBoardPage } from './pages/GuildBoardPages.jsx';
 import { GuildPage } from './pages/GuildPage.jsx';
 import { GuildsPage } from './pages/GuildsPage.jsx';
 import { HomePage } from './pages/HomePage.jsx';
@@ -12,6 +13,7 @@ import { LeaderboardsPage } from './pages/LeaderboardsPage.jsx';
 import { NotFoundPage } from './pages/NotFoundPage.jsx';
 import { PrivacyPage } from './pages/PrivacyPage.jsx';
 import { ProfilePage } from './pages/ProfilePage.jsx';
+import { SearchPage } from './pages/SearchPage.jsx';
 import { SecondFactorPage, SignInPage } from './pages/SignInPages.jsx';
 import { StatLeaderboardPage } from './pages/StatLeaderboardPage.jsx';
 import { SessionProvider } from './session.jsx';
@@ -32,8 +34,11 @@ export function App() {
             <Route path="c/:slug" element={<CharacterPage />} />
             <Route path="leaderboards" element={<LeaderboardsPage />} />
             <Route path="leaderboards/:ruleset/:statistic" element={<StatLeaderboardPage />} />
+            <Route path="leaderboards/guilds/:ruleset/:statistic" element={<GuildBoardPage />} />
             <Route path="guilds" element={<GuildsPage />} />
             <Route path="g/:slug" element={<GuildPage />} />
+            <Route path="g/:slug/boards/:statistic" element={<GuildMemberBoardPage />} />
+            <Route path="search" element={<SearchPage />} />
             <Route path="sign-in" element={<SignInPage />} />
             <Route path="sign-in/2fa" element={<SecondFactorPage />} />
             <Route path="settings" element={<SettingsPage />} />

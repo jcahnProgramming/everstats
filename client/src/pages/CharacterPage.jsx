@@ -132,12 +132,12 @@ function CharacterSheet({ data, onReload }) {
             <div className="row gap-8">
               {c.ruleset && <Link className="tag" to={`/leaderboards?ruleset=${c.ruleset.id}`}>{c.ruleset.name}</Link>}
               {c.faction && <span className="tag">{c.faction}</span>}
-              {c.guild && <span className="tag gold">{c.guild.name}</span>}
+              {c.guild && <Link className="tag gold" to={`/g/${encodeURIComponent(c.guild.slug)}`}>{c.guild.name}</Link>}
               {c.mine && <span className="tag you">Yours</span>}
             </div>
             <h1 className="h-display char-name">{c.name} <span className="surname">{c.surname}</span></h1>
             {c.claimedBy && <span className="small t2">Claimed by <Link className="mono" to={`/u/${c.claimedBy.username}`}>@{c.claimedBy.username}</Link></span>}
-            <span className="t2 char-line">{line}{c.guild ? <> · <span className="guild-inline">&lt;{c.guild.name}&gt;</span></> : null}</span>
+            <span className="t2 char-line">{line}{c.guild ? <> · <Link className="guild-inline" to={`/g/${encodeURIComponent(c.guild.slug)}`}>&lt;{c.guild.name}&gt;</Link></> : null}</span>
             <div className="row gap-14 small">
               <span className="t2">Last seen in game: <b className="strong-text">{c.lastLoginAt ? timeAgo(c.lastLoginAt) : 'not reported'}</b></span>
               <Fresh at={c.fetchedAt} prefix="Data as of " />
@@ -159,7 +159,7 @@ function CharacterSheet({ data, onReload }) {
             render={<RenderFrame src={c.media.state === 'ok' ? c.media.render : null} alt={`${c.name} ${c.surname}, as Blizzard renders them`} pending={c.media.state !== 'ok'} />}
           />
           {!c.equipment?.length && <span className="muted xsmall">No equipment on the last fetch.</span>}
-          <CoreStats attributes={c.attributes} />
+          <CoreStats attributes={c.attributes} equipment={c.equipment} />
         </div>
         <Provenance source="Blizzard Entertainment’s game data API: profile, equipment, statistics" fetchedAt={c.fetchedAt}>
           <span className="muted">Render: {c.media.state === 'ok' ? <>fetched {timeAgo(c.media.fetchedAt)} (renders lag the profile by hours)</> : 'not ready yet at Blizzard'}</span>
@@ -188,8 +188,8 @@ function CharacterSheet({ data, onReload }) {
  * Core stats grouped like the in-game character sheet (coreStats.js), as cards in a grid that fills the sheet's width:
  * as many columns as fit, down to one on a phone. Only what Blizzard returned; an empty group isn't drawn.
  */
-function CoreStats({ attributes }) {
-  const groups = groupCoreStats(attributes);
+function CoreStats({ attributes, equipment }) {
+  const groups = groupCoreStats(attributes, equipment);
   if (!groups.length) return <span className="muted xsmall">Blizzard didn't send core stats on the last fetch.</span>;
   return (
     <section className="stack gap-10 core-section" aria-labelledby="core-h">

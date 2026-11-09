@@ -86,3 +86,20 @@ test('the crawler status says when no worker has reported', async () => {
   assert.equal(state.crawler.crawler, null); // no crawler has written its status: nothing is claimed to be running
   assert.deepEqual(state.crawler.queue[1], { queued: 0, running: 0 });
 });
+
+test('an admin session lives in the database, so it survives a restart (a new app process) until its 2 hours are up', async () => {
+  // 0.5.0, investigating "signed out of admin on the 0.4.2 deploy": nothing about an admin session is held in memory
+  // or derived from a key made at start-up. A second app on the same database (what a deploy's restart is) accepts the
+  // same cookie; only the 2-hour expiry (ADMIN_TTL_MS, absolute, not sliding) ends it.
+  const h = await sessionCookie();
+  const { createApp } = await import('../app.js');
+  const restarted = createApp({ db: t.db });
+  const server = await new Promise((res) => {
+    const s = restarted.listen(0, '127.0.0.1', () => res(s));
+  });
+  const get = (headers) => fetch(`http://127.0.0.1:${server.address().port}/api/admin/state`, { headers: { 'CF-Connecting-IP': '203.0.113.50', ...headers } });
+  assert.equal((await get(h)).status, 200);
+  await t.db.query("UPDATE admin_sessions SET expires_at = now() - interval '1 second'");
+  assert.equal((await get(h)).status, 404, 'past its 2 hours it is gone, restart or not');
+  await new Promise((res) => server.close(res));
+});

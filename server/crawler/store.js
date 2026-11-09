@@ -20,13 +20,51 @@ export async function upsertRuleset(q, r, { listed = null } = {}) {
 
 export async function upsertGuild(q, g, rulesetId) {
   if (!g || !Number.isFinite(g.id) || !g.slug) return null;
+  const slug = g.slug.toLowerCase();
   await q.query(
     `INSERT INTO guilds (id, slug, name, faction, ruleset_id) VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (id) DO UPDATE SET slug = EXCLUDED.slug, name = EXCLUDED.name, faction = EXCLUDED.faction,
+     ON CONFLICT (id) DO UPDATE SET slug = EXCLUDED.slug, name = EXCLUDED.name, faction = coalesce(EXCLUDED.faction, guilds.faction),
        ruleset_id = coalesce(EXCLUDED.ruleset_id, guilds.ruleset_id), updated_at = now()`,
-    [g.id, g.slug, g.name, g.faction, rulesetId],
+    [g.id, slug, g.name, g.faction, rulesetId],
+  );
+  // 0.5.0: every slug a guild is seen with, so /g/{old-slug} redirects to it (by id) after a rename.
+  await q.query(
+    `INSERT INTO guild_slugs (slug, guild_id) VALUES ($1, $2) ON CONFLICT (slug, guild_id) DO UPDATE SET seen_at = now()`,
+    [slug, g.id],
   );
   return g.id;
+}
+
+/** A guild's totals need rebuilding (a member changed, joined or left): the worker's guild-totals job picks it up. */
+export async function markGuildsDirty(q, ids) {
+  const list = [...new Set(ids.filter((x) => x !== null && x !== undefined))];
+  if (!list.length) return;
+  await q.query('UPDATE guilds SET totals_dirty_at = now() WHERE id = ANY($1::bigint[])', [list]);
+}
+
+/** The guild profile (200): header fields. The slug Blizzard answers with is the current one. */
+export async function storeGuildProfile(q, gp) {
+  await upsertRuleset(q, gp.ruleset);
+  await upsertGuild(q, { id: gp.id, slug: gp.slug, name: gp.name, faction: gp.faction }, gp.ruleset?.id ?? null);
+  await q.query(
+    `UPDATE guilds SET profile_state = 'ok', profile_fetched_at = now(), member_count = $2, created_at_blizzard = $3 WHERE id = $1`,
+    [gp.id, gp.memberCount, gp.createdAt],
+  );
+}
+
+/** The roster: replaces the guild's guild_roster rows (ids, rank numbers, levels; no names). */
+export async function storeRoster(q, guildId, members) {
+  await q.query('DELETE FROM guild_roster WHERE guild_id = $1', [guildId]);
+  const seen = new Set();
+  const list = members.filter((m) => !seen.has(m.id) && seen.add(m.id));
+  if (list.length) {
+    await q.query(
+      `INSERT INTO guild_roster (guild_id, character_id, rank, level, fetched_at)
+       SELECT $1, v.id, v.rank, v.level, now() FROM unnest($2::bigint[], $3::smallint[], $4::smallint[]) AS v(id, rank, level)`,
+      [guildId, list.map((m) => m.id), list.map((m) => m.rank), list.map((m) => (Number.isInteger(m.level) ? Math.min(m.level, 32767) : null))],
+    );
+  }
+  await q.query('UPDATE guilds SET roster_checked_at = now(), roster_members = $2 WHERE id = $1', [guildId, list.length]);
 }
 
 /** A character Blizzard named somewhere (an account list, a roster) without its profile: tracked as known. */
@@ -54,7 +92,7 @@ export async function upsertKnown(q, c, { source, ownerAccountId = null }) {
 
 /** The profile (200). Returns { id, previous } where previous is the row before this write (or null). */
 export async function storeProfile(q, p, { source }) {
-  const previous = await q.one('SELECT id, ruleset_id, hidden, login_at_full, last_fetched_at, media_state FROM characters WHERE id = $1 FOR UPDATE', [p.id]);
+  const previous = await q.one('SELECT id, ruleset_id, guild_id, hidden, login_at_full, last_fetched_at, media_state FROM characters WHERE id = $1 FOR UPDATE', [p.id]);
   await upsertRuleset(q, p.ruleset);
   const guildId = await upsertGuild(q, p.guild, p.ruleset?.id ?? null);
   if (p.slug) await q.query('UPDATE characters SET slug = NULL WHERE slug = $1 AND id <> $2', [p.slug, p.id]);
@@ -73,6 +111,8 @@ export async function storeProfile(q, p, { source }) {
   if (previous && p.ruleset && previous.ruleset_id !== null && previous.ruleset_id !== p.ruleset.id) {
     await q.query('UPDATE character_statistics SET ruleset_id = $2 WHERE character_id = $1', [p.id, p.ruleset.id]);
   }
+  // 0.5.0: its guild's totals (and its old guild's, after a move) are rebuilt from the new values by the worker.
+  await markGuildsDirty(q, [guildId, previous?.guild_id]);
   return { id: p.id, previous, guildId };
 }
 
@@ -83,8 +123,9 @@ export async function markProfileMissing(q, slug) {
   // longer returns them), and it is retried on the normal schedule. data_fetched_at keeps the date of the last success;
   // past the retention window the sweep strips its Blizzard data (retention/registry.js). One never fetched is
   // simply not found.
-  const row = await q.one('SELECT id, stats_fetched_at FROM characters WHERE slug = $1', [slug]);
+  const row = await q.one('SELECT id, stats_fetched_at, guild_id FROM characters WHERE slug = $1', [slug]);
   if (!row) return;
+  await markGuildsDirty(q, [row.guild_id]);
   if (row.stats_fetched_at) {
     await q.query('DELETE FROM character_statistics WHERE character_id = $1', [row.id]);
     await q.query('DELETE FROM stat_gains WHERE character_id = $1', [row.id]);
@@ -205,8 +246,14 @@ export async function updateGains(q, characterId, { now = Date.now } = {}) {
 
 /** Hides or shows a character everywhere it is ranked. */
 export async function setHidden(q, characterId, hidden) {
-  await q.query('UPDATE characters SET hidden = $2 WHERE id = $1', [characterId, hidden]);
+  const ch = await q.one('UPDATE characters SET hidden = $2 WHERE id = $1 RETURNING guild_id', [characterId, hidden]);
   await q.query('UPDATE character_statistics SET hidden = $2 WHERE character_id = $1', [characterId, hidden]);
   await q.query('UPDATE stat_gains SET hidden = $2 WHERE character_id = $1', [characterId, hidden]);
   await q.query('UPDATE period_baselines SET hidden = $2 WHERE character_id = $1', [characterId, hidden]);
+  // 0.5.0: a hidden character counts toward no guild total from this moment, so its guild is rebuilt now, in the same
+  // transaction, not on the worker's next pass.
+  if (ch?.guild_id !== null && ch?.guild_id !== undefined) {
+    const { rebuildGuildTotals } = await import('../stats/guildTotals.js');
+    await rebuildGuildTotals(q, ch.guild_id);
+  }
 }

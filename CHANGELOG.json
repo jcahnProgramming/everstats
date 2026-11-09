@@ -1,6 +1,31 @@
 {
   "releases": [
     {
+      "version": "0.5.0",
+      "date": "2026-11-12",
+      "title": "Guild pages and guild leaderboards",
+      "sections": {
+        "New": [
+          "Guild pages. Every guild has its own page at everstats.app/g/guild-name, linked from every guild name on the site: on character pages, public profiles, leaderboards and search. It shows the guild's faction, ruleset and the date it was created in game, how many members are on Blizzard's roster and how many of them Everstats tracks, the guild's totals for Times camped, Total deaths, Quests completed and Creatures killed, and where the guild stands on the guild boards.",
+          "The roster lists every tracked member with their level, class, race, guild rank and when they were last seen in game, and can be sorted by any column or filtered by class. Blizzard only gives guild ranks as numbers, so the guild master shows as \"Guild Master\" and everyone else as \"Rank 1\", \"Rank 2\" and so on. Members under level 10, or not fetched yet, are counted but not named.",
+          "Top members: every statistic, grouped like the character page, with the guild's own top five and a \"See all\" board for just that guild. Overall, this week, or the last 29 days.",
+          "Guild leaderboards: guild against guild, on every statistic and every ruleset. Guilds are ranked by the total of their members or by the average per member (switch on each board), overall, this week, or over the last 29 days. A guild is ranked once it has at least 5 tracked members; smaller guilds show as \"Not ranked yet\" with how many more they need. The figures always come from a guild's current members: someone who leaves takes their numbers with them, and their gains this week count for the guild they're in now.",
+          "The leaderboards page has a Characters | Guilds switch, keeping your ruleset and the category list.",
+          "The Guilds page lets you search for a guild by name and lists the largest guilds on each ruleset by tracked members.",
+          "Search finds guilds as well as characters. As you type, it suggests the characters and guilds Everstats knows, each labelled, and anything that isn't a name and surname opens a results page."
+        ],
+        "Improved": [
+          "The rolling board is now \"Last 29 days\" (it was 26). Backups no longer hold any game data from Blizzard, so the site can keep it 29 days and still never hold anything older than Blizzard's 30-day limit.",
+          "Backups now contain only Everstats' own data: accounts, usernames, sign-ins, passkeys, two-factor settings, pins, profiles, settings, beta membership and which characters are yours or hidden. Because none of it is Blizzard's, the last 14 nightly backups and the first backup of every month are kept, instead of 3 days. After a restore, game data (statistics, gear, guilds, history) is fetched from Blizzard again, characters as their owners sign in or someone looks them up.",
+          "Hidden characters never appear on a guild page and never count toward a guild's totals or its place on a board."
+        ],
+        "Fixed": [
+          "Settings now highlights the section you're actually looking at: Profile on first load, and Delete account at the bottom of the page or when you click it. On a phone, the section bar slides to keep the highlighted section in view.",
+          "Character pages no longer show off-hand weapon numbers (damage, speed, DPS) when nothing is equipped in the off hand. The same goes for an empty main hand or ranged slot."
+        ]
+      }
+    },
+    {
       "version": "0.4.2",
       "date": "2026-11-11",
       "title": "30 days of history, fuller profiles, a proper character sheet",

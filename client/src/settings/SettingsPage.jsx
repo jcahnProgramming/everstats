@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { activeSection } from './sectionSpy.js';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { authError } from '../authMessages.js';
@@ -114,36 +115,93 @@ export function SettingsPage() {
 
 /**
  * The section links. Desktop: a sidebar that stays in view under the sticky top bar (and scrolls itself if it's ever
- * taller than the window). Phone: a horizontal bar pinned under the top bar. The link for the section in view is
- * marked (aria-current), measured with an IntersectionObserver against the band just under the sticky header.
+ * taller than the window). Phone: a horizontal strip pinned under the top bar. The link for the section in view is
+ * marked (aria-current).
+ *
+ * 0.5.0 (three bugs found on 0.4.2): the old IntersectionObserver watched a narrow band and started before the account
+ * (and so the Profile section) had loaded, so the first load highlighted Appearance; the last section could never reach
+ * the band, so Delete account never lit up; and on phones the strip's scrollIntoView fought the page scroll. Now
+ * (activeSection in sectionSpy.js, tested on its own): on every scroll, resize and layout change the current section
+ * is the last one whose top has passed a line just under the sticky bars; at the very bottom of the page, the last
+ * section. A clicked link stays current until the person scrolls themselves. The phone strip scrolls ITSELF
+ * (horizontally) to keep the current link in view, never the page.
  */
 function SectionNav() {
   const [current, setCurrent] = useState(SECTIONS[0][0]);
   const bar = useRef(null);
+  const clicked = useRef(null); // { id, settledY } while a clicked link should stay current
   useEffect(() => {
-    const seen = new Map();
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) seen.set(e.target.id, e.isIntersecting);
-      const first = SECTIONS.find(([id]) => seen.get(id));
-      if (first) setCurrent(first[0]);
-    }, { rootMargin: '-20% 0px -60% 0px' });
-    const els = SECTIONS.map(([id]) => document.getElementById(id)).filter(Boolean);
-    els.forEach((el) => io.observe(el));
-    // Sections appear once the account loads: look again shortly.
-    const again = setTimeout(() => SECTIONS.map(([id]) => document.getElementById(id)).filter((el) => el && !els.includes(el)).forEach((el) => io.observe(el)), 500);
+    let frame = 0;
+    let settle = 0;
+    const measure = () => {
+      frame = 0;
+      const pin = clicked.current;
+      if (pin) {
+        if (pin.settledY === null) {
+          // The jump (or smooth scroll) to the clicked section is still moving: wait for it to stop.
+          clearTimeout(settle);
+          settle = setTimeout(() => {
+            if (clicked.current === pin) pin.settledY = window.scrollY;
+          }, 150);
+          return;
+        }
+        if (Math.abs(window.scrollY - pin.settledY) < 8) return;
+        clicked.current = null; // the person scrolled away themselves
+      }
+      const tops = SECTIONS.map(([id]) => {
+        const el = document.getElementById(id);
+        return el ? { id, top: el.getBoundingClientRect().top } : null;
+      }).filter(Boolean);
+      const header = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
+      const strip = bar.current && getComputedStyle(bar.current).position === 'sticky' && getComputedStyle(bar.current).flexDirection === 'row'
+        ? bar.current.getBoundingClientRect().bottom : 0;
+      const id = activeSection({
+        tops,
+        line: Math.max(header, strip) + Math.min(160, window.innerHeight * 0.25),
+        atBottom: window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2,
+      });
+      if (id) setCurrent(id);
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+    schedule();
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    // Sections appear (and grow) as the account loads: measure again whenever the page changes size.
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(schedule) : null;
+    ro?.observe(document.body);
     return () => {
-      clearTimeout(again);
-      io.disconnect();
+      cancelAnimationFrame(frame);
+      clearTimeout(settle);
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      ro?.disconnect();
     };
   }, []);
-  // On the phone bar, keep the current link in view.
+  // The phone strip keeps the current link in view by scrolling itself sideways (never the page).
   useEffect(() => {
-    bar.current?.querySelector('[aria-current="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    const strip = bar.current;
+    const link = strip?.querySelector('[aria-current="true"]');
+    if (!strip || !link || strip.scrollWidth <= strip.clientWidth) return;
+    const left = link.offsetLeft - (strip.clientWidth - link.offsetWidth) / 2;
+    strip.scrollTo({ left: Math.max(0, left), behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }, [current]);
   return (
     <nav aria-label="Settings sections" className="settings-nav" ref={bar}>
       {SECTIONS.map(([id, label]) => (
-        <a key={id} className="btn ghost left settings-link" href={`#${id}`} aria-current={current === id ? 'true' : undefined}>{label}</a>
+        <a
+          key={id}
+          className="btn ghost left settings-link"
+          href={`#${id}`}
+          aria-current={current === id ? 'true' : undefined}
+          onClick={(e) => {
+            if (e.detail > 0) e.currentTarget.blur(); // a mouse click; a keyboard user keeps focus here
+            clicked.current = { id, settledY: null };
+            setCurrent(id);
+            requestAnimationFrame(() => window.dispatchEvent(new Event('scroll')));
+          }}
+        >{label}</a>
       ))}
       <span className="hr settings-hr" />
       <SignOut />

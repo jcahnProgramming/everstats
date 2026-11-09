@@ -31,52 +31,54 @@ test('the window is one setting: 30 by default, never above 30 without a written
   const { retentionPolicy } = await import('../retention/policy.js');
   const { setSetting } = await import('../admin/settings.js');
   const p = await retentionPolicy(t.db);
-  assert.deepEqual([p.windowDays, p.keepDays, p.backupKeepDays, p.safetyDays], [30, 26, 3, 1]);
+  assert.deepEqual([p.windowDays, p.keepDays, p.safetyDays], [30, 29, 1]);
+  assert.equal(p.backups.blizzardData, false); // 0.5.0: backups hold none, so they don't eat into the window
   await assert.rejects(setSetting(t.db, 'retention.window', { days: 31 }), /written permission/);
   await assert.rejects(setSetting(t.db, 'retention.window', { days: 60, note: 'ok' }), /written permission/);
   await setSetting(t.db, 'retention.window', { days: 60, note: 'Email from Blizzard API team, 2027-01-05, ticket 12345: 60-day aggregation approved' });
-  assert.equal((await retentionPolicy(t.db)).keepDays, 56);
+  assert.equal((await retentionPolicy(t.db)).keepDays, 59);
   const logged = await t.db.one("SELECT detail FROM admin_events WHERE type = 'setting.changed' ORDER BY id DESC LIMIT 1");
   assert.match(logged.detail.value.note, /ticket 12345/);
   await setSetting(t.db, 'retention.window', { days: 30 });
   assert.equal((await retentionPolicy(t.db)).permission, null); // back at 30, the note goes with it
 });
 
-test('the sweep deletes every kind of Blizzard data past 26 days, keeps what is newer, and strips a character Blizzard stopped returning', async () => {
+test('the sweep deletes every kind of Blizzard data past 29 days, keeps what is newer, and strips a character Blizzard stopped returning', async () => {
   const q = t.db;
-  await q.query("INSERT INTO rulesets (id, name, listed, updated_at) VALUES (2, 'Fixture Ruleset', true, now()), (99, 'Fixture Old Ruleset', false, $1)", [ago(27)]);
-  await q.query("INSERT INTO guilds (id, slug, name, updated_at) VALUES (1, 'fixture-guild', 'Fixture Guild', now()), (2, 'old-guild', 'Old Guild', $1)", [ago(27)]);
+  await q.query("INSERT INTO rulesets (id, name, listed, updated_at) VALUES (2, 'Fixture Ruleset', true, now()), (99, 'Fixture Old Ruleset', false, $1)", [ago(30)]);
+  await q.query("INSERT INTO guilds (id, slug, name, updated_at) VALUES (1, 'fixture-guild', 'Fixture Guild', now()), (2, 'old-guild', 'Old Guild', $1)", [ago(30)]);
   await q.query("INSERT INTO accounts DEFAULT VALUES");
   const acct = (await q.one('SELECT id FROM accounts ORDER BY id DESC LIMIT 1')).id;
-  // 7001: fresh. 7002: Blizzard last returned it 27 days ago (owned and hidden). 7003: gear 27 days old, profile fresh.
+  // 7001: fresh. 7002: Blizzard last returned it 30 days ago (owned and hidden). 7003: gear 30 days old, profile fresh.
   await q.query(
     `INSERT INTO characters (id, slug, name, surname, ruleset_id, profile_state, source, data_fetched_at, last_fetched_at, stats_fetched_at, guild_id, owner_account_id, hidden, equipment, media, media_state, media_fetched_at)
      VALUES (7001, 'fresh-fixture', 'Fresh', 'Fixture', 2, 'ok', 'lookup', now(), now(), now(), 1, NULL, false, '[]', '{}', 'ok', now()),
             (7002, 'gone-fixture', 'Gone', 'Fixture', 2, 'ok', 'account', $1, $1, $1, 2, $2, true, '[]', '{}', 'ok', $1),
             (7003, 'stale-fixture', 'Stale', 'Fixture', 2, 'ok', 'lookup', now(), $1, now(), NULL, NULL, false, '[]', NULL, NULL, NULL)`,
-    [ago(27), acct],
+    [ago(30), acct],
   );
-  await q.query("INSERT INTO statistics (id, name, last_seen_at) VALUES (1, 'Fixture fresh stat', now()), (2, 'Fixture old stat', $1)", [ago(27)]);
-  await q.query('INSERT INTO character_statistics (character_id, statistic_id, ruleset_id, value, fetched_at) VALUES (7001, 1, 2, 5, now()), (7002, 1, 2, 9, $1)', [ago(27)]);
+  await q.query("INSERT INTO statistics (id, name, last_seen_at) VALUES (1, 'Fixture fresh stat', now()), (2, 'Fixture old stat', $1)", [ago(30)]);
+  await q.query('INSERT INTO character_statistics (character_id, statistic_id, ruleset_id, value, fetched_at) VALUES (7001, 1, 2, 5, now()), (7002, 1, 2, 9, $1)', [ago(30)]);
   await q.query("INSERT INTO character_snapshots (character_id, day, taken_at, stat_ids, stat_values) VALUES (7001, $1, $2, '{1}', '{5}'), (7001, $3, $4, '{1}', '{3}')",
-    [ago(1).toISOString().slice(0, 10), ago(1), ago(27).toISOString().slice(0, 10), ago(27)]);
-  await q.query("INSERT INTO item_media (item_id, state, icon_url, fetched_at) VALUES (1, 'ok', 'https://render.worldofwarcraft.com/x.jpg', now()), (2, 'ok', 'https://render.worldofwarcraft.com/y.jpg', $1)", [ago(27)]);
-  await q.query("INSERT INTO pin_rank_history (character_id, statistic_id, day, rank, population) VALUES (7001, 1, $1, 1, 1), (7001, 1, $2, 1, 1)", [ago(1).toISOString().slice(0, 10), ago(27).toISOString().slice(0, 10)]);
-  await q.query("INSERT INTO discovery_runs (status, requested_at) VALUES ('done', $1)", [ago(27)]);
+    [ago(1).toISOString().slice(0, 10), ago(1), ago(30).toISOString().slice(0, 10), ago(30)]);
+  await q.query("INSERT INTO item_media (item_id, state, icon_url, fetched_at) VALUES (1, 'ok', 'https://render.worldofwarcraft.com/x.jpg', now()), (2, 'ok', 'https://render.worldofwarcraft.com/y.jpg', $1)", [ago(30)]);
+  await q.query("INSERT INTO pin_rank_history (character_id, statistic_id, day, rank, population) VALUES (7001, 1, $1, 1, 1), (7001, 1, $2, 1, 1)", [ago(1).toISOString().slice(0, 10), ago(30).toISOString().slice(0, 10)]);
+  await q.query("INSERT INTO discovery_runs (status, requested_at) VALUES ('done', $1)", [ago(30)]);
   const run = (await q.one('SELECT id FROM discovery_runs ORDER BY id DESC LIMIT 1')).id;
-  await q.query("INSERT INTO discovery_responses (run_id, endpoint, subject_kind, path, auth, status, body, fetched_at) VALUES ($1, 'character.profile', 'character', '/x', 'app', 200, '{\"name\":\"Fixture\"}', $2)", [run, ago(27)]);
-  await q.query("INSERT INTO discovery_decisions (statistic_id, kind, value, decision, reasoning, decided_at) VALUES (2, 'category', '\"Combat\"', 'approved', 'Blizzard files it under \"Kills\"', $1)", [ago(27)]);
+  await q.query("INSERT INTO discovery_responses (run_id, endpoint, subject_kind, path, auth, status, body, fetched_at) VALUES ($1, 'character.profile', 'character', '/x', 'app', 200, '{\"name\":\"Fixture\"}', $2)", [run, ago(30)]);
+  await q.query("INSERT INTO discovery_decisions (statistic_id, kind, value, decision, reasoning, decided_at) VALUES (2, 'category', '\"Combat\"', 'approved', 'Blizzard files it under \"Kills\"', $1)", [ago(30)]);
 
-  // Backups: one taken 3 days 2 hours ago (goes), one 2 days ago (stays).
+  // Backups from before 0.5.0 hold Blizzard data: one taken 3 days 2 hours ago (goes), one 2 days ago (stays). A
+  // 0.5.0 backup of our own data from long ago stays (the first of its month is kept indefinitely).
   const dir = mkdtempSync(join(tmpdir(), 'es-retention-'));
-  for (const [name, age] of [['everstats-2026-01-01.dump', 3 * DAY + 2 * 3600_000], ['everstats-2026-01-02.dump', 2 * DAY]]) {
+  for (const [name, age] of [['everstats-2026-01-01.dump', 3 * DAY + 2 * 3600_000], ['everstats-2026-01-02.dump', 2 * DAY], ['everstats-ours-2025-12-01.dump', 300 * DAY]]) {
     writeFileSync(join(dir, name), 'x');
     const at = new Date(Date.now() - age);
     utimesSync(join(dir, name), at, at);
   }
   const { runRetentionSweep } = await import('../retention/sweep.js');
   const { pruneBackups } = await import('../core/backup.js');
-  const r = await runRetentionSweep(t.db, { processName: 'test', pruneBackups: (policy) => pruneBackups(dir, { keepMs: policy.backupKeepDays * DAY }).length });
+  const r = await runRetentionSweep(t.db, { processName: 'test', pruneBackups: () => pruneBackups(dir).length });
   assert.equal(r.problem, null);
 
   assert.deepEqual((await q.query('SELECT character_id FROM character_statistics ORDER BY 1')).map((x) => x.character_id), [7001]);
@@ -95,7 +97,7 @@ test('the sweep deletes every kind of Blizzard data past 26 days, keeps what is 
   assert.deepEqual(await q.one('SELECT name, equipment FROM characters WHERE id = 7003'), { name: 'Stale', equipment: null });
   assert.equal(await q.one("SELECT id FROM guilds WHERE slug = 'old-guild'"), null);
   assert.equal(await q.one('SELECT id FROM rulesets WHERE id = 99'), null);
-  assert.deepEqual(readdirSync(dir), ['everstats-2026-01-02.dump']);
+  assert.deepEqual(readdirSync(dir).sort(), ['everstats-2026-01-02.dump', 'everstats-ours-2025-12-01.dump']);
   rmSync(dir, { recursive: true, force: true });
 
   // Nothing Blizzard-sourced is older than the keep window afterwards.

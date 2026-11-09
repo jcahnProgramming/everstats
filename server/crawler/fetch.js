@@ -1,9 +1,11 @@
 import { BLIZZARD_API } from '../core/config.js';
 import { getSetting } from '../admin/settings.js';
-import { EQUIPMENT_VERSION, parseAttributes, parseEquipment, parseMedia, parseProfile, parseRoster, parseStatistics } from './parse.js';
+import { EQUIPMENT_VERSION, parseAttributes, parseEquipment, parseGuildProfile, parseMedia, parseProfile, parseRoster, parseStatistics } from './parse.js';
 import { queueItemMedia } from './items.js';
 import { PRIORITY, enqueueMany } from './queue.js';
-import { markProfileMissing, storeDetails, storeMedia, storeProfile, takeSnapshot, updateGains, upsertKnown, upsertRuleset } from './store.js';
+import {
+  markProfileMissing, storeDetails, storeGuildProfile, storeMedia, storeProfile, storeRoster, takeSnapshot, updateGains, upsertKnown, upsertRuleset,
+} from './store.js';
 
 /**
  * What one crawl-queue item does. `client.request(endpoint, path, { priority })` is the crawler's paced, backed-off
@@ -15,7 +17,8 @@ import { markProfileMissing, storeDetails, storeMedia, storeProfile, takeSnapsho
  *   equals the one at the last full fetch: achievement statistics, attributes, equipment and character-media
  *   (4 more, in parallel). Unchanged → 1 request (2 while the render isn't ready yet). Either way today's snapshot is
  *   taken from the current values, so every tracked character has one a day.
- * A guild, by slug: the roster (1 request); members of level 10+ not yet tracked are queued at roster priority.
+ * A guild, by slug, once a day: its profile and its roster (2 requests); members of level 10+ not yet tracked are
+ * queued at roster priority (when roster expansion is on).
  */
 export class RetryableError extends Error {
   constructor(message, code) {
@@ -119,28 +122,49 @@ function mediaResult(r) {
   return { state: 'failed' };
 }
 
-/** Queues the character's guild roster, at most once a day, when roster expansion is on. */
+/**
+ * Queues the character's guild (profile + roster), at most once a day. 0.5.0: always, because guild pages need the
+ * roster; the crawler.rosterExpansion setting now decides only whether the roster's members are queued as well.
+ */
 async function maybeRoster({ db }, p) {
   if (!p.guild?.slug) return;
-  if (!(await getSetting(db, 'crawler.rosterExpansion'))) return;
   const g = await db.one('SELECT roster_checked_at FROM guilds WHERE id = $1', [p.guild.id]);
   if (g?.roster_checked_at && Date.now() - new Date(g.roster_checked_at).getTime() < ROSTER_EVERY_MS) return;
   await enqueueMany(db, [{ kind: 'guild', key: p.guild.slug, priority: PRIORITY.roster }]);
 }
 
+export const guildPath = (slug) => `/data/wow/guild/${encodeURIComponent(slug)}`;
+
+/**
+ * A guild, by slug: its profile (the header: name, faction, ruleset, member count, created date) and its roster
+ * (rank numbers and levels; level 10+ members not yet tracked are queued when roster expansion is on). 2 requests.
+ * A 404 profile means Blizzard serves no guild at that slug (disbanded, renamed, or never): recorded, and the roster
+ * isn't asked for.
+ */
 export async function fetchGuildRoster({ db, client }, item) {
-  const slug = item.key;
-  const r = await client.request('guild-roster', `/data/wow/guild/${encodeURIComponent(slug)}/roster`, { priority: item.priority, namespace: PROFILE_NS });
-  const json = okOr(r, 'guild roster');
-  if (!json) {
-    await db.query('UPDATE guilds SET roster_checked_at = now() WHERE slug = $1', [slug]);
+  const slug = String(item.key).toLowerCase();
+  const prof = await client.request('guild-profile', guildPath(slug), { priority: item.priority, namespace: PROFILE_NS });
+  const pj = okOr(prof, 'guild profile');
+  if (!pj) {
+    await db.query("UPDATE guilds SET profile_state = 'not_found', roster_checked_at = now() WHERE slug = $1", [slug]);
     return 'not_found';
   }
+  const gp = parseGuildProfile(pj);
+  if (!gp) throw new RetryableError('guild profile: an answer without a guild in it', 'blizzard');
+  await db.tx((q) => storeGuildProfile(q, gp));
+
+  const r = await client.request('guild-roster', `${guildPath(gp.slug)}/roster`, { priority: item.priority, namespace: PROFILE_NS });
+  const json = okOr(r, 'guild roster');
+  if (!json) {
+    await db.query('UPDATE guilds SET roster_checked_at = now() WHERE id = $1', [gp.id]);
+    return 'profile only: no roster';
+  }
   const members = parseRoster(json);
+  await db.tx((q) => storeRoster(q, gp.id, members));
+  if (!(await getSetting(db, 'crawler.rosterExpansion'))) return `roster: ${members.length} members (expansion off)`;
   const eligible = members.filter((m) => Number.isInteger(m.level) && m.level >= MIN_TRACKED_LEVEL);
   const known = new Set((await db.query('SELECT id FROM characters WHERE id = ANY($1::bigint[])', [eligible.map((m) => m.id)])).map((x) => x.id));
   const fresh = eligible.filter((m) => !known.has(m.id));
-  await db.query('UPDATE guilds SET roster_checked_at = now(), roster_members = $2 WHERE slug = $1', [slug, members.length]);
   await enqueueMany(db, fresh.map((m) => ({ kind: 'character', key: m.slug, priority: PRIORITY.roster })));
   return `roster: ${members.length} members, ${fresh.length} new of level ${MIN_TRACKED_LEVEL}+`;
 }

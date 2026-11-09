@@ -13,6 +13,7 @@ import { createLimits, limitBy } from './core/rateLimit.js';
 import { requireSameOrigin } from './core/sameOrigin.js';
 import { APP_VERSION } from './core/version.js';
 import { createPublicRouter } from './characters/routes.js';
+import { createGuildRouter } from './guilds/routes.js';
 
 /**
  * The web app (API + built client), without listening. index.js starts it; tests build it with their own database,
@@ -76,6 +77,8 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
 
   // Character lookups, leaderboards, the statistics catalog, coverage and the beta (characters/routes.js).
   app.use('/api', createPublicRouter({ db, limits, networkOf }));
+  // Guild pages, guild boards, the guild index and search (guilds/routes.js, 0.5.0).
+  app.use('/api', createGuildRouter({ db, limits, networkOf }));
 
   app.use('/api/auth', createAuthRouter({ db, limits, networkOf, fetch }));
   app.use('/api/admin', createAdminRouter({

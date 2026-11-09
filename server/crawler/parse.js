@@ -220,9 +220,31 @@ export function parseRoster(json) {
     if (!isObj(c) || !Number.isFinite(c.id) || typeof c.name !== 'string') continue;
     const slug = str(c.slug, 120)?.toLowerCase() ?? slugFromHref(c.key?.href);
     if (!slug) continue;
-    out.push({ id: c.id, slug, name: c.name.slice(0, 60), surname: str(c.surname, 60) ?? '', level: int(c.level), faction: nameOf(c.faction) });
+    // rank: Blizzard's rank NUMBER (0 = guild master). Forever's roster sends no rank names (runs 1–2), so none is kept.
+    out.push({
+      id: c.id, slug, name: c.name.slice(0, 60), surname: str(c.surname, 60) ?? '', level: int(c.level), faction: nameOf(c.faction),
+      rank: Number.isInteger(m.rank) && m.rank >= 0 && m.rank < 100 ? m.rank : null,
+    });
   }
   return out.slice(0, 1000);
+}
+
+/**
+ * /data/wow/guild/{slug} (profile namespace) → what a guild page shows. Fields as runs 1–2 stored them: id, name,
+ * slug, faction, ruleset { id, name }, member_count, created_timestamp. achievement_points (0 in every sample) and
+ * name_search (the name again) aren't kept.
+ */
+export function parseGuildProfile(json) {
+  if (!isObj(json) || !Number.isFinite(json.id) || typeof json.name !== 'string' || typeof json.slug !== 'string') return null;
+  return {
+    id: json.id,
+    slug: json.slug.slice(0, 120).toLowerCase(),
+    name: json.name.slice(0, 100),
+    faction: nameOf(json.faction),
+    ruleset: isObj(json.ruleset) && Number.isInteger(json.ruleset.id) ? { id: json.ruleset.id, name: nameOf(json.ruleset) ?? `Ruleset ${json.ruleset.id}` } : null,
+    memberCount: Number.isInteger(json.member_count) && json.member_count >= 0 ? json.member_count : null,
+    createdAt: ms(json.created_timestamp),
+  };
 }
 
 /**

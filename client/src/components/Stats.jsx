@@ -113,7 +113,7 @@ export function RankedTable({ valueLabel = 'Value', rows = [], showTier = true, 
                   </div>
                 </td>
                 {showTier && <td><TierBadge letter={r.letter ?? null} size="sm" /></td>}
-                {showGuild && <td className="t2">{r.guild ?? ''}</td>}
+                {showGuild && <td className="t2">{r.guild && r.guildSlug ? <Link to={`/g/${encodeURIComponent(r.guildSlug)}`}>{r.guild}</Link> : (r.guild ?? '')}</td>}
                 {showMove && <td className={`r ${r.move > 0 ? 'up' : r.move < 0 ? 'down' : 'muted'}`}>{r.move > 0 ? `▲ ${r.move}` : r.move < 0 ? `▼ ${-r.move}` : '–'}</td>}
                 <td className="r strong">{r.valueText && <span className="muted xsmall named">{r.valueText} · </span>}{formatNumber(r.value)}</td>
               </tr>

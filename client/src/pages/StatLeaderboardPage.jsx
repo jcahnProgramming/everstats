@@ -13,12 +13,12 @@ import { formatDateTime, formatNumber, timeAgo } from '../format.js';
  *   Overall   the value
  *   Weekly    what each character GAINED since its first snapshot this week (US weekly reset, Tuesday 15:00 UTC)
  *   Last N days  0.4.2, replacing "Monthly": gained since the character's oldest snapshot still kept. Blizzard's API terms
- *             allow keeping data for at most 30 days, and Everstats keeps N of them (N comes from the server: 26).
+ *             allow keeping data for at most 30 days, and Everstats keeps N of them (N comes from the server: 29 since 0.5.0).
  * Both say "Collecting data" until snapshots cover the whole period: never a partial ranking.
  *
  * Different from the mockup: no tier or 7-day columns (tiers are the next build, movement needs a week of history),
- * no faction filter or jump-to search yet, no "Climbers this week" card (the Weekly tab is that board), and guild
- * rankings say "Coming soon" (guild pages are the next build).
+ * no faction filter or jump-to search yet, no "Climbers this week" card (the Weekly tab is that board). 0.5.0: the
+ * guild column links each guild, and the side card opens this statistic's guild board.
  */
 const periodsFor = (days) => [
   { id: 'overall', label: 'Overall' },
@@ -167,7 +167,8 @@ export function StatLeaderboardPage() {
           </section>
           <section className="panel pad-20 stack gap-12" aria-labelledby="guilds-h">
             <h2 className="h3" id="guilds-h"><Icon name="guild" size="sm" /> Guild rankings</h2>
-            <EmptyState kind="soon" compact title="Guilds ranked on this statistic come with guild pages" />
+            <span className="t2 small">Guilds ranked by the total, or the average per member, of their current tracked members.</span>
+            <Link className="btn sm ghost self-start" to={`/leaderboards/guilds/${data.ruleset.id}/${s.id}${period === 'overall' ? '' : `?period=${period}`}`}>Guilds on this board →</Link>
           </section>
         </aside>
       </div>

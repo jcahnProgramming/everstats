@@ -53,6 +53,24 @@ export const BLIZZARD = [
     sweep: async (q, cutoff) => n(await q.query("DELETE FROM crawl_queue WHERE enqueued_at < $1 AND state <> 'running' RETURNING 1", [cutoff])),
   },
   {
+    // 0.5.0. Derived from members' values; rebuilt at least every 6 hours (stats/guildTotals.js), so a row this old
+    // belongs to a guild nobody rebuilds any more.
+    table: 'guild_totals', holds: 'Guild totals and averages per statistic (derived from members’ values and gains)', fetched: 'computed_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM guild_totals WHERE computed_at < $1 RETURNING 1', [cutoff])),
+  },
+  {
+    table: 'guild_populations', holds: 'How many tracked members each guild has per period (derived)', fetched: 'computed_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM guild_populations WHERE computed_at < $1 RETURNING 1', [cutoff])),
+  },
+  {
+    table: 'guild_roster', holds: 'Guild rosters: member ids, rank numbers, levels', fetched: 'fetched_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM guild_roster WHERE fetched_at < $1 RETURNING 1', [cutoff])),
+  },
+  {
+    table: 'guild_slugs', holds: 'Every slug a guild was seen with (for redirects after a rename)', fetched: 'seen_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM guild_slugs WHERE seen_at < $1 RETURNING 1', [cutoff])),
+  },
+  {
     table: 'characters', holds: 'Profiles: name, surname, slug, level, race, class, faction, ruleset, guild, last login, render URLs, equipment and tooltips, core attributes',
     fetched: 'data_fetched_at (profile), media_fetched_at (render), last_fetched_at (equipment, attributes)',
     async sweep(q, cutoff) {
@@ -75,6 +93,8 @@ export const BLIZZARD = [
       );
       if (gone.length) {
         const ids = gone.map((r) => r.id);
+        // Their guilds' totals lose them: rebuilt by the worker (0.5.0).
+        await q.query('UPDATE guilds SET totals_dirty_at = now() WHERE id IN (SELECT guild_id FROM characters WHERE id = ANY($1::bigint[]) AND guild_id IS NOT NULL)', [ids]);
         for (const t of ['character_statistics', 'character_snapshots', 'period_baselines', 'stat_gains', 'pin_rank_history']) {
           await q.query(`DELETE FROM ${t} WHERE character_id = ANY($1::bigint[])`, [ids]);
         }
@@ -93,13 +113,22 @@ export const BLIZZARD = [
     },
   },
   {
-    table: 'guilds', holds: 'Guild names, slugs, factions, roster sizes', fetched: 'updated_at',
+    table: 'guilds', holds: 'Guild names, slugs, factions, rulesets, roster sizes; profile member count and created date',
+    fetched: 'updated_at (seen on a profile or fetched), profile_fetched_at (member count, created date)',
     async sweep(q, cutoff) {
+      // The profile's own fields age on their own clock (a guild can stay alive through its members' profiles).
+      let changed = n(await q.query(
+        `UPDATE guilds SET member_count = NULL, created_at_blizzard = NULL, profile_fetched_at = NULL, profile_state = NULL
+          WHERE profile_fetched_at < $1 RETURNING 1`,
+        [cutoff],
+      ));
       const old = await q.query('SELECT id FROM guilds WHERE updated_at < $1 LIMIT 50000', [cutoff]);
-      if (!old.length) return 0;
+      if (!old.length) return changed;
       const ids = old.map((r) => r.id);
       await q.query('UPDATE characters SET guild_id = NULL WHERE guild_id = ANY($1::bigint[])', [ids]);
-      return n(await q.query('DELETE FROM guilds WHERE id = ANY($1::bigint[]) RETURNING 1', [ids]));
+      // guild_roster, guild_slugs, guild_totals and guild_populations go with it (ON DELETE CASCADE).
+      changed += n(await q.query('DELETE FROM guilds WHERE id = ANY($1::bigint[]) RETURNING 1', [ids]));
+      return changed;
     },
   },
   {
@@ -197,6 +226,11 @@ export const OLDEST = [
   ['characters (gear, attributes)', 'SELECT min(last_fetched_at) AS t FROM characters WHERE equipment IS NOT NULL OR attributes IS NOT NULL'],
   ['item_media', 'SELECT min(fetched_at) AS t FROM item_media'],
   ['guilds', 'SELECT min(updated_at) AS t FROM guilds'],
+  ['guilds (profiles)', 'SELECT min(profile_fetched_at) AS t FROM guilds'],
+  ['guild_roster', 'SELECT min(fetched_at) AS t FROM guild_roster'],
+  ['guild_slugs', 'SELECT min(seen_at) AS t FROM guild_slugs'],
+  ['guild_totals', 'SELECT min(computed_at) AS t FROM guild_totals'],
+  ['guild_populations', 'SELECT min(computed_at) AS t FROM guild_populations'],
   ['rulesets', 'SELECT min(updated_at) AS t FROM rulesets'],
   ['statistics (names)', 'SELECT min(last_seen_at) AS t FROM statistics WHERE name IS NOT NULL'],
   ['pin_rank_history', 'SELECT min(day)::timestamptz AS t FROM pin_rank_history'],

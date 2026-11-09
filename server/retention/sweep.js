@@ -2,7 +2,7 @@ import { BLIZZARD, OLDEST } from './registry.js';
 import { retentionPolicy } from './policy.js';
 
 /**
- * The retention sweep: deletes every piece of Blizzard data last fetched before the cutoff (policy.js: 26 days for a
+ * The retention sweep: deletes every piece of Blizzard data last fetched before the cutoff (policy.js: 29 days for a
  * 30-day window), table by table, in registry order, then rebuilds the discovery catalog if a run went, prunes old
  * backups (worker only: it holds the backup folder) and records what it did (retention_sweeps).
  *
@@ -70,7 +70,7 @@ export async function retentionStatus(db) {
   return {
     windowDays: policy.windowDays,
     keepDays: policy.keepDays,
-    backupKeepDays: policy.backupKeepDays,
+    backups: policy.backups,
     safetyDays: policy.safetyDays,
     permission: policy.permission,
     cutoff: policy.cutoff,

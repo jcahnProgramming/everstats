@@ -187,8 +187,9 @@ export async function recordPinRanks(db, now = Date.now) {
 
 /** Every job, given the worker's crawler (worker/index.js). */
 /**
- * Blizzard's 30-day rule (retention/sweep.js): every hour, delete Blizzard data past the cutoff, and backups past their
- * 3 days. Runs in the background (a sweep can take a few seconds); the web app runs the same sweep as a fallback.
+ * Blizzard's 30-day rule (retention/sweep.js): every hour, delete Blizzard data past the cutoff, and prune backups
+ * (0.5.0: the 14-nightly + monthly rule for ours; 3 days for a pre-0.5.0 dump). Runs in the background (a sweep can
+ * take a few seconds); the web app runs the same sweep as a fallback.
  */
 export function retentionJob({ dir = config.backupDir } = {}) {
   let running = null;
@@ -200,10 +201,9 @@ export function retentionJob({ dir = config.backupDir } = {}) {
       if (running) return { summary: 'Sweeping' };
       const { runRetentionSweep } = await import('../retention/sweep.js');
       const { pruneBackups } = await import('../core/backup.js');
-      const { DAY_MS } = await import('../retention/policy.js');
       running = runRetentionSweep(db, {
         processName: 'worker',
-        pruneBackups: dir ? (policy) => pruneBackups(dir, { keepMs: policy.backupKeepDays * DAY_MS }).length : null,
+        pruneBackups: dir ? () => pruneBackups(dir).length : null,
       }).catch((err) => console.error(`[retention] sweep failed: ${err.code ?? err.name}`)).finally(() => { running = null; });
       return { summary: 'Sweep started' };
     },
@@ -211,4 +211,28 @@ export function retentionJob({ dir = config.backupDir } = {}) {
   };
 }
 
-export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob()]);
+/**
+ * 0.5.0: guild totals (stats/guildTotals.js), what the guild boards rank. Every minute, rebuild the guilds whose
+ * members changed since their last build, whose week rolled over, or whose totals are older than 6 hours. Runs in the
+ * background; computed from stored values only (no Blizzard request).
+ */
+export function guildTotalsJob() {
+  let running = null;
+  let last = null;
+  return {
+    id: 'guild-totals',
+    label: 'Guild totals for the guild boards',
+    everyMs: 60 * 1000,
+    async run({ db, now = Date.now }) {
+      if (running) return { summary: 'Rebuilding guild totals' };
+      const { rebuildDueGuilds } = await import('../stats/guildTotals.js');
+      running = rebuildDueGuilds(db, { now }).then((n) => {
+        last = n;
+      }).catch((err) => console.error(`[guild-totals] failed: ${err.code ?? err.name}`)).finally(() => { running = null; });
+      return { summary: last === null ? 'Started' : `Last pass rebuilt ${last} guild(s)` };
+    },
+    inFlight: () => running,
+  };
+}
+
+export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob()]);

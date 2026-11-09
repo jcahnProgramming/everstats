@@ -22,6 +22,17 @@ export const SETTINGS = [
     default: 500,
   },
   {
+    // 0.5.0: guild boards (stats/guildBoards.js). A guild below this shows "Not ranked yet: needs N tracked members".
+    key: 'guilds.minMembers',
+    section: 'grading',
+    label: 'Tracked members a guild needs before it is ranked on the guild boards',
+    help: 'Guild boards rank guilds by the total (or average) of their current tracked members. A guild with fewer tracked members than this is listed as "Not ranked yet" instead.',
+    type: 'integer',
+    min: 1,
+    max: 1000,
+    default: 5,
+  },
+  {
     key: 'discovery.maxCharacters',
     section: 'discovery',
     label: 'Most characters fetched in one discovery run',
@@ -63,7 +74,7 @@ export const SETTINGS = [
     key: 'crawler.rosterExpansion',
     section: 'crawler',
     label: 'Seed characters from guild rosters',
-    help: 'When a tracked character is in a guild, read the roster at most once a day and start tracking its members of level 10 and up.',
+    help: 'Guild profiles and rosters are read once a day either way (guild pages need them). On: also start tracking every roster member of level 10 and up.',
     type: 'boolean',
     default: true,
   },

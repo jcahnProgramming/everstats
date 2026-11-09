@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
+import { api } from '../api.js';
 import { APP_VERSION } from '../release.js';
 import { parseCharacterSearch } from '../search.js';
 import { useSession } from '../session.jsx';
@@ -106,7 +107,7 @@ function TopBar() {
         <button
           type="button"
           className="btn ghost icon nav-icon"
-          aria-label="Search characters"
+          aria-label="Search characters and guilds"
           aria-expanded={sheet === 'search'}
           aria-controls="phone-sheet"
           onClick={() => toggle('search')}
@@ -188,12 +189,19 @@ function AccountButton({ className = '', block = false }) {
   return <NavLink to="/sign-in" className={`btn ${size} ${className}`}>Sign in</NavLink>;
 }
 
-/** The character search box: "Name Surname" → /c/name-surname. `/` focuses it from anywhere (desktop). */
+/**
+ * The search box: "Name Surname" (or "name-surname") → /c/name-surname, a character look-up. `/` focuses it from
+ * anywhere (desktop). 0.5.0: while typing, it also suggests guilds and tracked characters Everstats already knows
+ * (GET /api/search), each clearly labelled; text that isn't a character's name and surname goes to /search.
+ */
 function TopSearch({ full = false, autoFocus = false, shortcut = false }) {
   const navigate = useNavigate();
   const [value, setValue] = useState('');
   const [problem, setProblem] = useState(null);
+  const [found, setFound] = useState(null);
+  const [open, setOpen] = useState(false);
   const input = useRef(null);
+  const box = useRef(null);
 
   useEffect(() => {
     if (!shortcut) return undefined;
@@ -211,44 +219,130 @@ function TopSearch({ full = false, autoFocus = false, shortcut = false }) {
     };
   }, [shortcut]);
 
+  useEffect(() => {
+    const q = value.trim();
+    if (q.length < 2) {
+      setFound(null);
+      return undefined;
+    }
+    let live = true;
+    const t = setTimeout(() => {
+      api(`/api/search?q=${encodeURIComponent(q)}`).then((r) => { if (live) setFound(r); }, () => { if (live) setFound(null); });
+    }, 200);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [value]);
+
+  // Close the suggestions when focus or a click leaves the box.
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => {
+      if (box.current && !box.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('focusin', away);
+    return () => {
+      document.removeEventListener('pointerdown', away);
+      document.removeEventListener('focusin', away);
+    };
+  }, [open]);
+
+  const done = (to) => {
+    setProblem(null);
+    setValue('');
+    setOpen(false);
+    input.current?.blur();
+    navigate(to);
+  };
   const submit = (e) => {
     e.preventDefault();
     const r = parseCharacterSearch(value);
-    if (!r.ok) {
-      setProblem(r.problem);
-      return;
+    if (r.ok) return done(`/c/${encodeURIComponent(r.slug)}`);
+    if (value.trim().length >= 2) return done(`/search?q=${encodeURIComponent(value.trim())}`);
+    setProblem(r.problem);
+  };
+  const onKeyDown = (e) => {
+    if (e.key === 'Escape') setOpen(false);
+    if (e.key === 'ArrowDown' && open) {
+      const first = box.current?.querySelector('.search-suggest a');
+      if (first) {
+        e.preventDefault();
+        first.focus();
+      }
     }
-    setProblem(null);
-    setValue('');
-    input.current?.blur();
-    navigate(`/c/${encodeURIComponent(r.slug)}`);
+  };
+  const onListKey = (e) => {
+    const links = [...(box.current?.querySelectorAll('.search-suggest a') ?? [])];
+    const i = links.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' && i < links.length - 1) {
+      e.preventDefault();
+      links[i + 1].focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      (i > 0 ? links[i - 1] : input.current).focus();
+    } else if (e.key === 'Escape') {
+      setOpen(false);
+      input.current?.focus();
+    }
   };
 
   const id = full ? 'sheet-search-problem' : 'top-search-problem';
+  const listId = full ? 'sheet-search-list' : 'top-search-list';
+  const any = found && (found.guilds.length > 0 || found.characters.length > 0);
   return (
-    <form role="search" className={`search ${full ? 'full' : ''} top-search`} onSubmit={submit} noValidate>
-      <Icon name="search" size="sm" />
-      <input
-        ref={input}
-        value={value}
-        onChange={(e) => {
-          setValue(e.target.value);
-          if (problem) setProblem(null);
-        }}
-        placeholder="Character name + surname"
-        aria-label="Search characters by name and surname"
-        aria-invalid={problem ? 'true' : undefined}
-        aria-describedby={problem ? id : undefined}
-        autoComplete="off"
-        spellCheck="false"
-        enterKeyHint="search"
-        maxLength={60}
-        // eslint-disable-next-line jsx-a11y/no-autofocus
-        autoFocus={autoFocus}
-      />
-      {!full && <span className="kbd" aria-hidden="true">/</span>}
-      {problem && <span id={id} className="search-problem" role="alert">{problem}</span>}
-    </form>
+    <div ref={box} className={`top-search-box${full ? ' full' : ''}`}>
+      <form role="search" className={`search ${full ? 'full' : ''} top-search`} onSubmit={submit} noValidate>
+        <Icon name="search" size="sm" />
+        <input
+          ref={input}
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setOpen(true);
+            if (problem) setProblem(null);
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={onKeyDown}
+          placeholder="Character or guild"
+          aria-label="Search characters by name and surname, or guilds by name"
+          aria-invalid={problem ? 'true' : undefined}
+          aria-describedby={problem ? id : undefined}
+          aria-controls={open && any ? listId : undefined}
+          aria-expanded={open && any ? 'true' : 'false'}
+          autoComplete="off"
+          spellCheck="false"
+          enterKeyHint="search"
+          maxLength={60}
+          // eslint-disable-next-line jsx-a11y/no-autofocus
+          autoFocus={autoFocus}
+        />
+        {!full && <span className="kbd" aria-hidden="true">/</span>}
+        {problem && <span id={id} className="search-problem" role="alert">{problem}</span>}
+      </form>
+      {open && any && (
+        <div id={listId} className="search-suggest" onKeyDown={onListKey}>
+          {found.characters.length > 0 && <span className="eyebrow search-suggest-h">Characters</span>}
+          {found.characters.map((c) => (
+            <Link key={`c-${c.slug}`} to={`/c/${encodeURIComponent(c.slug)}`} onClick={() => done(`/c/${encodeURIComponent(c.slug)}`)}>
+              <span className="tag search-kind">Character</span>
+              <span className="ellipsis grow">{c.name} <span className="surname">{c.surname}</span></span>
+              <span className="muted xsmall nowrap">{[c.level ? `Level ${c.level}` : null, c.ruleset].filter(Boolean).join(' · ')}</span>
+            </Link>
+          ))}
+          {found.guilds.length > 0 && <span className="eyebrow search-suggest-h">Guilds</span>}
+          {found.guilds.map((g) => (
+            <Link key={`g-${g.slug}`} to={`/g/${encodeURIComponent(g.slug)}`} onClick={() => done(`/g/${encodeURIComponent(g.slug)}`)}>
+              <span className="tag gold search-kind">Guild</span>
+              <span className="ellipsis grow">{g.name}</span>
+              <span className="muted xsmall nowrap">{[g.ruleset, g.faction].filter(Boolean).join(' · ')}</span>
+            </Link>
+          ))}
+          <span className="muted xsmall search-suggest-foot">Enter looks up a character by name and surname at Blizzard.</span>
+        </div>
+      )}
+    </div>
   );
 }
 

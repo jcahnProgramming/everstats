@@ -42,8 +42,9 @@ export function RetentionSection({ retention: r, setting, onSaved }) {
       </div>
       <p className="t2 small">
         Blizzard’s API terms: “a maximum 30-day TTL (time-to-live) policy for all Data”. The database keeps Blizzard data
-        {' '}<b className="strong-text">{r.keepDays} days</b>; each nightly backup is kept {r.backupKeepDays} days; {r.safetyDays} day is slack for a late sweep.
-        So nothing Blizzard sent is ever older than {r.windowDays} days, backups included. The sweep runs hourly in both the web app and the worker.
+        {' '}<b className="strong-text">{r.keepDays} days</b>; {r.safetyDays} day is slack for a late sweep, so nothing Blizzard sent is ever older than
+        {' '}{r.windowDays} days. Backups hold none of it (0.5.0): only Everstats’ own data, kept {r.backups?.nightly ?? 14} nightly plus the first of each month.
+        Backups from before 0.5.0 did hold Blizzard data and are still deleted {r.backups?.legacyKeepDays ?? 3} days after they were taken. The sweep runs hourly in both the web app and the worker.
       </p>
       <div className="kv"><span className="t2">Oldest Blizzard data stored</span><span className={over ? 'down' : ''}>{r.oldestAt ? `${ageDays.toFixed(1)} days (${formatDateTime(r.oldestAt)})` : 'none stored'}</span></div>
       <div className="kv"><span className="t2">Last sweep</span><span>{r.lastSweep ? `${formatDateTime(r.lastSweep.at)} · ${r.lastSweep.process}` : 'not yet'}</span></div>

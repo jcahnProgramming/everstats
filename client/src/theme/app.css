@@ -137,3 +137,18 @@ body { background-color: var(--es-bg); color: var(--es-text); }
   .state-unranked { flex-direction: column; align-items: flex-start; }
   .state { padding: var(--es-space-16); }
 }
+
+/* 0.5.0: the top-bar search suggests guilds and characters, each labelled (AppShell.jsx TopSearch). */
+.top-search-box { position: relative; display: flex; flex: 1 1 var(--es-size-col-min); max-width: var(--es-size-col-min-xl); min-width: 0; }
+.top-search-box .top-search { flex: 1 1 auto; max-width: none; }
+.top-search-box.full { max-width: none; width: 100%; }
+.search-suggest { position: absolute; right: 0; width: max(100%, min(var(--es-size-col-min-xl), calc(100vw - var(--es-space-32)))); top: calc(100% + var(--es-space-6)); display: flex; flex-direction: column; padding: var(--es-space-6) 0;
+  background: var(--es-raised); color: var(--es-text); border: var(--es-border-1) solid var(--es-line-strong); border-radius: var(--es-radius-md); box-shadow: var(--es-shadow-toast);
+  z-index: var(--es-z-dropdown); max-height: 70vh; overflow-y: auto; }
+.search-suggest a { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--es-space-10); row-gap: var(--es-space-2); align-items: center; padding: var(--es-space-8) var(--es-space-12); color: var(--es-text); text-decoration: none; font-size: var(--es-fs-13-5); min-width: 0; }
+.search-suggest a .search-kind { grid-row: span 2; }
+.search-suggest a > .muted { white-space: normal; }
+.search-suggest a:hover, .search-suggest a:focus-visible { background: var(--es-surface); outline: none; }
+.search-suggest .search-suggest-h { padding: var(--es-space-8) var(--es-space-12) var(--es-space-2); }
+.search-suggest .search-suggest-foot { padding: var(--es-space-8) var(--es-space-12) var(--es-space-4); border-top: var(--es-border-1) solid var(--es-row-sep); margin-top: var(--es-space-4); }
+.top-search-box.full .search-suggest { position: static; width: auto; margin-top: var(--es-space-6); max-height: none; }

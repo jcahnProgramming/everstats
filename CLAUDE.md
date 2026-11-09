@@ -28,9 +28,10 @@ request as hostile: CSRF origin check, rate limits, httpOnly cookies, nothing se
   population shows **"Unranked — grading opens at N tracked characters"** (N = admin setting
   `grading.minPopulation`, default 500).
 - **Freshness:** a search refreshes the character immediately; every tracked character re-syncs at least daily
-  (worker); guild rosters seed new characters. **Daily snapshots are kept 26 days, never longer** (Blizzard's 30-day
-  rule, see "Retention"): enough for weekly boards, rank movement and the "Last 26 days" boards.
-- **Guild pages** in 1.0: roster with each member's tier, plus guild rankings on leaderboards.
+  (worker); guild rosters seed new characters. **Daily snapshots are kept 29 days, never longer** (Blizzard's 30-day
+  rule, see "Retention"): enough for weekly boards, rank movement and the "Last 29 days" boards.
+- **Guild pages** (built 0.5.0, see "Guilds"): roster, totals, top members, and guild-vs-guild boards. Each member's
+  tier joins the roster when tiers are built.
 - **Accounts are optional** (see "Accounts"). Battle.net OAuth, Discord OAuth, passkeys; optional TOTP 2FA.
 - **Three themes**: Forever (default), Alliance, Horde. Logged-out visitors always see Forever.
 - **Admin**: passkey-only, one person, with an API key manager, settings and crawler status. Visitors never see it.
@@ -53,7 +54,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Admin settings | `server/admin/settings.js` | key, label, help, type, bounds, default |
 | Statistics / categories / leaderboards | `server/stats/catalog.js` | the `statistics` table (grows from crawls) + discovery decisions, else suggestions |
 | Account merge steps | `server/account/merge.js` | how each account-owned table moves on a merge |
-| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks` |
+| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks`, `retention`, `guild-totals` |
 | Data sources | `server/sources/registry.js` | id, label, credential, userProvider, create() → `get(path, { namespace, auth, userToken })`. One so far: `blizzard`. A provider named as a `userProvider` reads characters at sign-in |
 | Discovery endpoints | `server/discovery/endpoints.js` | what a discovery run asks for (data, account, character, guild, slug probes) |
 | Suggestion rules | `server/discovery/suggest.js` | per-statistic suggestions (category, bad, leaderboard), each with its reasoning |
@@ -161,7 +162,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   (0.4.1: "Not ranked", and "of N" counts only those above zero: "#1 of 3 with any");
   hidden characters are on no board and in no population. Every count repeats the partial index predicate (`value > 0`,
   `NOT hidden`), or the planner can't use the index. Nothing is cached: a rank and its "of N" are counted together.
-  Weekly = from Tuesday 15:00 UTC (US weekly reset); "Last N days" (0.4.2, replacing monthly) = since the oldest kept
+  Weekly = from Tuesday 15:00 UTC (US weekly reset); "Last N days" (0.4.2, replacing monthly; N = 29 since 0.5.0) = since the oldest kept
   snapshot, N = the retention keep-days from the API, never typed in (`stats/periods.js`). Weekly is "Collecting data"
   until snapshots began before the week did; "Last N days" until N days of snapshots exist. `scripts/measure-boards.js` measures it all
   on synthetic data in a throwaway in-memory database.
@@ -205,6 +206,26 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   whatever fetched the character (the character never waits). **Blizzard's API terms require a 30-day maximum TTL on all
   API data** (Developer API Terms of Use, section 2), so a row older than 30 days is fetched again; the image is shown
   from `render.worldofwarcraft.com`, never stored. A failed icon shows our own "?" art.
+
+## Guilds (0.5.0: `server/guilds/`, `server/stats/guildTotals.js`, `server/stats/guildBoards.js`)
+
+- **Identity:** Blizzard addresses a Forever guild by its slug alone, region-wide (no realm, no ruleset in the path), so
+  the page is `/g/{slug}` and the id is the key. Every slug a guild is seen with is kept (`guild_slugs`, Blizzard data,
+  swept) so an old address redirects to the guild by id after a rename. A guild Everstats has never fetched is looked up
+  once from its page (priority 1, the per-network look-up limit), like a character.
+- **The crawl:** a guild item is its profile + its roster, **2 requests, once a day**, queued whenever a member is
+  fetched. Rosters are read even with `crawler.rosterExpansion` off (the setting now only decides whether the roster's
+  members are queued). `guild_roster` keeps ids, rank numbers and levels, **never names**.
+- **Members** are the characters whose own profile names the guild now (`characters.guild_id`), tracked (statistics
+  fetched, not hidden, not missing): `TRACKED_MEMBER` in guildTotals.js. Untracked roster members are counted, never
+  listed. Hidden characters appear nowhere and count toward nothing; hiding one rebuilds its guild at once.
+- **Guild totals** (`guild_totals`, `guild_populations`): per guild, statistic and period, the total and average of its
+  members' values (overall) or gains (week, rolling). Built by the worker job `guild-totals` (dirty guilds, the week
+  rolling over, or older than 6 hours), never per request, never from an extra Blizzard request.
+- **Guild boards:** total (default) or average, same periods, zero never ranked, ties share. A guild is ranked only with
+  `guilds.minMembers` (admin setting, default 5) counted members; below that it is "Not ranked yet: needs N tracked
+  members". `scripts/measure-guilds.js` measures it all at 10,000 characters in 500 guilds.
+- **Guild rank names:** Blizzard sends a number only. 0 is "Guild Master", the rest "Rank N". Never invent names.
 
 ## The beta (`server/beta.js`, `chrome/BetaBanner.jsx`, `/beta`)
 
@@ -278,18 +299,25 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
     counting. Not a deletion, listed here because a held name becomes claimable again by design.
   - **Discovery Battle.net tokens** (`discovery_grants`) are deleted when they expire (hourly sweep), when the admin
     forgets one, or when a new authorization replaces it. Reason: a credential, not history.
-  - **Nightly backup files are deleted 3 days after they're taken** (`server/core/backup.js`, the hourly sweep and every
-    good backup). Reason: they hold Blizzard data (30-day rule). No monthly copies. The `backup_runs` log is kept.
+  - **Nightly backups: the newest 14 plus the first of each month are kept; older ones are deleted** (0.5.0,
+    `server/core/backup.js` planPrune; the hourly sweep and every good backup). Reason: they hold only our own data now,
+    and a bounded set is enough to recover from. **A pre-0.5.0 dump (`everstats-YYYY-MM-DD.dump`) holds Blizzard data
+    and is deleted 3 days after it was taken** (30-day rule). The `backup_runs` log is kept.
   - **Every Blizzard-sourced row past the retention window** (next section).
 - Every time-series table has a composite index on `(parent_id, timestamp)`.
 - **Every query takes limit/cursor. No unbounded selects, ever** (`pageLimit()` in `server/core/db.js`).
 - Migrations: `server/core/schema.js` (`{ id, up(q) }`, run under an advisory lock by both processes). Never edit or
   reorder one that has shipped. Blizzard-shaped tables (007+) follow what the discovery runs stored, never memory.
 - `pg` turns a JS array parameter into a Postgres array: for `jsonb` pass `JSON.stringify(value)`.
-- **Backups** (`server/core/backup.js`, registered as the worker job `backup`; `RESTORE.md`): every night after
-  04:00 UTC (at once after a missed night) the worker runs `pg_dump --format=custom` into `BACKUP_DIR` (`/backups` in
-  the worker container), reads the whole archive back with `pg_restore` before keeping it as
-  `everstats-YYYY-MM-DD.dump`, and records each run in `backup_runs` (admin page and worker `/api/health` read it). The
+- **Backups hold ONLY Everstats' own data** (0.5.0, `server/core/backup.js`, the worker job `backup`; `RESTORE.md`).
+  Every table the retention registry calls Blizzard data is dumped schema-only (`--exclude-table-data`); the three
+  mixed tables' own parts go in a `backup_stubs` schema written just before the dump and dropped after (character stubs:
+  id, owner, hidden, tracked since; statistic ids; Discovery decisions with the reasoning blanked), plus
+  `backup_stubs.restore()`, which a restore runs between the data and post-data sections (no primary keys exist yet
+  then: never `ON CONFLICT` in it). A dump whose `pg_restore --list` shows any Blizzard table data is refused. Every
+  night after 04:00 UTC (at once after a missed night) the worker runs `pg_dump --format=custom` into `BACKUP_DIR`
+  (`/backups` in the worker container), reads the whole archive back with `pg_restore` before keeping it as
+  `everstats-ours-YYYY-MM-DD.dump`, and records each run in `backup_runs` (admin page and worker `/api/health` read it). The
   dump runs in the background so the heartbeat never stalls; one at a time (PID lock file). A failure logs
   `[backup] FAILED`, keeps every earlier dump and retries after an hour. By hand:
   `docker exec everstats-worker node server/tools/backup.js now | list | verify <file>`. The image carries
@@ -301,8 +329,10 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 - Blizzard Developer API Terms of Use, section 2: "a maximum 30-day TTL (time-to-live) policy for all Data". Blizzard's
   forum FAQ: stay close to 30 days; anonymising is not an accepted alternative. **Everstats complies.**
 - ONE setting, `retention.window` (default 30). Above 30 only with a note recording Blizzard's written permission
-  (logged). `policy.js`: keep = window − 3 (backup keep days) − 1 (slack) = **26 days** in the database; dumps 3 days;
-  worst case ≈ 29 days 2 hours anywhere. "Last N days" boards and the privacy page follow keep-days.
+  (logged). `policy.js`: keep = window − 1 (slack for a late sweep) = **29 days** in the database (0.5.0: backups hold
+  no Blizzard data, so they no longer take 3 days of the window); worst case ≈ 29 days 1 hour anywhere. "Last N days"
+  boards and the privacy page follow keep-days. **Never put Blizzard data in a backup**: a new Blizzard table goes in
+  registry.js BLIZZARD, and that alone keeps it out of the dump.
 - `registry.js` classifies EVERY table: Blizzard data (with its fetched-at column and a sweep) or ours (with a reason).
   `server/test/retention.test.js` fails on a table in neither list: **a new table must be classified there.**
 - The sweep (`sweep.js`) runs hourly in the web app AND the worker (advisory lock: one at a time); the worker also
@@ -453,4 +483,7 @@ Write entries for someone reading them in six months: what changed from a user's
 - `/profile/user/wow` lists `wow_accounts[].characters[]` with id (= the profile's id), name, surname, level, class,
   race, faction and a character href, but **no slug field and no ruleset**. Characters < 10 are listed; their profile 404s.
 - Guilds live at `/data/wow/guild/{slug}` in the PROFILE namespace; rosters list members with id, slug, surname, level.
+  The profile has id, name, slug, faction, ruleset, member_count, created_timestamp (achievement_points was 0 in both
+  samples); `/activity` and `/achievements` answer 200 with nothing in them. Roster `rank` is a NUMBER (0–3 seen),
+  with no rank names anywhere; class and race on the roster are ids only.
 - Still open: whether surnames can hold hyphens (slugs use `-` as the separator; `server/stats/slug.js` refuses them).

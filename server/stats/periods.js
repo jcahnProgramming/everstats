@@ -6,7 +6,7 @@
  *            summer, 07:00 in winter). Baseline: the character's first snapshot this week.
  *   rolling  0.4.2: replaces "monthly". Blizzard's API terms allow keeping data at most 30 days, so a calendar month
  *            can't be kept whole. "Last N days": the gain since the character's OLDEST snapshot still kept, where N
- *            is the retention keep-days (retention/policy.js: 26 for a 30-day window). Its baselines and gains carry
+ *            is the retention keep-days (retention/policy.js: 29 for a 30-day window since 0.5.0). Its baselines and gains carry
  *            the fixed period_start ROLLING_START.
  */
 export const WEEKLY_RESET = Object.freeze({ weekday: 2, hourUtc: 15 }); // 0 = Sunday … 2 = Tuesday

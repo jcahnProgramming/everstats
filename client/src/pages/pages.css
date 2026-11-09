@@ -200,6 +200,7 @@ ol.codes { margin: 0; list-style: none; }
 @media (max-width: 719px) {
   .beta-banner-link { font-size: var(--es-fs-12); }
   .board-title { align-items: flex-start; }
+  .board-title > .grow { flex: 1 1 100%; }
 }
 
 /* Blizzard's main-raw render (character-media) is a 1600×1200 LANDSCAPE image with the figure in the middle, not the
@@ -327,3 +328,23 @@ button.armory-slot[aria-expanded="true"] { border-color: var(--qc, var(--es-line
 /* Phones: a field with buttons beside it takes the full row, and the buttons go underneath. */
 .wrap-field-row { flex-wrap: wrap; }
 @media (max-width: 719px) { .wrap-field-row > .field { flex: 1 1 100%; } }
+
+/* ---------------------------------------------------------------- 0.5.0: guild page, guild boards, search */
+/* The guild's placements on the guild boards (the mockup's "On the boards" rows, its inline styles as a class). */
+.placement { display: grid; grid-template-columns: var(--es-space-56) minmax(0, 1fr); gap: var(--es-space-2) var(--es-space-10); padding: var(--es-space-10) var(--es-space-16);
+  border-bottom: var(--es-border-1) solid var(--es-row-sep); text-decoration: none; color: var(--es-text); }
+.placement:last-child { border-bottom: 0; }
+.placement:hover { background: var(--es-raised); }
+.placement:focus-visible { outline: var(--es-border-2) solid var(--es-focus); outline-offset: calc(-1 * var(--es-border-2)); }
+.placement .placement-rank { grid-row: span 2; align-self: center; width: auto; font-size: var(--es-fs-18); }
+/* Top members per statistic: a small header line, then the mini-board rows. */
+.guild-top { display: flex; flex-direction: column; border-top: var(--es-border-1) solid var(--es-row-sep); }
+.guild-top-head { padding: var(--es-space-10) var(--es-space-14) var(--es-space-4); }
+.guild-top > .muted { padding: var(--es-space-4) var(--es-space-14) var(--es-space-10); }
+.guild-top .ln { display: grid; grid-template-columns: var(--es-space-28) minmax(0, 1fr) auto; gap: var(--es-space-8); align-items: center; padding: var(--es-space-6) var(--es-space-14); font-size: var(--es-fs-13-5); }
+.guild-top .ln .rk { width: auto; font-size: var(--es-fs-14); }
+.guild-top .ln:last-child { padding-bottom: var(--es-space-10); }
+/* The roster table scrolls inside its panel on a phone (the design allows it for this page); the page never does. */
+.guild-roster .tbl { min-width: var(--es-size-col-min-2xl); }
+.guild-search { flex: none; max-width: var(--es-size-col-min-xl); }
+.search-kind { flex: none; }

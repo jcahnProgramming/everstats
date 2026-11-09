@@ -32,7 +32,7 @@ const intParam = (v) => {
   return n;
 };
 
-async function rulesetList(db) {
+export async function rulesetList(db) {
   const rows = await db.query(
     `SELECT r.id, r.name, r.listed, (SELECT count(*)::int FROM characters c WHERE c.ruleset_id = r.id AND c.stats_fetched_at IS NOT NULL AND NOT c.hidden) AS tracked
        FROM rulesets r ORDER BY r.listed DESC, r.id LIMIT 50`,
@@ -40,12 +40,12 @@ async function rulesetList(db) {
   return rows.map((r) => ({ id: r.id, name: r.name, listed: r.listed, tracked: r.tracked }));
 }
 
-async function periodsInfo(db, now = Date.now) {
+export async function periodsInfo(db, now = Date.now) {
   const fact = await db.one("SELECT at FROM pipeline_facts WHERE key = 'first_snapshot_at'");
   const out = {};
   const w = periodOpen('week', fact?.at ?? null, now());
   out.week = { open: w.open, opensAt: w.opensAt, start: periodStart('week', now()).toISOString(), endsAt: nextPeriodStart('week', now()).toISOString() };
-  // The rolling window: "Last N days", N from the retention policy (26 for Blizzard's 30-day rule), never hardcoded.
+  // The rolling window: "Last N days", N from the retention policy (29 for Blizzard's 30-day rule since 0.5.0), never hardcoded.
   const { keepDays, windowDays } = await retentionPolicy(db, now());
   const r = rollingOpen(fact?.at ?? null, keepDays, now());
   out.rolling = { open: r.open, opensAt: r.opensAt, days: keepDays, windowDays };
@@ -55,7 +55,7 @@ async function periodsInfo(db, now = Date.now) {
 async function charactersById(db, ids) {
   if (!ids.length) return new Map();
   const rows = await db.query(
-    `SELECT c.id, c.slug, c.name, c.surname, c.level, c.race, c.class, c.faction, g.name AS guild
+    `SELECT c.id, c.slug, c.name, c.surname, c.level, c.race, c.class, c.faction, g.name AS guild, g.slug AS guild_slug
        FROM characters c LEFT JOIN guilds g ON g.id = c.guild_id WHERE c.id = ANY($1::bigint[]) LIMIT 200`,
     [ids],
   );
@@ -64,7 +64,7 @@ async function charactersById(db, ids) {
 const rowView = (r, c, viewer) => ({
   rank: r.rank, value: r.value, text: r.text ?? null,
   slug: c?.slug ?? null, name: c?.name ?? '', surname: c?.surname ?? '', level: c?.level ?? null, race: c?.race ?? null,
-  class: c?.class ?? null, faction: c?.faction ?? null, guild: c?.guild ?? null, mine: Boolean(viewer && c && viewer.has(c.id)),
+  class: c?.class ?? null, faction: c?.faction ?? null, guild: c?.guild ?? null, guildSlug: c?.guild_slug ?? null, mine: Boolean(viewer && c && viewer.has(c.id)),
 });
 
 export function createPublicRouter({ db, limits, networkOf }) {

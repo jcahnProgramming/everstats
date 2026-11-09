@@ -819,4 +819,92 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.5.0: guild pages and guild boards. Shapes from what discovery runs 1–2 stored (2026-11-09):
+    //   /data/wow/guild/{slug} (profile namespace): { id, name, slug, faction{type,name}, ruleset{id,name},
+    //     member_count, created_timestamp, achievement_points (0 in both samples), name_search, roster/activity/
+    //     achievements links }. No realm: the slug alone addresses a guild, region-wide.
+    //   …/roster: { guild{…}, members[]: { character{ id, name, surname, slug, level, playable_class{id},
+    //     playable_race{id}, faction{type} }, rank } }. rank is a NUMBER (0–3 seen); Forever sends no rank names.
+    //   …/activity and …/achievements answered 200 with nothing in them: not fetched.
+    // Every table here holds Blizzard data or is derived from it, so each is in retention/registry.js.
+    id: '013_guilds',
+    async up(q) {
+      await q.query(`
+        ALTER TABLE guilds
+          ADD COLUMN profile_state       text CHECK (profile_state IN ('ok', 'not_found')),
+          ADD COLUMN profile_fetched_at  timestamptz,       -- last 200 from the guild profile
+          ADD COLUMN member_count        integer,           -- the profile's member_count
+          ADD COLUMN created_at_blizzard timestamptz,       -- the profile's created_timestamp
+          -- Guild totals (guild_totals) are rebuilt by the worker when a member changed after the last build, when
+          -- the week rolls over, and at least every few hours (stats/guildTotals.js).
+          ADD COLUMN totals_dirty_at     timestamptz NOT NULL DEFAULT now(),
+          ADD COLUMN totals_built_at     timestamptz,
+          ADD COLUMN totals_week_start   timestamptz;
+        CREATE INDEX guilds_name_lower ON guilds (lower(name) text_pattern_ops);
+        CREATE INDEX guilds_totals_due ON guilds (totals_built_at NULLS FIRST, id);
+        CREATE INDEX guilds_ruleset ON guilds (ruleset_id, id);
+
+        -- The latest roster, one row per member Blizzard lists. No names: an untracked member is only counted, never
+        -- listed (a tracked one's name lives in characters). Replaced whole on each roster fetch.
+        CREATE TABLE guild_roster (
+          guild_id      bigint NOT NULL REFERENCES guilds (id) ON DELETE CASCADE,
+          character_id  bigint NOT NULL,                    -- Blizzard's id (no FK: most members aren't tracked)
+          rank          smallint,                           -- Blizzard's rank number; 0 is the guild master
+          level         smallint,
+          fetched_at    timestamptz NOT NULL,
+          PRIMARY KEY (guild_id, character_id)
+        );
+        CREATE INDEX guild_roster_guild_time ON guild_roster (guild_id, fetched_at);
+        CREATE INDEX guild_roster_fetched ON guild_roster (fetched_at);
+        CREATE INDEX guild_roster_character ON guild_roster (character_id, fetched_at);
+
+        -- Every slug a guild has been seen with, so an old address redirects to the guild by id after a rename.
+        CREATE TABLE guild_slugs (
+          slug      text NOT NULL,
+          guild_id  bigint NOT NULL REFERENCES guilds (id) ON DELETE CASCADE,
+          seen_at   timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (slug, guild_id)
+        );
+        CREATE INDEX guild_slugs_guild_time ON guild_slugs (guild_id, seen_at);
+        CREATE INDEX guild_slugs_seen ON guild_slugs (seen_at);
+        INSERT INTO guild_slugs (slug, guild_id, seen_at) SELECT slug, id, updated_at FROM guilds;
+
+        -- Guild boards: per guild, per statistic, per period, the TOTAL of its current tracked members' values (or
+        -- gains) and the average per member. Only totals above zero have a row (zero is never ranked). Derived from
+        -- character_statistics / stat_gains, never from an extra Blizzard request.
+        CREATE TABLE guild_totals (
+          period        text NOT NULL CHECK (period IN ('overall', 'week', 'rolling')),
+          period_start  timestamptz NOT NULL,               -- the week's start; epoch for overall and rolling
+          statistic_id  bigint NOT NULL,
+          ruleset_id    integer NOT NULL,
+          guild_id      bigint NOT NULL REFERENCES guilds (id) ON DELETE CASCADE,
+          members       integer NOT NULL,                   -- the members counted (see guild_populations)
+          total         double precision NOT NULL,
+          average       double precision NOT NULL,
+          computed_at   timestamptz NOT NULL,
+          PRIMARY KEY (period, period_start, statistic_id, guild_id)
+        );
+        CREATE INDEX guild_totals_total ON guild_totals (period, period_start, statistic_id, ruleset_id, total DESC, guild_id) WHERE total > 0;
+        CREATE INDEX guild_totals_average ON guild_totals (period, period_start, statistic_id, ruleset_id, average DESC, guild_id) WHERE total > 0;
+        CREATE INDEX guild_totals_guild_time ON guild_totals (guild_id, computed_at);
+        CREATE INDEX guild_totals_computed ON guild_totals (computed_at);
+
+        -- Each guild's counted members per period: tracked members (overall), or tracked members with a baseline in
+        -- the period (week, rolling). A guild is ranked once this reaches the guilds.minMembers setting.
+        CREATE TABLE guild_populations (
+          period        text NOT NULL CHECK (period IN ('overall', 'week', 'rolling')),
+          period_start  timestamptz NOT NULL,
+          guild_id      bigint NOT NULL REFERENCES guilds (id) ON DELETE CASCADE,
+          ruleset_id    integer NOT NULL,
+          members       integer NOT NULL,
+          computed_at   timestamptz NOT NULL,
+          PRIMARY KEY (period, period_start, guild_id)
+        );
+        CREATE INDEX guild_populations_ruleset ON guild_populations (period, period_start, ruleset_id, members DESC, guild_id);
+        CREATE INDEX guild_populations_guild_time ON guild_populations (guild_id, computed_at);
+        CREATE INDEX guild_populations_computed ON guild_populations (computed_at);
+      `);
+    },
+  },
 ];
