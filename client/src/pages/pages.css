@@ -57,3 +57,27 @@
 .crest .crest-flame { fill: var(--es-accent); opacity: 0.75; }
 .crest .crest-base { fill: var(--es-accent-2); }
 @media (max-width: 719px) { .crest { width: var(--es-space-64); } }
+
+/* ---------------------------------------------------------------- sign-in, 2FA */
+.auth-page { display: grid; place-items: center; padding: var(--es-space-72) var(--es-space-16); }
+.auth-card { width: 100%; max-width: var(--es-size-container-auth); padding: var(--es-space-36) var(--es-space-32); }
+.auth-head { align-items: center; }
+.auth-mark svg { width: var(--es-size-icon-2xl); height: var(--es-size-icon-2xl); }
+.auth-mark .mark-ring { fill: none; stroke: var(--es-accent); stroke-width: 3; }
+.auth-mark .mark-rose { fill: var(--es-accent); opacity: var(--es-opacity-ornament); }
+.auth-mark .mark-letter { font-family: var(--es-font-display); font-weight: var(--es-weight-black); fill: var(--es-text); }
+.h1-auth { font-size: var(--es-fs-30); }
+.h2-wait { font-size: var(--es-fs-26); }
+.center-text { text-align: center; }
+.left-text { text-align: left; }
+.passkey-wait { align-items: center; padding: var(--es-space-12) 0; }
+.or-rule { margin: var(--es-space-4) 0; }
+.or-rule .rule { background: var(--es-line); }
+.btn.between { justify-content: space-between; }
+.linklike { all: unset; cursor: pointer; color: var(--es-accent-2); text-decoration: underline; font-size: var(--es-fs-13); }
+.linklike:hover { color: var(--es-text); }
+.linklike:focus-visible { outline: var(--es-border-2) solid var(--es-focus); outline-offset: var(--es-space-2); }
+@media (max-width: 719px) {
+  .auth-page { padding: var(--es-space-24) 0; }
+  .auth-card { padding: var(--es-space-24) var(--es-space-18); }
+}
