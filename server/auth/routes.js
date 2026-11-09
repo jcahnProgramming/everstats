@@ -8,6 +8,7 @@ import { authenticationOptions, claimedCredentialId, verifyAuthentication } from
 import { getProvider, PROVIDERS } from './providers.js';
 import { endSession, logAccountEvent, startSession } from './sessions.js';
 import { checkSecondFactor, totpState } from './totp.js';
+import { finishGrant } from '../discovery/grant.js';
 
 /**
  * Sign-in, under /api/auth, plus the OAuth callbacks under /auth (createCallbackRouter).
@@ -143,6 +144,9 @@ export function createCallbackRouter({ db, fetch = globalThis.fetch }) {
     const back = (intent, error) => res.redirect(303, `${intent === 'sign_in' ? '/sign-in' : '/settings'}?error=${error}`);
     if (!flow || flow.data.provider !== provider.id) return back('sign_in', 'expired');
     const { intent } = flow.data;
+    // The admin's discovery authorization (discovery/grant.js): only an admin request can start one. It ends on the
+    // Discovery page and never touches accounts or sessions.
+    if (intent === 'discovery') return finishGrant({ db, provider, flow, req, res, fetch });
     if (typeof req.query.error === 'string') return back(intent, 'cancelled');
     if (!sameState(req.query.state, flow.data.state) || typeof req.query.code !== 'string') return back(intent, 'state_mismatch');
 

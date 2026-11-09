@@ -51,4 +51,40 @@ export function backupJob({ dir = config.backupDir, databaseUrl = config.databas
   };
 }
 
-export const JOBS = Object.freeze([backupJob()]);
+/**
+ * Discovery runs (discovery/run.js). The admin page queues one; this claims the oldest queued run and runs it in the
+ * background (a run is ~27 requests a character, paced). One at a time. A run left 'running' whose heartbeat is
+ * older than STALE_RUN_MS belonged to a worker that stopped (a deploy, a crash): it is marked interrupted, never
+ * left looking like it's running.
+ */
+export const STALE_RUN_MS = 5 * 60 * 1000;
+
+export function discoveryJob({ fetch = globalThis.fetch, sleep } = {}) {
+  let running = null;
+  return {
+    id: 'discovery',
+    label: 'Blizzard API discovery runs',
+    everyMs: 10_000,
+    async run({ db }) {
+      if (running) return { summary: `Discovery run #${running.id} in progress` };
+      await db.query(
+        `UPDATE discovery_runs SET status = 'interrupted', finished_at = now(), problem = 'The worker stopped during this run (a restart or deploy). Start a new one.'
+          WHERE status = 'running' AND coalesce(heartbeat_at, started_at) < now() - ($1 || ' milliseconds')::interval`,
+        [String(STALE_RUN_MS)],
+      );
+      const claimed = await db.one(
+        `UPDATE discovery_runs SET status = 'running', started_at = now(), heartbeat_at = now()
+          WHERE id = (SELECT id FROM discovery_runs WHERE status = 'queued' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
+            AND NOT EXISTS (SELECT 1 FROM discovery_runs WHERE status = 'running')
+          RETURNING id`,
+      );
+      if (!claimed) return { summary: 'Nothing queued' };
+      const { executeRun } = await import('../discovery/run.js');
+      running = { id: claimed.id, done: executeRun({ db, runId: claimed.id, fetch, sleep }).finally(() => { running = null; }) };
+      return { summary: `Started discovery run #${claimed.id}` };
+    },
+    inFlight: () => running?.done ?? null,
+  };
+}
+
+export const JOBS = Object.freeze([backupJob(), discoveryJob()]);

@@ -40,7 +40,12 @@ export function sameState(a, b) {
 }
 
 /** Exchanges the code for an access token. Throws { code: 'token_failed' } on anything but success. */
-export async function exchange(provider, { clientId, clientSecret }, code, verifier, { fetch = globalThis.fetch } = {}) {
+export async function exchange(provider, credentials, code, verifier, deps = {}) {
+  return (await exchangeForToken(provider, credentials, code, verifier, deps)).access_token;
+}
+
+/** The same exchange, returning the whole token response ({ access_token, expires_in, scope, … }). */
+export async function exchangeForToken(provider, { clientId, clientSecret }, code, verifier, { fetch = globalThis.fetch } = {}) {
   const body = new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: callbackUrl(provider) });
   if (verifier) body.set('code_verifier', verifier);
   const basic = Buffer.from(`${encodeURIComponent(clientId)}:${encodeURIComponent(clientSecret)}`).toString('base64');
@@ -57,5 +62,5 @@ export async function exchange(provider, { clientId, clientSecret }, code, verif
   }
   const json = res.ok ? await res.json().catch(() => null) : null;
   if (!json?.access_token) throw Object.assign(new Error(`token request refused (${res.status})`), { code: 'token_failed' });
-  return json.access_token;
+  return json;
 }

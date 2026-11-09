@@ -47,7 +47,10 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Admin settings | `server/admin/settings.js` | key, label, help, type, bounds, default |
 | Statistics / categories / leaderboards | `server/stats/registry.js` | **empty until the discovery pass**; shapes documented there |
 | Account merge steps | `server/account/merge.js` | how each account-owned table moves on a merge |
-| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background). One so far: `backup` |
+| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery` |
+| Data sources | `server/sources/registry.js` | id, label, credential, userProvider, create() → `get(path, { namespace, auth, userToken })`. One so far: `blizzard` |
+| Discovery endpoints | `server/discovery/endpoints.js` | what a discovery run asks for (data, account, character, guild, slug probes) |
+| Suggestion rules | `server/discovery/suggest.js` | per-statistic suggestions (category, bad, leaderboard), each with its reasoning |
 
 - Statistics, categories and rulesets come from Blizzard's API (discovery pass), stored as data, never typed in
   from memory. A new statistic in a game patch must be data, not a deploy.
@@ -97,6 +100,21 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   404 without an admin session, and `/admin` then renders the ordinary "Nothing here" page. Admin sessions: 2 hours.
 - The page: the API key manager (registry-driven), the grading minimum, crawler status (from `worker_status`; a
   heartbeat older than 3 minutes shows "Not responding", never "running").
+
+## Discovery (`server/discovery/`, `client/src/admin/DiscoveryPage.jsx`)
+
+- Admin-only page `/admin/discovery` (linked only from `/admin`; its API sits behind the admin 404 gate). A run is
+  queued there and run by the worker job `discovery`, one at a time; a run whose heartbeat is 5 minutes old is
+  marked `interrupted`.
+- It reads Blizzard only through the `blizzard` source (`server/sources/blizzard.js`): tokens in the Authorization
+  header only, never a URL; hrefs to any host but the API's are refused; pacing from `discovery.requestsPerSecond`;
+  429/503 retried. Static namespace = the one the API's own links name, never a hardcoded version.
+- `/profile/user/wow` needs a user token. Sign-in drops its token, so the Discovery page has its own Battle.net
+  authorization (OAuth intent `discovery`, same `/auth/battlenet/callback`; the flow, not the Strict admin cookie,
+  is the proof). Token sealed in `discovery_grants`.
+- `discovery_responses` keeps every raw body forever (evidence). `discovery_statistics` is a per-run catalog;
+  `discovery_decisions` is append-only. **These are discovery tables, not production character tables**, and
+  approving a suggestion builds nothing yet.
 
 ## Themes and design
 
@@ -150,6 +168,8 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
     for exactly that; its history lives on as the target's `account.merged_in` event.
   - **Unlinking a provider or removing a passkey deletes that row.** Reason: the person asked to remove a way in.
   - **Turning 2FA off deletes the secret and recovery codes.** Reason: a stale secret is a liability.
+  - **Discovery Battle.net tokens** (`discovery_grants`) are deleted when they expire (hourly sweep), when the admin
+    forgets one, or when a new authorization replaces it. Reason: a credential, not history.
   - **Old nightly backup files are pruned**: the 14 newest dumps and the first dump of every month are kept, the rest
     deleted after a good backup (`server/core/backup.js`). Reason: they are copies of the database, not history; the
     monthly ones keep a long-range restore point forever. The `backup_runs` log itself is kept forever.

@@ -133,6 +133,19 @@ ol.codes { margin: 0; list-style: none; }
 .align-start-grid { align-items: start; }
 @media (max-width: 719px) { .admin-title { font-size: var(--es-fs-30); } }
 
+/* Discovery (admin/DiscoveryPage.jsx): built from the admin page's own parts; the design has no discovery page. */
+.pad-x-20 { padding: 0 var(--es-space-20); }
+.disc-q { padding-top: var(--es-space-16); border-top: var(--es-border-1) dashed var(--es-line); min-width: 0; }
+.disc-figure-value { font-size: var(--es-fs-22); }
+.disc-catalog td { white-space: normal; }
+.disc-catalog td.r, .disc-catalog td.mono { white-space: nowrap; }
+.disc-sug { padding-top: var(--es-space-8); border-top: var(--es-border-1) solid var(--es-row-sep); }
+.disc-decision { margin-left: var(--es-space-8); }
+/* Raw bodies: its own background, so its own text colour too (CLAUDE.md, "Bugs that cost us"). Scrolls inside
+   itself, never the page. */
+.disc-pre { margin: 0; max-height: 60vh; overflow: auto; padding: var(--es-space-12); background: var(--es-sunken); color: var(--es-text); border: var(--es-border-1) solid var(--es-line); border-radius: var(--es-radius-md); font: var(--es-fs-12)/var(--es-lh-snug) var(--es-font-mono); white-space: pre; }
+.tbl td.mono.xsmall { white-space: normal; overflow-wrap: anywhere; }
+
 /* ---------------------------------------------------------------- changelog */
 .release-head { align-items: baseline; }
 .release-version { font-size: var(--es-fs-22); font-weight: var(--es-weight-medium); margin: 0; }

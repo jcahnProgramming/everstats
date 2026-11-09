@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { AdminEnrollPage, AdminPage, AdminSignInPage } from './admin/AdminPages.jsx';
+import { DiscoveryPage } from './admin/DiscoveryPage.jsx';
 import { AppShell } from './chrome/AppShell.jsx';
 import { ChangelogPage } from './pages/ChangelogPage.jsx';
 import { CharacterPage } from './pages/CharacterPage.jsx';
@@ -33,6 +34,7 @@ export function App() {
             <Route path="settings/merge" element={<MergePage />} />
             <Route path="changelog" element={<ChangelogPage />} />
             <Route path="admin" element={<AdminPage />} />
+            <Route path="admin/discovery" element={<DiscoveryPage />} />
             <Route path="admin/sign-in" element={<AdminSignInPage />} />
             <Route path="admin/enroll" element={<AdminEnrollPage />} />
             <Route path="*" element={<NotFoundPage />} />

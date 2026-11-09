@@ -4,17 +4,38 @@ import { HttpError } from '../core/errors.js';
  * The admin settings registry. Every setting declares itself here; the admin page renders whatever is declared and
  * the store refuses anything undeclared. A missing row in `settings` means the declared default.
  *
- *   key, label, help, type ('integer'), min, max, default
+ *   key, section ('grading' | 'discovery': which admin panel shows it), label, help, type ('integer'), min, max, default
  */
 export const SETTINGS = [
   {
     key: 'grading.minPopulation',
+    section: 'grading',
     label: 'Minimum tracked characters before a ruleset is graded',
     help: 'Until a ruleset has this many tracked characters it shows "Unranked — grading opens at N tracked characters" instead of tiers. Leaderboards still show.',
     type: 'integer',
     min: 1,
     max: 10_000_000,
     default: 500,
+  },
+  {
+    key: 'discovery.maxCharacters',
+    section: 'discovery',
+    label: 'Most characters fetched in one discovery run',
+    help: 'The primary character first, then the Battle.net account’s characters, then guild-roster members, until this many. Each character is about 27 requests.',
+    type: 'integer',
+    min: 1,
+    max: 500,
+    default: 50,
+  },
+  {
+    key: 'discovery.requestsPerSecond',
+    section: 'discovery',
+    label: 'Discovery requests per second',
+    help: 'Blizzard documents 100 requests a second and 36,000 an hour per API client. 10 a second stays under the hourly cap even for an hour-long run.',
+    type: 'integer',
+    min: 1,
+    max: 100,
+    default: 10,
   },
 ];
 
@@ -40,6 +61,7 @@ export async function listSettings(db) {
   const stored = new Map(rows.map((r) => [r.key, r]));
   return SETTINGS.map((def) => ({
     key: def.key,
+    section: def.section,
     label: def.label,
     help: def.help,
     type: def.type,

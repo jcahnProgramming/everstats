@@ -1,6 +1,7 @@
 import express from 'express';
 import { HttpError, route } from '../core/errors.js';
 import { limitBy } from '../core/rateLimit.js';
+import { createDiscoveryRouter } from '../discovery/routes.js';
 import { newToken, sha256Hex } from '../credentials/crypto.js';
 import { listPublic, removeCredential, saveCredential, testCredential } from '../credentials/store.js';
 import { clearCookie, COOKIE, readCookie, setCookie } from '../auth/cookies.js';
@@ -100,6 +101,9 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
       backups: await backupStatus(db, { recent: 10 }),
     });
   }));
+
+  // Discovery (the Blizzard API catalog): behind the same gate, so a plain 404 without an admin session.
+  r.use('/discovery', createDiscoveryRouter({ db, limits, networkOf, limitBy }));
 
   r.put('/credentials/:id', writes, route(async (req, res) => res.json({ credential: await saveCredential(db, req.params.id, req.body) })));
   r.delete('/credentials/:id', writes, route(async (req, res) => res.json({ credential: await removeCredential(db, req.params.id) })));

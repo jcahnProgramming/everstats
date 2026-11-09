@@ -209,4 +209,108 @@ export const migrations = [
       `);
     },
   },
+  {
+    // The discovery pass (server/discovery/): what Blizzard's undocumented WoW Forever API really returns, recorded as
+    // evidence before any Blizzard-shaped table is designed. These tables are discovery-shaped on purpose (a raw
+    // response log, a catalog per run, the admin's decisions): they are NOT the production character tables.
+    id: '004_discovery',
+    async up(q) {
+      await q.query(`
+        -- One row per discovery run. The admin page queues it; the worker claims and runs it (worker/jobs.js).
+        -- options: what was asked (primary character, account / guild seeding, caps). progress: live counters, and
+        -- heartbeat_at so a run whose worker died is shown as interrupted, never as running. summary: the analysis.
+        CREATE TABLE discovery_runs (
+          id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          status        text NOT NULL CHECK (status IN ('queued', 'running', 'done', 'failed', 'interrupted')),
+          requested_at  timestamptz NOT NULL DEFAULT now(),
+          started_at    timestamptz,
+          finished_at   timestamptz,
+          heartbeat_at  timestamptz,
+          options       jsonb NOT NULL DEFAULT '{}',
+          progress      jsonb NOT NULL DEFAULT '{}',
+          summary       jsonb,
+          -- A short reason written by this app (never a response body or a token).
+          problem       text CHECK (length(problem) <= 400)
+        );
+        CREATE INDEX discovery_runs_status_time ON discovery_runs (status, requested_at);
+
+        -- Every request a run made, as Blizzard answered it: the raw body exactly as received (evidence, kept
+        -- forever), status, latency and response headers (minus set-cookie). Request headers are never stored: they
+        -- carry the tokens. 404s and network failures are rows too: a gap is recorded, never filled.
+        CREATE TABLE discovery_responses (
+          id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          run_id        bigint NOT NULL REFERENCES discovery_runs (id),
+          endpoint      text NOT NULL,                       -- discovery/endpoints.js id
+          subject_kind  text NOT NULL CHECK (subject_kind IN ('data', 'account', 'character', 'guild', 'probe')),
+          subject       text NOT NULL DEFAULT '',            -- the character or guild path, or ''
+          path          text NOT NULL,
+          namespace     text,
+          auth          text NOT NULL CHECK (auth IN ('app', 'user')),
+          status        integer,                             -- null: no answer at all (see error)
+          latency_ms    integer,
+          attempts      smallint NOT NULL DEFAULT 1,
+          headers       jsonb NOT NULL DEFAULT '{}',
+          content_type  text,
+          bytes         integer,
+          body          text,
+          truncated     boolean NOT NULL DEFAULT false,
+          error         text CHECK (length(error) <= 200),
+          fetched_at    timestamptz NOT NULL
+        );
+        CREATE INDEX discovery_responses_run_time ON discovery_responses (run_id, fetched_at);
+        CREATE INDEX discovery_responses_run_endpoint ON discovery_responses (run_id, endpoint, id);
+
+        -- The statistics catalog of one run: every distinct statistic seen in the catalog endpoints' responses.
+        CREATE TABLE discovery_statistics (
+          run_id               bigint NOT NULL REFERENCES discovery_runs (id),
+          statistic_id         bigint NOT NULL,              -- Blizzard's id, as returned
+          name                 text NOT NULL,
+          endpoint             text NOT NULL,
+          category_path        jsonb NOT NULL DEFAULT '[]',  -- [{ id, name }], Blizzard's own grouping, outermost first
+          value_type           text NOT NULL,
+          value_type_basis     text NOT NULL,
+          characters_sampled   integer NOT NULL,             -- characters whose catalog endpoint answered 200
+          characters_present   integer NOT NULL,             -- … whose response listed this statistic
+          characters_nonzero   integer NOT NULL,
+          min_value            double precision,
+          max_value            double precision,
+          median_value         double precision,
+          has_text             boolean NOT NULL DEFAULT false,
+          suggestions          jsonb NOT NULL DEFAULT '[]',  -- discovery/suggest.js: [{ kind, value, reasoning, evidence }]
+          PRIMARY KEY (run_id, statistic_id)
+        );
+
+        -- The admin's decisions on suggestions, append-only (the newest row per statistic and kind is the current
+        -- one; 'cleared' takes a decision back). A rejected suggestion is not suggested again. Nothing here creates a
+        -- leaderboard or a tier category: that is built later, from approved rows only.
+        CREATE TABLE discovery_decisions (
+          id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          statistic_id  bigint NOT NULL,
+          kind          text NOT NULL CHECK (kind IN ('category', 'bad', 'leaderboard')),
+          value         jsonb NOT NULL,
+          decision      text NOT NULL CHECK (decision IN ('approved', 'rejected', 'cleared')),
+          reasoning     text NOT NULL DEFAULT '' CHECK (length(reasoning) <= 600),
+          run_id        bigint REFERENCES discovery_runs (id),
+          decided_at    timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX discovery_decisions_statistic_time ON discovery_decisions (statistic_id, decided_at);
+
+        -- The admin's Battle.net authorization for reading /profile/user/wow during discovery: the access token,
+        -- sealed with the root key (slot "discovery.grant.<id>"). A credential, not history: one at a time, deleted
+        -- when it expires (sweepExpired) or when the admin forgets it.
+        CREATE TABLE discovery_grants (
+          id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          battletag   text NOT NULL DEFAULT '' CHECK (length(battletag) <= 100),
+          ciphertext  bytea NOT NULL,
+          iv          bytea NOT NULL,
+          auth_tag    bytea NOT NULL,
+          key_fp      text NOT NULL,
+          scope       text NOT NULL DEFAULT '',
+          created_at  timestamptz NOT NULL DEFAULT now(),
+          expires_at  timestamptz NOT NULL
+        );
+        CREATE INDEX discovery_grants_expiry ON discovery_grants (expires_at);
+      `);
+    },
+  },
 ];

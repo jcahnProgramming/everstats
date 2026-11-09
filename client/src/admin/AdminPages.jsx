@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Button, Field } from '../components/Controls.jsx';
@@ -21,7 +21,8 @@ import { useCoverage } from '../useCoverage.js';
  *   - The crawler shows only what is measured: each worker's heartbeat and each job's last run. The mockup's
  *     Pause / Run now buttons and its run, queue, API-budget and error tiles describe a crawler that isn't built.
  *   - Per-ruleset grading progress needs rulesets, which come from Blizzard (not loaded yet), so it says so.
- * Added: Backups (nightly pg_dump) and Proxy addresses (where CF-Connecting-IP arrives from, for TRUSTED_PROXIES).
+ * Added: Backups (nightly pg_dump), Proxy addresses (where CF-Connecting-IP arrives from, for TRUSTED_PROXIES) and a
+ * link to Discovery (DiscoveryPage.jsx), the Blizzard API discovery pass.
  */
 export function AdminPage() {
   const navigate = useNavigate();
@@ -50,6 +51,7 @@ export function AdminPage() {
         <h1 className="h1 admin-title">Admin</h1>
         <span className="tag gold">Owner only</span>
         <span className="spacer" />
+        <Link className="btn sm" to="/admin/discovery"><Icon name="search" size="sm" />Discovery</Link>
         <button type="button" className="btn ghost sm" onClick={load}><Icon name="refresh" size="sm" />Refresh</button>
         <button type="button" className="btn ghost sm" onClick={async () => { await api('/api/admin/sign-out', { method: 'POST', body: {} }); navigate('/'); }}>Sign out of admin</button>
       </div>
@@ -188,7 +190,7 @@ function GradingSection({ settings, onSaved }) {
   return (
     <section className="panel pad-20 stack gap-16" aria-labelledby="grading-h">
       <h2 className="h2 h2-panel" id="grading-h">Grading</h2>
-      {settings.map((s) => <SettingRow key={s.key} setting={s} onSaved={onSaved} />)}
+      {settings.filter((s) => s.section === 'grading').map((s) => <SettingRow key={s.key} setting={s} onSaved={onSaved} />)}
       {coverage && coverage.rulesets === null && (
         <EmptyState kind="nocoverage" compact title="No rulesets loaded yet">
           <span>Each ruleset's progress toward the minimum shows here once rulesets come in from Blizzard.</span>
@@ -198,7 +200,7 @@ function GradingSection({ settings, onSaved }) {
   );
 }
 
-function SettingRow({ setting: s, onSaved }) {
+export function SettingRow({ setting: s, onSaved }) {
   const toast = useToasts();
   const [value, setValue] = useState(String(s.value));
   const [problem, setProblem] = useState(null);

@@ -44,7 +44,7 @@ export function HomePage() {
     <>
       <section className="wrap grid-auto col-xl home-hero">
         <div className="stack gap-24">
-          <span className="eyebrow">World of Warcraft: Forever · US realms</span>
+          <span className="eyebrow">World of Warcraft: Forever · US region</span>
           <h1 className="h-hero">Every death, hug and camp — ranked.</h1>
           <p className="lead narrow-text">
             Look up any Forever character to open their full in-game statistics, each with its own leaderboard per

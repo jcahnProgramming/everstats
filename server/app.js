@@ -117,8 +117,12 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   return app;
 }
 
-/** Deletes expired sessions, flows and admin sessions/invites (CLAUDE.md names this as a deletion exception). */
+/**
+ * Deletes expired sessions, flows, admin sessions/invites and discovery Battle.net tokens (CLAUDE.md names this as a
+ * deletion exception).
+ */
 export async function sweepExpired(db) {
+  await db.query('DELETE FROM discovery_grants WHERE expires_at <= now()');
   await db.query('DELETE FROM sessions WHERE expires_at <= now()');
   await db.query('DELETE FROM auth_flows WHERE expires_at <= now()');
   await db.query('DELETE FROM admin_sessions WHERE expires_at <= now()');

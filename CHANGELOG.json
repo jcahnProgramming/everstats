@@ -1,6 +1,23 @@
 {
   "releases": [
     {
+      "version": "0.3.0",
+      "date": "2026-11-08",
+      "title": "Discovery: finding out what Blizzard's Forever API really returns",
+      "sections": {
+        "New": [
+          "For the site owner: a Discovery page in the admin area. One button asks Blizzard's WoW Forever API about real characters: a primary character, every Forever character on the owner's Battle.net account, and the primary's guild roster, up to a cap (50 by default). It also asks for the rulesets, the guild's profile, roster, activity and achievements, and every character endpoint that might exist. Every answer is kept exactly as it came back, 404s and failures included, with how long it took and the headers Blizzard sent.",
+          "Discovery reads the owner's own characters with a Battle.net authorization asked for on the Discovery page. That token is stored encrypted, only discovery uses it, and it is deleted when Battle.net expires it (about a day). Signing in to Everstats works exactly as before.",
+          "Each run builds a catalog of every in-game statistic it saw: Blizzard's id, name and category, a guessed value type, and how many sampled characters have it. The catalog sorts, filters, and downloads as CSV or JSON.",
+          "Each statistic comes with three suggestions, each with its reason: which tier category it belongs in, whether it's a \"bad\" statistic like deaths (leaderboard only, never part of a tier), and whether it's worth a leaderboard at all. The owner approves or rejects them; a rejected one isn't suggested again. Nothing becomes a leaderboard or tier category from this yet.",
+          "The run answers the open questions directly: whether statistics exist for Forever's own systems (Camping, Legacy, Housing, Skyborne), how Blizzard addresses names with hyphens, spaces or capitals, whether the account listing is realm-based like retail's, how fresh the data is, whether character renders are available yet, and what rate-limit headers Blizzard sends."
+        ],
+        "Fixed": [
+          "The home page said \"US realms\". Forever has no realms, so it now says \"US region\". So does the \"character not found\" message."
+        ]
+      }
+    },
+    {
       "version": "0.2.0",
       "date": "2026-11-08",
       "title": "The new look, and nightly backups",

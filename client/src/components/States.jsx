@@ -44,7 +44,7 @@ export function CharacterNotFound({ name, surname, children }) {
         <circle cx="32" cy="32" r="28" className="glyph-ring" />
         <text x="32" y="42" textAnchor="middle" fontSize="28" className="glyph-q">?</text>
       </svg>
-      <h1 className="h2">No “{name} {surname}” on US realms — yet</h1>
+      <h1 className="h2">No “{name} {surname}” in the US region — yet</h1>
       <p className="t2">Blizzard only lists a character once it has reached level 10 and logged out. Brand-new or low-level characters won’t show up here.</p>
       <ul className="t2 small stack gap-4 tips">
         <li>Just hit 10? Log out fully, wait a few minutes, then try again.</li>
