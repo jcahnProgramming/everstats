@@ -32,3 +32,13 @@
   .home-pillars { padding-bottom: var(--es-space-40); }
   .home-featured { padding-bottom: var(--es-space-48); }
 }
+
+/* ---------------------------------------------------------------- character */
+.sheet-top { align-items: flex-start; }
+.char-ident { flex: 1 1 var(--es-size-col-min-xl); min-width: 0; }
+.char-name { overflow-wrap: anywhere; }
+.char-line { font-size: var(--es-fs-16); }
+.char-tier { flex-wrap: nowrap; }
+.char-tier-text { align-items: flex-end; text-align: right; }
+.sheet-body { align-items: start; }
+.stats-title { font-size: var(--es-fs-28); }

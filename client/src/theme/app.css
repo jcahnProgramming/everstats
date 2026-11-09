@@ -117,3 +117,7 @@ body { background-color: var(--es-bg); color: var(--es-text); }
 .cathead .cat-title { font-size: var(--es-fs-15); }
 .slot .icon img { width: 100%; height: 100%; border-radius: var(--es-radius-xs); }
 .tbl th.r { text-align: right; }
+
+/* A shield with nothing graded in it yet (no look-up has happened): the loading shield's look without the shimmer.
+   Deliberately not the Unranked "–", which means "this ruleset is below the grading population". */
+.tier.blank { --fill: var(--es-raised); --ring: var(--es-line); }
