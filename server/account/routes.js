@@ -81,7 +81,8 @@ async function accountView(db, accountId) {
 async function ownedCharacters(db, accountId) {
   return db.query(
     `SELECT c.*, r.name AS ruleset_name,
-            EXISTS (SELECT 1 FROM crawl_queue q WHERE q.kind = 'character' AND q.key = c.slug AND q.state IN ('queued', 'running')) AS queued
+            EXISTS (SELECT 1 FROM crawl_queue q WHERE q.kind = 'character' AND q.key = c.slug AND q.state IN ('queued', 'running')) AS queued,
+            EXISTS (SELECT 1 FROM character_render_hidden h WHERE h.character_id = c.id) AS render_hidden
        FROM characters c LEFT JOIN rulesets r ON r.id = c.ruleset_id
       WHERE c.owner_account_id = $1 AND c.profile_state <> 'purged' ORDER BY c.level DESC NULLS LAST, c.id LIMIT 50`,
     [accountId],
@@ -109,7 +110,7 @@ function characterState(c) {
   return {
     id: c.id, slug: c.slug, name: c.name, surname: c.surname, level, class: c.class, race: c.race, faction: c.faction,
     ruleset: c.ruleset_id !== null ? { id: c.ruleset_id, name: c.ruleset_name } : null,
-    hidden: c.hidden, state, checkedAt: c.last_checked_at, fetchedAt: c.last_fetched_at, since: state === 'missing' ? c.data_fetched_at : null,
+    hidden: c.hidden, renderHidden: c.render_hidden, state, checkedAt: c.last_checked_at, fetchedAt: c.last_fetched_at, since: state === 'missing' ? c.data_fetched_at : null,
   };
 }
 
@@ -139,8 +140,11 @@ export function createAccountRouter({ db, limits, networkOf }) {
     // 0.7.0: the one inline badge next to the name in the header, and how many badge toasts are waiting.
     const badge = (await inlineBadges(db, [req.session.accountId])).get(Number(req.session.accountId)) ?? null;
     const toasts = (await db.one('SELECT count(*)::int AS n FROM badge_awards WHERE account_id = $1 AND toast IS NOT NULL', [req.session.accountId])).n;
+    // 0.7.1: threads Everstats replied to that the player hasn't opened yet (the unread dot on the account button).
+    const feedbackUnread = (await db.one('SELECT count(*)::int AS n FROM feedback_threads WHERE account_id = $1 AND player_unread', [req.session.accountId])).n;
     return res.json({
       badgeToasts: toasts,
+      feedbackUnread,
       signedIn: true, stage: 'full', theme: account?.theme ?? 'forever', providers, beta,
       user: {
         username: account.username,
@@ -303,6 +307,24 @@ export function createAccountRouter({ db, limits, networkOf }) {
       if (!own) throw new HttpError(404, 'That isn’t one of your characters.');
       await setHidden(q, id, req.body.hidden);
       await logAccountEvent(q, req.session.accountId, req.body.hidden ? 'character.hidden' : 'character.shown', { character: id });
+    });
+    res.json({ account: await accountView(db, req.session.accountId) });
+  }));
+
+  // 0.7.1: "Hide my render" (Settings → Characters, and the owner's own character page). The owner's choice; Blizzard's
+  // render server sometimes draws a character wrong. Showing it again deletes the row (the owner asked; logged).
+  r.put('/account/characters/:id/render', writes, route(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || typeof req.body?.hidden !== 'boolean') throw new HttpError(400, 'Say whether to hide the render.', 'invalid');
+    await db.tx(async (q) => {
+      const own = await q.one('SELECT id FROM characters WHERE id = $1 AND owner_account_id = $2 FOR UPDATE', [id, req.session.accountId]);
+      if (!own) throw new HttpError(404, 'That isn’t one of your characters.');
+      if (req.body.hidden) {
+        await q.query('INSERT INTO character_render_hidden (character_id, account_id) VALUES ($1, $2) ON CONFLICT (character_id) DO UPDATE SET account_id = EXCLUDED.account_id', [id, req.session.accountId]);
+      } else {
+        await q.query('DELETE FROM character_render_hidden WHERE character_id = $1', [id]);
+      }
+      await logAccountEvent(q, req.session.accountId, req.body.hidden ? 'character.render_hidden' : 'character.render_shown', { character: id });
     });
     res.json({ account: await accountView(db, req.session.accountId) });
   }));

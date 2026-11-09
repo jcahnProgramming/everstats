@@ -1,6 +1,30 @@
 {
   "releases": [
     {
+      "version": "0.7.1",
+      "date": "2026-11-09",
+      "title": "Guild badges, feedback with replies, and hiding a wrong render",
+      "sections": {
+        "New": [
+          "Guild badges. Guilds now unlock badges together, shown on the guild page, beside the guild's name on the guild boards and the guild list, and each with its own page. They hang like banners, so they never look like a player's badge.",
+          "Most guild badges level up from Iron through Bronze, Silver and Gold to Forever, as the guild's current tracked members add up: Muster for how many members Everstats tracks, Questers for quests completed, Slayers for creatures killed, Campfire for times camped, and Fallen Together for deaths (just for fun). A level, once reached, stays, even if members leave.",
+          "Every guildie who signs in with Battle.net is tracked and moves their guild toward its next level. Each guild page shows the three badges closest to their next level, with how far there is to go, and a \"Copy sign-up link\" button to send to guildmates. Visitors who aren't signed in see an invitation to sign in and add their characters to the guild.",
+          "Standing badges are held only while they're earned: Board Champion (first on a guild board that ranks at least three guilds), Top Ten (top ten on a board that ranks more than ten), Weekly Champion (first on a weekly board, until the Tuesday reset) and Strong Roster (the members' average tier is A or better).",
+          "Founding Guild goes to every guild tracked during the open beta, for good. Verified shows beside a guild's name while its Guild Master is on Everstats. Featured Guild and Partner Guild are given by Everstats staff.",
+          "A guild's Guild Master and officers choose which badges show on its page, in what order, and which one is pinned beside its name (Manage badges). Nobody can award a badge to their own guild. A guild nobody manages yet shows its badges automatically.",
+          "Feedback. A Feedback link at the bottom of every page opens a form for bugs, ideas, questions and partnership requests. Signed in, Everstats' replies appear in Your feedback (in Settings), a dot on your account button tells you there's a new one, and you can answer back. Signed out, you can still send it; leave a Discord username if you'd like a reply there. Signing in from the form keeps what you've typed.",
+          "Hide a wrong render. Blizzard's render server sometimes draws a character as someone else. If a character is yours, you can hide its render on Everstats, from Settings → Characters or from the character's page; a plain frame says the render was hidden by its owner. Anyone can use \"Report a wrong render\" under a render to tell us."
+        ],
+        "Improved": [
+          "Beta Tester now says plainly, for accounts made before the beta opened, that it's only for accounts created while the beta is open, instead of calling it \"no longer available\" while the beta is still running.",
+          "The privacy page explains how feedback is kept, how hiding a render works, and that Everstats now counts searches and guild page views: a number per hour, never who."
+        ],
+        "Fixed": [
+          "Pop-up messages now fully use the site's fonts, including their buttons and links."
+        ]
+      }
+    },
+    {
       "version": "0.7.0",
       "date": "2026-11-09",
       "title": "Badges, and guild pages their Guild Masters can edit",

@@ -42,7 +42,7 @@ function VisitorHome() {
     const r = characterSlug(name, surname);
     if (!r.ok) return setProblem(r.problem);
     setProblem(null);
-    return navigate(`/c/${encodeURIComponent(r.slug)}`);
+    return navigate(`/c/${encodeURIComponent(r.slug)}`, { state: { via: 'search' } });
   };
   const nameProblem = problem && /surname/i.test(problem) ? null : problem;
   const surnameProblem = problem && /surname/i.test(problem) ? problem : null;
@@ -93,7 +93,7 @@ function VisitorHome() {
       <section className="wrap stack gap-20 home-featured" aria-labelledby="featured-h">
         <div className="orn"><span className="gem" /><h2 className="h2" id="featured-h">Featured leaderboards</h2><span className="rule" /></div>
         <div className="panel pad-20 row gap-14">
-          <span className="t2 grow">A board for every statistic on every ruleset: overall, this week, and over the last few weeks. Beta: they fill up as players join.</span>
+          <span className="t2 flex-fill">A board for every statistic on every ruleset: overall, this week, and over the last few weeks. Beta: they fill up as players join.</span>
           <Link className="btn gold" to="/leaderboards">Browse the leaderboards</Link>
         </div>
       </section>

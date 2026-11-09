@@ -95,7 +95,7 @@ export function StatLeaderboardPage() {
   return (
     <div className="wrap page-pad stack gap-24">
       <div className="row gap-16 board-title">
-        <div className="stack gap-10 grow">
+        <div className="stack gap-10 flex-fill">
           <nav aria-label="Breadcrumb" className="crumbs xsmall">
             <Link to={`/leaderboards?ruleset=${data.ruleset.id}`}>Leaderboards</Link><span aria-hidden="true">/</span>
             <Link to={`/leaderboards?ruleset=${data.ruleset.id}#${s.categoryKey}`}>{s.category}</Link>

@@ -33,9 +33,16 @@ const text = (raw, { label, min = 1, max }) => {
   return v;
 };
 
+/** Whether an account made at `createdAt` may be granted beta membership: the window is open, or it was made before it closed. */
+async function betaGrantable(db, createdAt) {
+  if (await db.one('SELECT 1 AS x FROM beta_windows WHERE closed_at IS NULL')) return true;
+  const last = (await db.one('SELECT max(closed_at) AS t FROM beta_windows'))?.t ?? null;
+  return Boolean(last) && Date.parse(createdAt) < Date.parse(last);
+}
+
 async function accountBadges(db, accountId) {
   const a = await db.one(
-    `SELECT a.id, a.created_at, a.username, a.username_claimed, a.display_name,
+    `SELECT a.id, a.created_at, a.username, a.username_claimed, a.display_name, a.beta_member, a.beta_since,
             (SELECT array_agg(provider ORDER BY linked_at) FROM account_identities WHERE account_id = a.id) AS providers
        FROM accounts a WHERE a.id = $1`,
     [accountId],
@@ -49,6 +56,7 @@ async function accountBadges(db, accountId) {
   );
   return {
     id: a.id, createdAt: a.created_at, username: a.username, claimed: a.username_claimed, displayName: a.display_name, providers: a.providers ?? [],
+    beta: { member: a.beta_member, since: a.beta_since, grantable: !a.beta_member && await betaGrantable(db, a.created_at) },
     badges: rows.map((r) => ({
       ...publicBadge(r, ctx), state: r.state, earnedAt: r.earned_at, source: r.source, reason: r.reason,
       revokedAt: r.revoked_at, revokedBy: r.revoked_by, revokedReason: r.revoked_reason,
@@ -201,6 +209,32 @@ export function createAdminBadgeRouter({ db, writes }) {
   r.delete('/badges/:id/mark/pending', writes, route(async (req, res) => {
     await db.query('UPDATE badge_definitions SET mark_pending = NULL, mark_pending_sha = NULL, mark_pending_at = NULL WHERE id = $1', [String(req.params.id)]);
     res.json({ ok: true });
+  }));
+
+  // 0.7.1 (owner's decision): "Grant beta membership" for an account made before the beta window opened, once, by
+  // hand: reason required, logged (admin_events + the account's history), then Beta Tester follows from the rule like
+  // any member's. Only for an account created before the window CLOSED (or while it is open); it never opens, extends
+  // or edits a window. The database trigger (schema.js 016) allows this one change only inside this transaction.
+  r.post('/badges/accounts/:id/beta', writes, route(async (req, res) => {
+    const accountId = idParam(req.params.id);
+    const reason = reasonOf(req.body?.reason);
+    await db.tx(async (q) => {
+      const a = await q.one('SELECT id, created_at, beta_member FROM accounts WHERE id = $1 FOR UPDATE', [accountId]);
+      if (!a) throw new HttpError(404, 'No such account.');
+      if (a.beta_member) throw new HttpError(409, 'That account is already a beta member.', 'already');
+      const open = await q.one('SELECT 1 AS x FROM beta_windows WHERE closed_at IS NULL');
+      const lastClose = (await q.one('SELECT max(closed_at) AS t FROM beta_windows'))?.t ?? null;
+      if (!open && !(lastClose && Date.parse(a.created_at) < Date.parse(lastClose))) {
+        throw new HttpError(409, 'Only accounts created before the beta window closed can be granted beta membership.', 'after_window');
+      }
+      await q.query("SELECT set_config('everstats.granting_beta', 'on', true)");
+      await q.query('UPDATE accounts SET beta_member = true, beta_since = now() WHERE id = $1', [accountId]);
+      await q.query("SELECT set_config('everstats.granting_beta', 'off', true)");
+      await q.query("INSERT INTO account_events (account_id, type, detail) VALUES ($1, 'beta.granted', $2::jsonb)", [accountId, JSON.stringify({ by: 'admin' })]);
+      await q.query("INSERT INTO admin_events (type, detail) VALUES ('beta.granted', $1::jsonb)", [JSON.stringify({ account: accountId, reason })]);
+    });
+    await evaluateAccount(db, accountId);
+    res.json({ account: await accountBadges(db, accountId) });
   }));
 
   // Re-run the automatic rules for one account now (support: "I should have the Horde badge").

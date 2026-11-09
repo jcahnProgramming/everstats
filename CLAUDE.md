@@ -54,7 +54,9 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Admin settings | `server/admin/settings.js` | key, label, help, type, bounds, default |
 | Statistics / categories / leaderboards | `server/stats/catalog.js` | the `statistics` table (grows from crawls) + discovery decisions, else suggestions |
 | Account merge steps | `server/account/merge.js` | how each account-owned table moves on a merge |
-| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks`, `retention`, `guild-totals`, `tiers`, `badges` |
+| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks`, `retention`, `guild-totals`, `tiers`, `badges`, `guild-badges` |
+| Guild badges | `guild_badge_definitions` (data; seeded from `server/guildBadges/catalog.js` SEED_GUILD_BADGES) | id, family, levelled + measure + thresholds, automatic rule or staff-granted, kept-while-held, status mark; new Deeds badges from the template on /admin/guild-badges |
+| Activity kinds | `server/activity/count.js` ACTIVITY_KINDS | the event kinds the admin Activity panel counts (a kind and a number per hour, nothing else) |
 | Badges | `badge_definitions` (data; seeded from `server/badges/catalog.js` SEED_BADGES) + catalog.js TEMPLATES | id, family, name, how, art, manual or automatic rule, kept-while-held; new ones from templates on /admin/badges, no deploy |
 | Data sources | `server/sources/registry.js` | id, label, credential, userProvider, create() → `get(path, { namespace, auth, userToken })`. One so far: `blizzard`. A provider named as a `userProvider` reads characters at sign-in |
 | Discovery endpoints | `server/discovery/endpoints.js` | what a discovery run asks for (data, account, character, guild, slug probes) |
@@ -300,6 +302,40 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   nofollow`, each with "Report this link" (anyone, 10 per 15 min per network) → `/admin/guild-links`.
 - These tables key on Blizzard's guild id WITHOUT a foreign key: a `guilds` row ages out; our data about it must not.
 
+## Guild badges (0.7.1: `server/guildBadges/`, `client/src/guildBadges/`, `/guild-badges`, `/g/{slug}/manage/badges`, `/admin/guild-badges`)
+
+- **Design: `design/v2-guild-badges/`** (additive to v1 and v2-badges; the Hanging Standard frame). Tokens appended VERBATIM to
+  `theme/tokens.css`, component CSS VERBATIM in `theme/guild-badges.css`, SVGs VERBATIM in `client/src/guildBadges/art/`
+  (drawn by `guildBadges/art.jsx` like the player badges). Owner-accepted: the names, levels I–V, thresholds as defaults,
+  Verified as a status mark (never a slot), and the design's "Added beyond the brief". The design's "SVG preferred" for
+  emblems, native `<select>`s and the Admin nav link are NOT built (rules win).
+- **Nobody awards a guild badge to their own guild.** Automatic ones follow `rules.js` from stored data; Featured and
+  Partner are staff grants (reason, logged; Partner needs a saved emblem: PNG/WebP via `badges/marks.js`). GM and officers
+  (`guildRole`, 0.7.0) only choose shown / order / pin; no GM → automatic defaults (family order, highest level first).
+- Roster/Deeds from CURRENT tracked members (TRACKED_MEMBER); **levels only go up** (raising a threshold removes nothing).
+  Deeds statistics are matched BY NAME. Standing is kept while held: Board Champion/Top Ten only on boards with
+  `guilds.minBoardGuilds` ranked guilds, Top Ten also needs more than 10; Weekly Champion uses the current week. Founding =
+  first tracked inside a beta window; Early = inside `guildBadges.earlyWindow` (unset → listed nowhere).
+- **Progress is never stored**: read live from guild_totals / members (Blizzard-derived, follows the window); "not measured
+  yet" is null, never 0. Awards hold levels, dates and board ids only. Back-fill once (pipeline_facts), no toasts or ribbons.
+- Toasts only for the GM and officers (`guild_badge_toast_seen`); the 7-day "Unlocked" ribbon for everyone. The Copy sign-up
+  link is the guild page's own address: **never add a tracking or referral parameter**.
+
+## Feedback, render controls, Activity (0.7.1)
+
+- **Feedback** (`server/feedback/routes.js`, `client/src/feedback/`, `/feedback`, `/settings/feedback`, `/admin/feedback`): plain
+  text only, rendered as text (pre-wrap), links never clickable, bidi overrides stripped, 10–4,000 characters, honeypot
+  field `website` (answered "sent", stored nowhere), 5/15 min per network AND 10/hour per account, no CAPTCHA, NOT
+  profanity-filtered (owner's choice). Replies show as from "Everstats". Signed-out drafts live in localStorage until sent;
+  sign-in returns to `/feedback?restore=1`. Logs never contain a message.
+- **Render controls**: `character_render_hidden` (ours). A hidden render sends no render/avatar URL to anyone (owner
+  included); the frame says "Render hidden by its owner". "Report a wrong render" opens the feedback form pre-filled. Never
+  detect wrong renders automatically.
+- **Activity** (`server/activity/`, top of /admin): `activity_counts` (hour, kind, n) ONLY. No IP, user agent, visitor id or
+  third-party analytics, ever. Not counted from a network the look-up limiter is refusing. Searches count from 0.7.1's
+  deploy (`activity_counting_since`); earlier is "unknown", never 0. The "last checked" marker moves only on "Mark as checked".
+- There is no account dropdown menu: the account button opens Settings (or Your feedback when a reply is unread).
+
 ## The beta (`server/beta.js`, `chrome/BetaBanner.jsx`, `/beta`)
 
 - A window (`beta_windows`), opened by migration 009 and closed/reopened only from the admin page. While open: the header
@@ -308,7 +344,13 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 - **Membership is permanent and decided only by the window**: a database trigger sets `accounts.beta_member` /
   `beta_since` at INSERT from the window open at that moment; another refuses any later change except a merge giving
   the kept account an EARLIER real membership (`account/merge.js`, `everstats.merging`). Never back-fill it, never
-  edit it, never add a code path that writes it. Accounts from before 0.4.0 are not members.
+  edit it. Accounts from before 0.4.0 are not members.
+- **One exception, the owner's decision (0.7.1):** the admin's "Grant beta membership" (`POST /api/admin/badges/accounts/:id/beta`,
+  reason required, logged in admin_events + account_events) turns a NON-member into a member, only for an account created
+  before the window closed, inside a transaction that sets `everstats.granting_beta` (migration 016's guard). It never
+  opens, extends or edits a window. No other code path may write membership.
+- Beta Tester for an account made before the window opened says "Only for accounts created while the beta is open (since
+  {start}). This account was made before the beta opened." while the beta is open; "No longer available" only once closed.
 
 ## Themes and design
 
@@ -368,9 +410,13 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   - **A partner mark is replaced** when the admin saves a new one (the old bytes are overwritten; `badge_events` keeps
     that it changed), and an unsaved upload is discarded on Cancel. Reason: only the mark in use is kept, by design.
   - **Removing a domain from the guild-link blocklist** deletes that row. Reason: the admin asked; `admin_events` logs it.
+  - **Showing a hidden render again** deletes its `character_render_hidden` row (0.7.1). Reason: the owner asked; the
+    account's history logs it.
+  - **The owner deleting a feedback thread** (`DELETE /api/admin/feedback/:id`) deletes it with its messages and notes
+    (0.7.1). Reason: feedback is kept until the owner deletes it (the privacy page says so); `admin_events` logs it.
   - **Deleting an account** (Settings, `DELETE /api/account`) deletes the account row and everything that cascades from
     it (sign-in links, passkeys, 2FA, recovery codes, sessions, flows, pins, events, character checks; 0.7.0: badge
-    awards and guild officer roles; `badge_events` and `guild_events` keep the bare account id). Reason: the
+    awards and guild officer roles; 0.7.1: feedback threads and their replies, guild badge toast marks; `badge_events` and `guild_events` keep the bare account id). Reason: the
     person asked. Its characters stay (public data); ownership is cleared, a hidden one stays hidden.
   - **Username holds expire** (`username_holds.held_until`): the row stays as history; an expired hold simply stops
     counting. Not a deletion, listed here because a held name becomes claimable again by design.
@@ -516,8 +562,10 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
 - **A diagnostic that only runs on some routes says nothing on the others** (found here, 0.1.0): the
   `CF-Connecting-IP` source was only checked inside the rate limiters, so a real page load through the tunnel logged
   nothing. Anything meant to observe every request is middleware on every request.
-- **Anything rendered outside `.es` doesn't get the site font** (found here, 0.7.0): the toast stack sits outside the
-  shell's wrapper and showed in the browser's default font for months. Portals and stacks set their own font.
+- **Anything rendered outside `.es` doesn't get the site font** (found here, 0.7.0): the toast stack sat outside the
+  shell's wrapper and showed in the browser's default font for months. 0.7.0 only gave the stack a font-family, which
+  left its buttons, links and numbers on browser defaults; 0.7.1 moved the ToastProvider INSIDE `.es`. Render stacks and
+  portals inside `.es`, or give them every base rule, not just the font.
 - **An absolutely positioned `.sr-only` inside a scrolling box escapes it** unless the box is positioned (found here,
   0.7.0: a hidden table header widened /admin/guild-links to 831px at phone width). `.tblbox` is `position: relative`.
 - **"Open on keyboard focus" must mean a Tab press**, not `:focus-visible` alone: a dialog focusing its first control

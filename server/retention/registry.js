@@ -222,7 +222,7 @@ export const OURS = {
   discovery_grants: 'The admin’s Battle.net token for discovery (a credential; deleted when it expires)',
   crawler_hours: 'Request counts per hour',
   crawler_status: 'Crawler status (counts, current work)',
-  pipeline_facts: 'When the first snapshot was taken',
+  pipeline_facts: 'When the first snapshot was taken, when one-time back-fills ran, when Activity counting began and the admin’s “last checked” marker',
   beta_windows: 'Beta open/close dates',
   username_holds: 'Usernames held after a rename',
   username_history: 'Username changes',
@@ -241,6 +241,18 @@ export const OURS = {
   guild_link_reports: '"Report this link" queue (link ids, optional note) (0.7.0)',
   link_blocklist: 'Domains the admin refuses in guild links (0.7.0)',
   guild_events: 'Guild page log: changes of control, edits, officers (ids) (0.7.0)',
+  // 0.7.1. Guild badge progress is never stored: it is read live from guild_totals / the tracked members (Blizzard
+  // data above), so it follows the window with them. Awards hold levels, dates and board ids, never a Blizzard value.
+  guild_badge_definitions: 'Guild badge definitions: our names, art keys, thresholds and rules (0.7.1)',
+  guild_badge_awards: 'Which guild holds which guild badge, at which level, since when; display choices; board ids only (0.7.1)',
+  guild_badge_events: 'Guild badge log: unlocks, losses, grants, threshold and display changes, the back-fill (ids, counts, reasons) (0.7.1)',
+  guild_badge_toast_seen: 'How far each Guild Master or officer has seen their guild’s badge toasts (0.7.1)',
+  guild_partner_marks: 'Partner guild emblems the admin uploaded with written permission (re-encoded PNG) (0.7.1)',
+  character_render_hidden: 'Characters whose owner chose “Hide my render” (character id, who, when) (0.7.1)',
+  feedback_threads: 'Feedback players sent: type, the Everstats page it was about, an optional Discord name (0.7.1)',
+  feedback_messages: 'Feedback messages and Everstats’ replies, plain text (0.7.1)',
+  feedback_notes: 'The admin’s private notes on feedback (0.7.1)',
+  activity_counts: 'Admin Activity: a count of each kind of event per hour, nothing about who (0.7.1)',
 };
 
 /** Oldest "last fetched from Blizzard" per category still stored (for the admin page). */

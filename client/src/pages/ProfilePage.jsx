@@ -139,7 +139,7 @@ function PinsSection({ section }) {
   return (
     <section className="panel pad-20 stack gap-14" aria-labelledby="pins-h">
       <div className="row gap-10 pins-head">
-        <h2 className="eyebrow grow" id="pins-h">Pinned statistics</h2>
+        <h2 className="eyebrow flex-fill" id="pins-h">Pinned statistics</h2>
         <span className="muted xsmall">for <Link to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} {c.surname}</Link>{c.ruleset ? ` · ${c.ruleset}` : ''}</span>
       </div>
       <div className="grid-auto col-sm gap-14">
@@ -165,7 +165,9 @@ function FeaturedSection({ section }) {
     <section className="panel pad-20 stack gap-14" aria-labelledby="featured-h">
       <span className="eyebrow" id="featured-h">Featured character</span>
       <div className="grid-auto col-lg gap-18 align-start-grid">
-        <RenderFrame src={c.render} alt={`${c.name} ${c.surname}, as Blizzard renders them`} pending={!c.render} />
+        {c.renderHidden
+          ? <RenderFrame><span className="h3">Render hidden by its owner</span></RenderFrame>
+          : <RenderFrame src={c.render} alt={`${c.name} ${c.surname}, as Blizzard renders them`} pending={!c.render} />}
         <div className="stack gap-8">
           <Link className="h-display char-name" to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link>
           <span className="t2">{[c.level ? `Level ${c.level}` : null, c.race, c.class, c.ruleset?.name].filter(Boolean).join(' · ')}</span>

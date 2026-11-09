@@ -101,7 +101,7 @@ function AccountPanel({ state, onChanged }) {
     <section className="panel pad-24 stack gap-18" aria-labelledby="acct-h">
       <h2 className="h2" id="acct-h">Account</h2>
       <form className="row gap-8 align-end" onSubmit={search}>
-        <Field label="Find an account by @username or account id" value={q} onChange={(e) => setQ(e.target.value)} placeholder="@username" className="grow" />
+        <Field label="Find an account by @username or account id" value={q} onChange={(e) => setQ(e.target.value)} placeholder="@username" className="flex-fill" />
         <button type="submit" className="btn" disabled={!q.trim()}><Icon name="search" size="sm" />Find</button>
       </form>
       {found.length > 1 && !account && (
@@ -136,6 +136,8 @@ function AccountPanel({ state, onChanged }) {
             </table>
           </div>
 
+          <BetaGrant account={account} onDone={(a) => { setAccount(a); onChanged(); }} />
+
           <div className="stack gap-12">
             <h3 className="h3">Grant a badge</h3>
             <span className="small t2" id="grant-list-h">Badge (manual badges only)</span>
@@ -163,6 +165,51 @@ function AccountPanel({ state, onChanged }) {
       )}
       {revoking && <RevokeModal account={account} badge={revoking} onClose={() => setRevoking(null)} onDone={(a) => { setAccount(a); setRevoking(null); onChanged(); }} />}
     </section>
+  );
+}
+
+/**
+ * 0.7.1 (owner's decision): grant beta membership to an account made BEFORE the beta window opened. Reason required,
+ * logged; Beta Tester then follows from the rule. Only for accounts made before the window closed; it never changes the
+ * window. Confirmed in a modal (membership is permanent once granted).
+ */
+function BetaGrant({ account, onDone }) {
+  const toast = useToasts();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState(null);
+  const b = account.beta;
+  const go = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      onDone((await api(`/api/admin/badges/accounts/${account.id}/beta`, { method: 'POST', body: { reason } })).account);
+      toast.ok('Beta membership granted', 'Beta Tester follows from the rule.');
+      setOpen(false);
+    } catch (err) {
+      setProblem(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="row gap-10 wrap-row">
+      <span className="small">{b.member ? <>Beta member since {formatDate(b.since)}</> : 'Not a beta member'}</span>
+      {!b.member && (b.grantable
+        ? <button type="button" className="btn sm" onClick={() => setOpen(true)}>Grant beta membership…</button>
+        : <span className="muted xsmall">Made after the beta window closed: can’t be granted.</span>)}
+      {open && (
+        <Modal title="Grant beta membership" busy={busy} onClose={() => setOpen(false)} actions={<><button type="button" className="btn ghost" disabled={busy} onClick={() => setOpen(false)}>Cancel</button><Button className="btn gold" loading={busy} disabled={!reason.trim()} onClick={go}>Grant membership</Button></>}>
+          <p className="t2">{account.claimed ? `@${account.username}` : `Account #${account.id}`} becomes a beta member for good (it can’t be undone), and gets the Beta Tester badge like any member. The beta window doesn’t change.</p>
+          <div className="field">
+            <label htmlFor="beta-reason">Reason <span className="muted">(required, saved to the log)</span></label>
+            <textarea id="beta-reason" className="inp" rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+            {problem && <span className="help err" role="alert">{problem}</span>}
+          </div>
+        </Modal>
+      )}
+    </div>
   );
 }
 

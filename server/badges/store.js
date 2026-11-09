@@ -57,7 +57,9 @@ export function availabilityFor(def, ctx, account) {
   if (def.award === 'manual') return { status: 'granted', note: null };
   if (def.rule.type === 'beta') {
     if (!ctx.beta.open) return { status: 'unavailable', note: `The beta closed${ctx.beta.closedAt ? ` on ${dateOnly(ctx.beta.closedAt)}` : ''}. Only accounts created while it was open have this badge.` };
-    return { status: 'unavailable', note: 'Only accounts created while the beta is open get this badge, and this account was created before the beta opened.' };
+    // 0.7.1 (owner): while the beta is still open this badge is NOT "no longer available" to an older account; it was
+    // never available to it. Its own status and words.
+    return { status: 'ineligible', note: `Only for accounts created while the beta is open (since ${dateOnly(ctx.beta.openedAt)}). This account was made before the beta opened.` };
   }
   if (def.rule.type === 'early-supporter') {
     const span = `${ctx.early.start} – ${ctx.early.end} (UTC)`;

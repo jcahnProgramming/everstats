@@ -11,13 +11,14 @@ import { categoryKey, loadCatalog } from '../stats/catalog.js';
 import { nextPeriodStart, periodOpen, periodStart, rollingOpen } from '../stats/periods.js';
 import { retentionPolicy } from '../retention/policy.js';
 import { parseSlug } from '../stats/slug.js';
-import { characterStatistics, characterView } from './view.js';
+import { characterStatistics, characterView, hiddenRenders } from './view.js';
 import { resolveProfileName } from '../accounts/usernames.js';
 import { PLATFORMS, getPlatform, linkFor } from '../accounts/socials.js';
 import { pinCards, pinsOf } from '../stats/pins.js';
 import { lettersFor } from '../tiers/store.js';
 import { characterTierView, tierBrief } from '../tiers/view.js';
 import { badgeContext, publicBadgesOf } from '../badges/store.js';
+import { countActivity, looksAutomated } from '../activity/count.js';
 
 /**
  * The public, read-mostly API: character lookups, leaderboards, the statistics catalog, coverage and the beta.
@@ -131,11 +132,14 @@ export function createPublicRouter({ db, limits, networkOf }) {
       [a.id],
     );
     const letters = await lettersFor(db, chars.map((c) => c.id));
+    const noRender = await hiddenRenders(db, chars.map((c) => Number(c.id)));
     const view = (c) => ({
       slug: c.slug, name: c.name, surname: c.surname, level: c.level, race: c.race, class: c.class, faction: c.faction,
       tier: letters.get(Number(c.id)) ?? null,
       ruleset: c.ruleset_id !== null ? { id: c.ruleset_id, name: c.ruleset_name } : null,
-      render: c.media_state === 'ok' ? c.media?.['main-raw'] ?? null : null, fetchedAt: c.last_fetched_at,
+      // 0.7.1: a render its owner hid is never sent.
+      render: c.media_state === 'ok' && !noRender.has(Number(c.id)) ? c.media?.['main-raw'] ?? null : null,
+      renderHidden: noRender.has(Number(c.id)), fetchedAt: c.last_fetched_at,
     });
     const featured = chars.find((c) => c.id === a.featured_character_id) ?? chars[0] ?? null;
     const links = await db.query('SELECT platform, handle FROM account_social_links WHERE account_id = $1 ORDER BY platform LIMIT 20', [a.id]);
@@ -197,6 +201,10 @@ export function createPublicRouter({ db, limits, networkOf }) {
 
     let notice = null;
     const fresh = row?.profile_state === 'ok' && row.last_fetched_at && Date.now() - new Date(row.last_fetched_at).getTime() < LOOKUP_FRESH_MS;
+    // 0.7.1 Activity: a search (the search box or the home form says via=search) counts every time; a page opened any
+    // other way counts only when it asks Blizzard (below). Not counted from a network the limiter is refusing.
+    const fromSearch = req.query.via === 'search';
+    if (fromSearch && !looksAutomated(limits, networkOf(req))) countActivity(db, 'character.search');
     if (!fresh) {
       if (!(await blizzardReady())) {
         if (row?.profile_state !== 'ok') return res.json({ status: 'unavailable', reason: 'not_configured', slug: parsed.slug });
@@ -209,6 +217,7 @@ export function createPublicRouter({ db, limits, networkOf }) {
         }
         notice = 'rate_limited';
       } else {
+        if (!fromSearch) countActivity(db, 'character.lookup');
         const item = await enqueue(db, { key: parsed.slug, priority: PRIORITY.lookup, mode: 'full', accountId: viewer });
         const done = await waitFor(db, item.id, { timeoutMs: LOOKUP_WAIT_MS });
         if (!done) notice = 'slow';

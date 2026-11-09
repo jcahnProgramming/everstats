@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Link } from 'react-router-dom';
 import { Icon } from '../chrome/Icon.jsx';
 import { BadgeIcon } from '../badges/Badges.jsx';
+import { GuildBadgeIcon } from '../guildBadges/GuildBadges.jsx';
 
 /**
  * Toasts (design/v1/components/toasts.md): feedback for async actions (saved, copied, linked).
@@ -12,7 +13,7 @@ import { BadgeIcon } from '../badges/Badges.jsx';
  * until dismissed. They never take focus. Errors that belong to a form are shown in the form, not here.
  *
  * 0.7.0, badge toasts (design/v2-badges/components/badge-toast.md): `badge` shows the badge (with the "new" glow) in
- * place of the gem, `ms` overrides the delay (earned and granted badges stay 8 s), `action` { to, label } adds a link.
+ * place of the gem (0.7.1: `guildBadge`, a guild badge, for the GM and officers), `ms` overrides the delay (earned and granted badges stay 8 s), `action` { to, label } adds a link.
  */
 const ToastContext = createContext(() => {});
 const AUTO_MS = 5000;
@@ -50,8 +51,9 @@ function Toast({ toast, onDismiss }) {
   }, [sticky, paused, toast.ms]);
   const cls = { ok: 'ok', warn: 'warn', err: 'err' }[toast.kind] ?? '';
   return (
-    <div className={`toast ${cls}${toast.badge ? ' badge-toast' : ''}`} role={sticky ? 'alert' : 'status'} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
-      {toast.badge ? <BadgeIcon badge={toast.badge} isNew={toast.kind !== 'warn'} locked={toast.kind === 'warn'} /> : <span className="gemtag" aria-hidden="true" />}
+    <div className={`toast ${cls}${toast.badge ? ' badge-toast' : ''}${toast.guildBadge ? ' gbadge-toast' : ''}`} role={sticky ? 'alert' : 'status'} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
+      {toast.guildBadge ? <GuildBadgeIcon badge={toast.guildBadge} isNew={toast.kind !== 'warn'} state={toast.kind === 'warn' ? 'lost' : null} />
+        : toast.badge ? <BadgeIcon badge={toast.badge} isNew={toast.kind !== 'warn'} locked={toast.kind === 'warn'} /> : <span className="gemtag" aria-hidden="true" />}
       <div className="body">
         <b>{toast.title}</b>
         {(toast.body || toast.action) && (

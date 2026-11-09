@@ -200,7 +200,7 @@ ol.codes { margin: 0; list-style: none; }
 @media (max-width: 719px) {
   .beta-banner-link { font-size: var(--es-fs-12); }
   .board-title { align-items: flex-start; }
-  .board-title > .grow { flex: 1 1 100%; }
+  .board-title > .flex-fill { flex: 1 1 100%; }
 }
 
 /* Blizzard's main-raw render (character-media) is a 1600×1200 LANDSCAPE image with the figure in the middle, not the

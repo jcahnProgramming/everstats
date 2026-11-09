@@ -8,6 +8,7 @@ import { ServiceUnavailable } from '../components/States.jsx';
 import { RulesetSwitcher } from '../components/Stats.jsx';
 import { formatNumber, timeAgo } from '../format.js';
 import { GuildCrest } from './GuildPage.jsx';
+import { GuildName } from '../guildBadges/GuildBadges.jsx';
 
 /**
  * /guilds (0.5.0): guild search, and the largest guilds by tracked members on each ruleset. The design has no guild
@@ -32,7 +33,7 @@ export function GuildsPage() {
     <div className="wrap page-pad stack gap-24">
       <div className="row gap-20">
         <GuildCrest />
-        <div className="stack gap-8 grow">
+        <div className="stack gap-8 flex-fill">
           <h1 className="h1">Guilds</h1>
           <p className="lead">Every guild Everstats tracks members of: its roster, its totals, and where it stands against other guilds.</p>
         </div>
@@ -68,7 +69,7 @@ export function GuildsPage() {
                   {data.guilds.map((g, i) => (
                     <tr key={g.slug}>
                       <td className="t2">{i + 1}</td>
-                      <td><Link to={`/g/${encodeURIComponent(g.slug)}`}>{g.name}</Link></td>
+                      <td><GuildName guild={g} /></td>
                       <td className="t2">{g.faction ?? '—'}</td>
                       <td className="r strong">{formatNumber(g.tracked)}</td>
                       <td className="r t2">{g.rosterMembers === null ? 'not fetched yet' : formatNumber(g.rosterMembers)}</td>
@@ -108,9 +109,9 @@ function GuildSearch() {
   }, [q]);
   const submit = (e) => {
     e.preventDefault();
-    if (res?.guilds?.length) return navigate(`/g/${encodeURIComponent(res.guilds[0].slug)}`);
+    if (res?.guilds?.length) return navigate(`/g/${encodeURIComponent(res.guilds[0].slug)}`, { state: { via: 'search' } });
     const slug = parseGuildSlug(q.trim().replace(/\s+/g, '-'));
-    if (slug) navigate(`/g/${encodeURIComponent(slug)}`);
+    if (slug) navigate(`/g/${encodeURIComponent(slug)}`, { state: { via: 'search' } });
   };
   return (
     <section className="stack gap-10" aria-labelledby="guild-search-h">
@@ -124,7 +125,7 @@ function GuildSearch() {
           {res.guilds.length === 0 ? (
             <div className="listrow"><span className="t2 small">{res.failed ? 'Search isn’t answering right now.' : <>No guild Everstats knows is called that. Press Enter to look “{q.trim()}” up at Blizzard.</>}</span></div>
           ) : res.guilds.map((g) => (
-            <Link key={g.slug} role="listitem" className="listrow linkrow" to={`/g/${encodeURIComponent(g.slug)}`}>
+            <Link key={g.slug} role="listitem" className="listrow linkrow" to={`/g/${encodeURIComponent(g.slug)}`} state={{ via: 'search' }}>
               <span className="stack grow-col"><b>{g.name}</b><span className="muted xsmall">{[g.ruleset, g.faction, `${formatNumber(g.tracked)} tracked`].filter(Boolean).join(' · ')}</span></span>
             </Link>
           ))}

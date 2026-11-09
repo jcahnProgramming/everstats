@@ -20,6 +20,15 @@ export async function equipmentWithIcons(db, equipment) {
   });
 }
 
+/** Whether the character's owner hid its render (0.7.1, character_render_hidden). */
+export const renderHiddenFor = async (db, characterId) => Boolean(await db.one('SELECT 1 AS x FROM character_render_hidden WHERE character_id = $1', [characterId]));
+
+/** The ids among these whose render is hidden. */
+export async function hiddenRenders(db, ids) {
+  if (!ids.length) return new Set();
+  return new Set((await db.query('SELECT character_id FROM character_render_hidden WHERE character_id = ANY($1::bigint[]) LIMIT 1000', [ids])).map((r) => Number(r.character_id)));
+}
+
 export async function characterView(db, row, { mine = false } = {}) {
   const ruleset = row.ruleset_id !== null ? await db.one('SELECT id, name FROM rulesets WHERE id = $1', [row.ruleset_id]) : null;
   const guild = row.guild_id !== null ? await db.one('SELECT name, slug FROM guilds WHERE id = $1', [row.guild_id]) : null;
@@ -27,6 +36,7 @@ export async function characterView(db, row, { mine = false } = {}) {
   const owner = row.owner_account_id !== null && !row.hidden
     ? await db.one('SELECT username FROM accounts WHERE id = $1 AND username_claimed', [row.owner_account_id])
     : null;
+  const renderHidden = await renderHiddenFor(db, row.id);
   return {
     id: row.id,
     slug: row.slug,
@@ -44,12 +54,18 @@ export async function characterView(db, row, { mine = false } = {}) {
     checkedAt: row.last_checked_at,
     statsFetchedAt: row.stats_fetched_at,
     trackedSince: row.tracked_since,
-    media: {
-      state: row.media_state ?? 'not_ready',
-      render: row.media?.['main-raw'] ?? null,
-      avatar: row.media?.avatar ?? null,
-      fetchedAt: row.media_fetched_at,
-    },
+    // 0.7.1: "Hide my render". Blizzard's render server sometimes draws a character wrong (a different race, sex or
+    // build) while our data and the URL are right; its owner can hide the render and avatar everywhere on Everstats.
+    // Hidden: neither URL is sent at all (state 'hidden'), the owner included, so nothing can show it by mistake.
+    media: renderHidden
+      ? { state: 'hidden', render: null, avatar: null, fetchedAt: null }
+      : {
+        state: row.media_state ?? 'not_ready',
+        render: row.media?.['main-raw'] ?? null,
+        avatar: row.media?.avatar ?? null,
+        fetchedAt: row.media_fetched_at,
+      },
+    renderHidden,
     equipment: row.equipment ? await equipmentWithIcons(db, row.equipment) : null,
     attributes: row.attributes ?? null,
     hidden: row.hidden,

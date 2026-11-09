@@ -301,4 +301,54 @@ export function badgesJob() {
   };
 }
 
-export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob(), tiersJob(), badgesJob()]);
+/**
+ * 0.7.1: guild badges (guildBadges/rules.js). Every minute: the one-time back-fill of every guild (no toasts, no
+ * ribbons) if it hasn't run; then every guild whose totals were rebuilt (a member changed, the Tuesday reset, the
+ * 6-hourly rebuild) or whose Guild Master changed since the last pass; after each full tier grading every guild (Strong
+ * Roster); and every 6 hours every guild as a safety net. Stored data only (no Blizzard request). In the background.
+ */
+export function guildBadgesJob() {
+  let running = null;
+  let last = null;
+  let passAt = Date.now() - 10 * 60 * 1000; // catch up on the minutes around a restart
+  let gradingSeen = null;
+  let sweptAt = Date.now();
+  return {
+    id: 'guild-badges',
+    label: 'Guild badges',
+    everyMs: 60 * 1000,
+    async run({ db, now = Date.now }) {
+      if (running) return { summary: 'Checking guild badges' };
+      const rules = await import('../guildBadges/rules.js');
+      running = (async () => {
+        const filled = await rules.backfillGuildsOnce(db);
+        if (filled) last = `Back-filled ${filled.guilds} guild(s)`;
+        const started = now();
+        const graded = await db.one("SELECT max(finished_at) AS t FROM tier_runs WHERE status = 'done'");
+        const t = graded?.t ? new Date(graded.t).getTime() : 0;
+        const full = (gradingSeen !== null && t > gradingSeen) || started - sweptAt >= BADGE_SWEEP_MS;
+        gradingSeen = Math.max(gradingSeen ?? 0, t);
+        let ids;
+        if (full) {
+          ids = await rules.allGuildIds(db);
+          sweptAt = started;
+        } else {
+          ids = (await db.query(
+            `SELECT id FROM guilds WHERE totals_built_at >= $1
+             UNION SELECT guild_id FROM guild_events WHERE at >= $1 AND type = 'control.changed' LIMIT 5000`,
+            [new Date(passAt - 1000)],
+          )).map((r) => Number(r.id));
+        }
+        if (ids.length) {
+          const r = await rules.evaluateGuilds(db, ids);
+          last = `${full ? 'Full pass' : 'Changed guilds'}: ${r.guilds} guild(s)`;
+        }
+        passAt = started;
+      })().catch((err) => console.error(`[guild-badges] job failed: ${err.code ?? err.name}`)).finally(() => { running = null; });
+      return { summary: last ?? 'Started' };
+    },
+    inFlight: () => running,
+  };
+}
+
+export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob(), tiersJob(), badgesJob(), guildBadgesJob()]);

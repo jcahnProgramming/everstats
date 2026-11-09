@@ -172,6 +172,8 @@ function Status({ data }) {
   }
   if (!data.signedIn) return <div className="note small"><Icon name="info" /><span><Link to="/sign-in">Sign in</Link> to see whether you have it. {data.badge.award === 'automatic' ? data.badge.how : 'It’s granted by Everstats staff.'}</span></div>;
   if (st?.state === 'unavailable') return <div className="note warn small"><Icon name="clock" /><span><b>No longer available.</b> {st.note}</span></div>;
+  // 0.7.1: never available to this account, while others can still earn it (Beta Tester for an account made earlier).
+  if (st?.state === 'ineligible') return <div className="note small"><Icon name="lock" /><span><b>Not for this account.</b> {st.note}</span></div>;
   if (data.badge.award === 'manual') return <div className="note small"><Icon name="info" /><span>Not earned: it’s granted by Everstats staff, never earned.</span></div>;
   return <div className="note small"><Icon name="lock" /><span><b>Not earned yet.</b> {data.badge.how}{st?.note ? ` ${st.note}` : ''} Checked whenever your characters refresh.</span></div>;
 }

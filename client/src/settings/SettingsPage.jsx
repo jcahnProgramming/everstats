@@ -40,6 +40,7 @@ const SECTIONS = [
   ['badges', 'Badges'],
   ['characters', 'Characters'],
   ['guilds', 'Your guilds'],
+  ['feedback', 'Your feedback'],
   ['merge', 'Merge accounts'],
   ['delete', 'Delete account'],
 ];
@@ -101,7 +102,7 @@ export function SettingsPage() {
         {notice && (
           <div className={`note ${notice.kind} small`} role="status">
             <Icon name={notice.kind === 'ok' ? 'check' : 'error'} />
-            <span className="grow">{notice.text}</span>
+            <span className="flex-fill">{notice.text}</span>
             <button type="button" className="btn ghost sm" onClick={() => setParams({})}>Dismiss</button>
           </div>
         )}
@@ -115,6 +116,7 @@ export function SettingsPage() {
             <BadgesSection />
             <CharactersSection account={account} providers={session.providers} onChange={setAccount} />
             {guilds.length > 0 && <YourGuildsSection guilds={guilds} />}
+            <FeedbackSection unread={session.feedbackUnread ?? 0} />
             <MergeSection account={account} providers={session.providers} />
             <DeleteSection account={account} />
           </>
@@ -250,7 +252,7 @@ function ProfileSection({ account, onChange }) {
   return (
     <section id="profile" className="panel pad-24 stack gap-18" aria-labelledby="profile-h">
       <div className="row gap-10">
-        <h2 className="h2 h2-panel grow" id="profile-h">Profile</h2>
+        <h2 className="h2 h2-panel flex-fill" id="profile-h">Profile</h2>
         {account.usernameClaimed && <Link className="btn sm" to={`/u/${account.username}`}><Icon name="user" size="sm" />View your public profile</Link>}
       </div>
       <div className="stack gap-10">
@@ -284,7 +286,7 @@ function ProfileSection({ account, onChange }) {
         {account.usernameClaimed ? (
           <>
             <div className="row gap-8 align-end wrap-field-row">
-              <Field label="What people see on your profile" className="grow" value={display} maxLength={32} placeholder={account.username} onChange={(e) => setDisplay(e.target.value)} error={problem} />
+              <Field label="What people see on your profile" className="flex-fill" value={display} maxLength={32} placeholder={account.username} onChange={(e) => setDisplay(e.target.value)} error={problem} />
               <Button type="submit" className="gold" loading={busy} disabled={!display.trim()}>Save</Button>
               {account.displayNameSet && <button type="button" className="btn ghost" disabled={busy} onClick={() => saveDisplay(null)}>Use my username</button>}
             </div>
@@ -497,7 +499,7 @@ function MethodsSection({ account, providers, onChange }) {
           )}
           {passkeysSupported() ? (
             <div className="row gap-8 align-end">
-              <Field label="Name (optional)" className="grow" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="e.g. My phone" />
+              <Field label="Name (optional)" className="flex-fill" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="e.g. My phone" />
               <Button className="gold" loading={adding} onClick={add}><Icon name="plus" size="sm" />Add a passkey</Button>
             </div>
           ) : (
@@ -596,7 +598,7 @@ function TwoFactorSection({ account, onChange }) {
           <div className="field">
             <label htmlFor="tfa-code">Enter the 6-digit code</label>
             <div className="row gap-8 nowrap">
-              <input id="tfa-code" className="inp otp grow" value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" placeholder="000 000" maxLength={7} />
+              <input id="tfa-code" className="inp otp flex-fill" value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" placeholder="000 000" maxLength={7} />
               <Button type="submit" className="gold" loading={busy === 'enable'}>Verify</Button>
             </div>
           </div>
@@ -683,6 +685,16 @@ function CharactersSection({ account, providers, onChange }) {
   const [busy, setBusy] = useState(null);
   const readers = providers.filter((p) => account.characterProviders.includes(p.id));
   const linkedReader = readers.find((p) => account.identities.some((i) => i.provider === p.id));
+  const hideRender = async (c, hidden) => {
+    setBusy(c.id);
+    try {
+      onChange((await api(`/api/account/characters/${c.id}/render`, { method: 'PUT', body: { hidden } })).account);
+      toast.ok(hidden ? `${c.name}’s render is hidden` : `${c.name}’s render is back`, hidden ? 'Everstats shows a plain frame instead, everywhere.' : 'Blizzard’s render shows again.');
+    } catch (err) {
+      toast.err("Couldn't change that", err.message);
+    }
+    setBusy(null);
+  };
   const hide = async (c, hidden) => {
     setBusy(c.id);
     try {
@@ -696,7 +708,7 @@ function CharactersSection({ account, providers, onChange }) {
   return (
     <section id="characters" className="panel pad-24 stack gap-16" aria-labelledby="chars-h">
       <div className="row gap-10">
-        <h2 className="h2 h2-panel grow" id="chars-h">Your characters</h2>
+        <h2 className="h2 h2-panel flex-fill" id="chars-h">Your characters</h2>
         {linkedReader && <button type="button" className="btn sm" onClick={() => startProvider(linkedReader.id, 'characters', '/').catch((err) => toast.err("Couldn't start", err.message))}><Icon name="refresh" size="sm" />Refresh my characters</button>}
       </div>
       {!linkedReader && (
@@ -712,13 +724,33 @@ function CharactersSection({ account, providers, onChange }) {
                 <b>{c.state === 'tracked' ? <Link to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link> : <>{c.name} <span className="surname">{c.surname}</span></>}</b>
                 <span className="muted xsmall">{[c.level ? `Level ${c.level}` : null, c.class, c.ruleset?.name].filter(Boolean).join(' · ')} · {c.state === 'missing' ? `Blizzard hasn’t returned this character since ${formatDate(c.since)}` : CHAR_STATE[c.state]}</span>
               </span>
-              <Toggle checked={c.hidden} disabled={busy === c.id} onChange={(v) => hide(c, v)}>Hide this character</Toggle>
+              <span className="stack gap-6 char-toggles">
+                <Toggle checked={c.hidden} disabled={busy === c.id} onChange={(v) => hide(c, v)}>Hide this character</Toggle>
+                <Toggle checked={c.renderHidden} disabled={busy === c.id} onChange={(v) => hideRender(c, v)}>Hide its render</Toggle>
+              </span>
             </div>
           ))}
         </div>
       )}
       {linkedReader && account.characters.length === 0 && <span className="t2 small">No characters yet. Your dashboard says what Battle.net answered last time.</span>}
-      <span className="muted xsmall">A hidden character has no public page and is on no leaderboard; you still see it. <Link to="/privacy">More about privacy</Link>.</span>
+      <span className="muted xsmall">A hidden character has no public page and is on no leaderboard; you still see it. Hiding a render keeps the character public but shows a plain frame instead of Blizzard’s picture (for when Blizzard draws it wrong). <Link to="/privacy">More about privacy</Link>.</span>
+    </section>
+  );
+}
+
+/** 0.7.1: Your feedback: messages you sent and Everstats' replies live on their own page. */
+function FeedbackSection({ unread }) {
+  return (
+    <section id="feedback" className="panel pad-24 stack gap-12" aria-labelledby="feedback-h">
+      <div className="row gap-10">
+        <h2 className="h2 h2-panel flex-fill" id="feedback-h">Your feedback</h2>
+        {unread > 0 && <span className="tag gold">{unread} new repl{unread === 1 ? 'y' : 'ies'}</span>}
+      </div>
+      <span className="t2 small">Messages you sent while signed in, with Everstats’ replies. You can answer in each thread.</span>
+      <div className="row gap-8 wrap-row">
+        <Link className="btn sm" to="/settings/feedback">Open your feedback</Link>
+        <Link className="btn sm ghost" to="/feedback?page=/settings">Send feedback</Link>
+      </div>
     </section>
   );
 }

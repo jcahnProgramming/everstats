@@ -37,6 +37,8 @@ const ICONS = {
   'theme': "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 3a9 9 0 0 0 0 18z\"/>",
   'trend-up': "<path d=\"M3 17l6-6 4 4 8-8M15 7h6v6\"/>",
   'user': "<circle cx=\"12\" cy=\"8\" r=\"4\"/><path d=\"M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6\"/>",
+  // 0.7.1, from design/v2-guild-badges (the Standing badges' "kept while held" mark).
+  'hourglass': "<path d=\"M7 3h10M7 21h10M8 3c0 5 8 6 8 9s-8 4-8 9M16 3c0 5-8 6-8 9s8 4 8 9\"/>",
   'warning': "<path d=\"M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z\"/>",
 };
 

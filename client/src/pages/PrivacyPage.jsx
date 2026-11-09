@@ -37,9 +37,25 @@ export function PrivacyPage() {
         <p className="t2">In <Link to="/settings#characters">Settings</Link> you can hide any character that's yours. A hidden character has no public page and is on no leaderboard; you still see its page when signed in. Blizzard's own API still shows it to anyone who asks Blizzard directly: hiding only covers Everstats.</p>
       </section>
 
+      <section className="panel pad-24 stack gap-10" aria-labelledby="render-h">
+        <h2 className="h2 h2-panel" id="render-h">Hiding a render</h2>
+        <p className="t2">Blizzard's render server sometimes draws a character wrong. The owner of a character can hide its render and avatar on Everstats (Settings → Characters, or on the character's own page); everyone, the owner included, then sees a plain frame that says the render was hidden. Everstats remembers only which character and when, until the owner shows it again. Anyone can use “Report a wrong render” under a render: it opens the feedback form.</p>
+      </section>
+
+      <section className="panel pad-24 stack gap-10" aria-labelledby="feedback-h">
+        <h2 className="h2 h2-panel" id="feedback-h">Feedback</h2>
+        <p className="t2">When you send <Link to="/feedback">feedback</Link>, Everstats keeps what you wrote, the kind of message, the Everstats page it was about and, if you gave one, your Discord username. Signed in, it's also linked to your account so replies can reach you in Your feedback. Nothing else is recorded with it: not your address, browser or device. A draft you haven't sent stays only in your own browser.</p>
+        <p className="t2">Feedback is kept until Everstats deletes it, or until you delete your account (your messages and their replies go with it). A message sent signed out has no account to delete it with: ask on Discord, or send another message, if you'd like it removed.</p>
+      </section>
+
+      <section className="panel pad-24 stack gap-10" aria-labelledby="counts-h">
+        <h2 className="h2 h2-panel" id="counts-h">Counting visits</h2>
+        <p className="t2">To know whether people use it, Everstats counts a few kinds of event per hour: character searches and look-ups, guild searches and guild page views. Only the kind and a number are stored, never who: no IP address, no browser details, no visitor id, no cookie, and no third-party analytics. Traffic from a network already blocked for making too many look-ups isn't counted.</p>
+      </section>
+
       <section className="panel pad-24 stack gap-10" aria-labelledby="delete-h">
         <h2 className="h2 h2-panel" id="delete-h">Deleting your account</h2>
-        <p className="t2">In <Link to="/settings#delete">Settings → Delete account</Link>. It removes the account, its sign-in links, passkeys, two-factor settings, pins and its claim on your characters, and signs you out. Your characters stay tracked as the public data they are; any you had hidden stay hidden. It can't be undone.</p>
+        <p className="t2">In <Link to="/settings#delete">Settings → Delete account</Link>. It removes the account, its sign-in links, passkeys, two-factor settings, pins, badges, feedback and its claim on your characters, and signs you out. Your characters stay tracked as the public data they are; any you had hidden stay hidden. It can't be undone.</p>
       </section>
     </div>
   );

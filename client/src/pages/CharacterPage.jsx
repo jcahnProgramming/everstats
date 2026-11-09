@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { parseSlug } from '../../../server/stats/slug.js';
 import { api } from '../api.js';
+import { viaSearchOnce } from '../activity.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { EmptyState, Fresh, Provenance } from '../components/EmptyState.jsx';
 import { CharacterLoading, CharacterNotFound, ServiceUnavailable } from '../components/States.jsx';
@@ -14,6 +15,7 @@ import { useToasts } from '../components/Toasts.jsx';
 import { NameWithBadge } from '../badges/Badges.jsx';
 import { formatDate, formatDateTime, formatNumber, timeAgo } from '../format.js';
 import { useSession } from '../session.jsx';
+import { feedbackHref } from '../feedback/FeedbackPages.jsx';
 
 /**
  * The character page (design/v1/pages/character): the gilt character sheet, then every statistic.
@@ -38,7 +40,9 @@ export function CharacterPage() {
     if (!parsed) return;
     setResult(null);
     try {
-      setResult(await api(`/api/characters/${encodeURIComponent(parsed.slug)}`));
+      // via=search: opened from the search box or the home form (a count for the admin's Activity panel).
+      const via = viaSearchOnce();
+      setResult(await api(`/api/characters/${encodeURIComponent(parsed.slug)}${via}`));
     } catch (err) {
       setResult({ error: err });
     }
@@ -127,7 +131,7 @@ function CharacterSheet({ data, onReload }) {
   const statCount = stats.categories.reduce((n, cat) => n + cat.statistics.length, 0);
   return (
     <>
-      {data.notice && <div className="note warn small" role="status"><Icon name="warning" /><span className="grow">{NOTICES[data.notice]} Data as of {formatDateTime(c.fetchedAt)}.</span></div>}
+      {data.notice && <div className="note warn small" role="status"><Icon name="warning" /><span className="flex-fill">{NOTICES[data.notice]} Data as of {formatDateTime(c.fetchedAt)}.</span></div>}
       {c.hidden && <EmptyState kind="hidden" compact title="Hidden: only you can see this page"><span>It's on no leaderboard and has no public page. Show it again in <Link to="/settings#characters">Settings</Link>.</span></EmptyState>}
       <section className="sheet stack gap-24 sheet-pad" aria-label="Character sheet">
         <div className="row gap-24 sheet-top">
@@ -152,13 +156,13 @@ function CharacterSheet({ data, onReload }) {
         <div className="stack gap-20 sheet-body">
           <GearSheet
             equipment={c.equipment}
-            render={<RenderFrame src={c.media.state === 'ok' ? c.media.render : null} alt={`${c.name} ${c.surname}, as Blizzard renders them`} pending={c.media.state !== 'ok'} />}
+            render={<CharacterRender c={c} onReload={onReload} />}
           />
           {!c.equipment?.length && <span className="muted xsmall">No equipment on the last fetch.</span>}
           <CoreStats attributes={c.attributes} equipment={c.equipment} />
         </div>
         <Provenance source="Blizzard Entertainment’s game data API: profile, equipment, statistics" fetchedAt={c.fetchedAt}>
-          <span className="muted">Render: {c.media.state === 'ok' ? <>fetched {timeAgo(c.media.fetchedAt)} (renders lag the profile by hours)</> : 'not ready yet at Blizzard'}</span>
+          <span className="muted">Render: {c.media.state === 'hidden' ? 'hidden by its owner' : c.media.state === 'ok' ? <>fetched {timeAgo(c.media.fetchedAt)} (renders lag the profile by hours)</> : 'not ready yet at Blizzard'}</span>
         </Provenance>
       </section>
 
@@ -173,6 +177,46 @@ function CharacterSheet({ data, onReload }) {
         </EmptyState>
       </section>
     </>
+  );
+}
+
+/**
+ * 0.7.1: the render, or the neutral frame when its owner hid it ("Render hidden by its owner", never a stand-in
+ * character). Under it: "Report a wrong render" for everyone (the feedback form, pre-filled), and for the owner "Hide my
+ * render" / "Show my render". Wrong renders are never detected automatically: Blizzard's render server is the source.
+ */
+function CharacterRender({ c, onReload }) {
+  const toast = useToasts();
+  const [busy, setBusy] = useState(false);
+  const page = `/c/${encodeURIComponent(c.slug)}`;
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      await api(`/api/account/characters/${c.id}/render`, { method: 'PUT', body: { hidden: c.media.state !== 'hidden' } });
+      toast.ok(c.media.state === 'hidden' ? 'Render shown again' : 'Render hidden', c.media.state === 'hidden' ? 'Blizzard’s render shows again.' : 'Everstats shows a plain frame instead, everywhere.');
+      onReload();
+    } catch (err) {
+      toast.err('Couldn’t change that', err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="stack gap-6 render-wrap">
+      {c.media.state === 'hidden' ? (
+        <RenderFrame>
+          <span className="state-glyph-sm" aria-hidden="true"><Icon name="user" size="xl" /></span>
+          <span className="h3">Render hidden by its owner</span>
+          <span className="muted xsmall">Everything else on this page is live.</span>
+        </RenderFrame>
+      ) : (
+        <RenderFrame src={c.media.state === 'ok' ? c.media.render : null} alt={`${c.name} ${c.surname}, as Blizzard renders them`} pending={c.media.state !== 'ok'} />
+      )}
+      <span className="row gap-10 wrap-row render-links xsmall">
+        {c.media.state !== 'hidden' && <Link to={feedbackHref(page, { type: 'bug', about: 'render' })}>Report a wrong render</Link>}
+        {c.mine && <button type="button" className="linklike" onClick={toggle} disabled={busy}>{c.media.state === 'hidden' ? 'Show my render' : 'Hide my render'}</button>}
+      </span>
+    </div>
   );
 }
 

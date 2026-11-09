@@ -130,7 +130,7 @@ export function SignInPage() {
           p.configured ? (
             <Button key={p.id} className="lg left" loading={busy === p.id} disabled={busy !== null && busy !== p.id} onClick={() => go(p.id)}>
               <Icon name="provider-account" size="md" />
-              <span className="grow left-text">Continue with {p.label}</span>
+              <span className="flex-fill left-text">Continue with {p.label}</span>
             </Button>
           ) : (
             <button key={p.id} type="button" className="btn lg between" disabled>

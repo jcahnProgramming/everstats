@@ -61,7 +61,7 @@ export const BadgeSkeleton = ({ size = 'std' }) => <span className={`bdg ${size}
  * Open-on-hover (300 ms), on keyboard focus and on tap; closes on Esc, a click outside, focus leaving, or the pointer
  * leaving. Positions a fixed popover under the anchor, flipped above when there's no room, clamped 16px inside.
  */
-function usePopover({ onOpen } = {}) {
+export function usePopover({ onOpen } = {}) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const wrap = useRef(null);

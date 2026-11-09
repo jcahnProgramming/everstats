@@ -12,6 +12,7 @@ import { passkeyRegister, passkeySignIn, wasCancelled } from '../passkeyClient.j
 import { useCoverage } from '../useCoverage.js';
 import { PlayersSection, ReservedSection } from './PlayersSection.jsx';
 import { RetentionSection } from './RetentionSection.jsx';
+import { ActivitySection } from './ActivitySection.jsx';
 
 /**
  * The admin area (design/v1/pages/admin). Not linked from anywhere. Without an admin session, /admin sends the browser
@@ -20,8 +21,9 @@ import { RetentionSection } from './RetentionSection.jsx';
  * Different from the mockup, on purpose (CLAUDE.md rules win):
  *   - Keys show state, source and "set on" only: no masked value and no last four. Nothing about a key is sent here.
  *   - No admin link in the public top bar (the mockup has one "for the owner"): the admin isn't an account.
- *   - The crawler shows only what is measured: the queue by priority, requests in the last hour (the crawler's own
- *     count) and per UTC hour, characters checked and fetched today, the last error, back-offs, and Pause. No
+ *   - The crawler shows only what is measured: the queue by priority, the worker's own count of its requests over the
+ *     last 60 minutes (in memory, so it restarts at 0 with the worker), every Blizzard request in the current UTC hour
+ *     (crawler_hours, sign-in reads included; 0.7.1: really the current hour, not the newest stored one), characters checked and fetched today, the last error, back-offs, and Pause. No
  *     "Run now": the crawl never stops, and a person's lookup always goes first.
  *   - Per-ruleset grading progress needs rulesets, which come from Blizzard (not loaded yet), so it says so.
  * Added: Backups (nightly pg_dump), Proxy addresses (where CF-Connecting-IP arrives from, for TRUSTED_PROXIES) and
@@ -57,13 +59,16 @@ export function AdminPage() {
         <h1 className="h1 admin-title">Admin</h1>
         <span className="tag gold">Owner only</span>
         <span className="spacer" />
+        <Link className="btn sm" to="/admin/feedback"><Icon name="provider-chat" size="sm" />Feedback</Link>
         <Link className="btn sm" to="/admin/badges"><Icon name="check" size="sm" />Badges</Link>
+        <Link className="btn sm" to="/admin/guild-badges"><Icon name="guild" size="sm" />Guild badges</Link>
         <Link className="btn sm" to="/admin/guild-links"><Icon name="guild" size="sm" />Guild links</Link>
         <Link className="btn sm" to="/admin/tiers"><Icon name="chart" size="sm" />Tiers</Link>
         <Link className="btn sm" to="/admin/discovery"><Icon name="search" size="sm" />Discovery</Link>
         <button type="button" className="btn ghost sm" onClick={load}><Icon name="refresh" size="sm" />Refresh</button>
         <button type="button" className="btn ghost sm" onClick={async () => { await api('/api/admin/sign-out', { method: 'POST', body: {} }); navigate('/'); }}>Sign out of admin</button>
       </div>
+      <ActivitySection />
       <KeysSection credentials={state.credentials} onSaved={load} />
       <div className="grid-auto col-xl gap-24 align-start-grid">
         <GradingSection settings={state.settings} onSaved={(settings) => setState((s) => ({ ...s, settings }))} />
@@ -278,7 +283,9 @@ function CrawlerSection({ crawler, settings, onSaved, onRefresh }) {
       : c.state === 'not_configured' ? { cls: 'warn', text: 'No Blizzard keys' }
         : c.state === 'paused' ? { cls: 'warn', text: 'Background paused' }
           : c.state === 'running' ? { cls: 'ok', text: 'Running' } : { cls: 'ok', text: 'Idle' };
-  const lastHour = crawler.hours.at(-1);
+  const thisHour = crawler.thisHour;
+  const startedAt = c?.startedAt ? Date.parse(c.startedAt) : null;
+  const sinceStart = startedAt && Date.now() - startedAt < 60 * 60 * 1000;
   return (
     <section className="panel pad-20 stack gap-16" aria-labelledby="crawler-h">
       <div className="row gap-10">
@@ -294,10 +301,10 @@ function CrawlerSection({ crawler, settings, onSaved, onRefresh }) {
       ) : (
         <>
           <div className="grid-auto col-xs gap-10">
-            <div className="raised pad-12 stack gap-2"><span className="eyebrow">Requests, last hour</span><b className="big-num">{formatNumber(c.requestsLastHour)}</b><span className="muted xsmall">{formatNumber(c.errorsLastHour)} failed · {c.perSecond}/s budget</span></div>
+            <div className="raised pad-12 stack gap-2"><span className="eyebrow">{sinceStart ? 'Crawler requests since the worker started' : 'Crawler requests, last 60 min'}</span><b className="big-num">{formatNumber(c.requestsLastHour)}</b><span className="muted xsmall">{sinceStart ? `started ${timeAgo(c.startedAt)} (counted in the worker; resets on restart) · ` : 'counted in the worker · '}{formatNumber(c.errorsLastHour)} failed · {c.perSecond}/s budget</span></div>
             <div className="raised pad-12 stack gap-2"><span className="eyebrow">Checked today</span><b className="big-num">{formatNumber(crawler.today.checked)}</b><span className="muted xsmall">{formatNumber(crawler.today.fetched)} fully fetched (UTC day)</span></div>
             <div className="raised pad-12 stack gap-2"><span className="eyebrow">Tracked</span><b className="big-num">{formatNumber(crawler.today.tracked)}</b><span className="muted xsmall">{formatNumber(crawler.today.known)} known in all</span></div>
-            <div className="raised pad-12 stack gap-2"><span className="eyebrow">This UTC hour</span><b className="big-num">{formatNumber(lastHour?.requests ?? 0)}</b><span className="muted xsmall">{formatNumber(lastHour?.throttled ?? 0)} throttled (429)</span></div>
+            <div className="raised pad-12 stack gap-2"><span className="eyebrow">All Blizzard requests, {new Date(thisHour.hour).toISOString().slice(11, 13)}:00 UTC – now</span><b className="big-num">{formatNumber(thisHour.requests)}</b><span className="muted xsmall">this UTC hour, from the hourly log (sign-in reads included) · {formatNumber(thisHour.throttled)} throttled (429)</span></div>
           </div>
           <div className="tblbox listbox">
             <table className="tbl">
@@ -444,7 +451,7 @@ function BackupsSection({ backups: b }) {
           </table>
         </div>
       )}
-      <span className="muted xsmall">By hand: <span className="mono">docker exec everstats-worker node server/tools/backup.js now</span>. Each backup is deleted 3 days after it’s taken: backups hold Blizzard data, which Blizzard’s terms allow keeping for at most 30 days (Data retention). No monthly copies. Restoring: RESTORE.md.</span>
+      <span className="muted xsmall">By hand: <span className="mono">docker exec everstats-worker node server/tools/backup.js now</span>. Backups hold only Everstats’ own data (no Blizzard data since 0.5.0), so the newest 14 nightly backups are kept, plus the first backup of each month. A backup from before 0.5.0 still holds Blizzard data and is deleted 3 days after it was taken. Restoring: RESTORE.md.</span>
     </section>
   );
 }

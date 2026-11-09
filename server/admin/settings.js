@@ -153,6 +153,16 @@ export const SETTINGS = [
     type: 'window',
     default: null,
   },
+  {
+    // 0.7.1: the Early Guild badge (guildBadges/rules.js). Unset = not awardable and listed nowhere. Founding Guild uses
+    // the beta window instead and has no setting.
+    key: 'guildBadges.earlyWindow',
+    section: 'guildBadges',
+    label: 'Early Guild window',
+    help: 'Guilds Everstats first tracks between these dates (UTC, both days included) unlock Early Guild. After it closes, the badge shows “No longer available” to guilds that didn’t get it. Leave it unset and the badge shows nowhere.',
+    type: 'window',
+    default: null,
+  },
 ];
 
 const byKey = new Map(SETTINGS.map((s) => [s.key, s]));

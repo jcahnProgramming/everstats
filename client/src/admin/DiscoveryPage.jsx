@@ -686,7 +686,7 @@ function Suggestions({ runId, focusStat = null, onUnfocus = null }) {
         statistic, so they show in every run and in the combined catalog, and survive re-analysis.
       </p>
       {focusStat !== null && (
-        <div className="note small" role="status"><Icon name="filter" /><span className="grow">Showing statistic id {focusStat} only (from Tiers → What counts).</span>{onUnfocus && <button type="button" className="btn sm ghost" onClick={onUnfocus}>Show every statistic</button>}</div>
+        <div className="note small" role="status"><Icon name="filter" /><span className="flex-fill">Showing statistic id {focusStat} only (from Tiers → What counts).</span>{onUnfocus && <button type="button" className="btn sm ghost" onClick={onUnfocus}>Show every statistic</button>}</div>
       )}
       <Segmented options={VIEWS} value={view} onChange={(v) => { setView(v); setShown(50); }} label="Which suggestions" />
       {view === 'types' && <span className="muted xsmall">Every statistic whose value type is still a guess. Confirm it or choose another; your choice replaces the guess from then on.</span>}
@@ -726,7 +726,7 @@ function SuggestionRow({ runId, stat, nameOf, showType, onChanged }) {
       {showType && <ValueTypeRow stat={stat} busy={busy} onSet={(value) => decide('value_type', 'approved', value)} onClear={() => decide('value_type', 'cleared')} />}
       {stat.visible.map((s) => (
         <div key={s.kind} className="row gap-12 align-start disc-sug">
-          <div className="stack gap-4 grow">
+          <div className="stack gap-4 flex-fill">
             <span className="small"><span className="muted">{KIND_LABEL[s.kind]}:</span> <b>{valueLabel(s, nameOf)}</b>{s.decision && <span className={`tag ${s.decision === 'approved' ? 'ok' : 'err'} disc-decision`}>{s.decision}</span>}{s.stale && <span className="tag warn disc-decision">no longer supported</span>}</span>
             <span className="t2 xsmall">{s.reasoning}</span>
           </div>
@@ -751,7 +751,7 @@ function ValueTypeRow({ stat, busy, onSet, onClear }) {
   const [choice, setChoice] = useState(stat.valueType);
   return (
     <div className="row gap-12 align-start disc-sug">
-      <div className="stack gap-6 grow">
+      <div className="stack gap-6 flex-fill">
         <span className="small row gap-6"><span className="muted">Value type:</span> <TypeTag stat={stat} /></span>
         <span className="t2 xsmall">{stat.valueTypeBasis}</span>
         {editing && (

@@ -85,7 +85,7 @@ export function UsernameClaim({ renaming = false, renamesLeft = 0, onDone, autoF
       <div className="row gap-8 align-end wrap-field-row">
         <Field
           label={renaming ? 'New username' : 'Username'}
-          className="grow"
+          className="flex-fill"
           inputClassName="mono"
           value={value}
           onChange={(e) => setValue(e.target.value.toLowerCase())}

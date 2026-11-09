@@ -23,7 +23,7 @@ export function SearchPage() {
     setRes(null);
     setError(null);
     if (q.length < 2) return undefined;
-    api(`/api/search?q=${encodeURIComponent(q)}`).then((r) => { if (live) setRes(r); }, (err) => { if (live) setError(err.message); });
+    api(`/api/search?q=${encodeURIComponent(q)}&count=1`).then((r) => { if (live) setRes(r); }, (err) => { if (live) setError(err.message); });
     return () => {
       live = false;
     };

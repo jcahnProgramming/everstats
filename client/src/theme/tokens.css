@@ -548,3 +548,109 @@
   --es-badge-light-panel-text: #2A1416;
   --es-badge-light-panel-line: #D3BFB5;
 }
+
+
+/* ==========================================================================================================
+   Guild badge tokens (0.7.1). Source: design/v2-guild-badges/tokens/guild-badges.css (Claude Design v2 guild
+   badges), copied VERBATIM below this comment so the next handoff diffs cleanly. Additive to v1 and v2-badges: the
+   hanging-standard colours per theme (--es-gbadge-*) and guild badge sizes. The art (client/src/guildBadges/art/)
+   only names these tokens. server/test/client-colours.test.js checks every theme block, these included.
+   ========================================================================================================== */
+
+/* Everstats — guild badge tokens. Load AFTER v1/tokens/themes.css and v2-badges/tokens/badges.css. */
+:root {
+  --es-size-gbadge-pill: 36px;
+  --es-size-gbadge-pill-sm: 26px;
+  --es-size-gbadge-pill-icon: 28px;
+  --es-size-gbadge-pill-icon-sm: 18px;
+  --es-size-gbadge-unlock-card: 300px;
+  --es-gbadge-row-max: 6;
+  --es-gbadge-ribbon-days: 7;
+}
+
+:root, [data-theme="forever"] {
+  --es-gbadge-rim: #04060D;
+  --es-gbadge-rod: #2A2118;
+  --es-gbadge-rod-knob: #C9B48A;
+  --es-gbadge-ink: #F7F1E3;
+  --es-gbadge-cloth-roster: #22345A;
+  --es-gbadge-cloth-deeds: #4A2238;
+  --es-gbadge-cloth-standing: #1E4038;
+  --es-gbadge-cloth-heritage: #433219;
+  --es-gbadge-cloth-recognition: #2F2763;
+  --es-gbadge-cloth-forever: #16255E;
+  --es-gbadge-metal-1: #8E959F;
+  --es-gbadge-metal-2: #C4874D;
+  --es-gbadge-metal-3: #D8DEE8;
+  --es-gbadge-metal-4: #E0B046;
+  --es-gbadge-metal-5: #F3DB9C;
+  --es-gbadge-metal-5-glow: rgba(243,219,156,0.55);
+  --es-gbadge-metal-fixed: #CDB98E;
+  --es-gbadge-held: #5ED39B;
+  --es-gbadge-held-ink: #0C2A1E;
+  --es-gbadge-lost: #8F9BC2;
+  --es-gbadge-locked-cloth: #232B45;
+  --es-gbadge-locked-metal: #4A5578;
+  --es-gbadge-locked-ink: #7380A3;
+  --es-gbadge-progress: #E7C068;
+  --es-gbadge-ribbon: #F3DB9C;
+  --es-gbadge-ribbon-ink: #1B1505;
+}
+
+[data-theme="alliance"] {
+  --es-gbadge-rim: #04060D;
+  --es-gbadge-rod: #2A2118;
+  --es-gbadge-rod-knob: #C9B48A;
+  --es-gbadge-ink: #F7F1E3;
+  --es-gbadge-cloth-roster: #22345A;
+  --es-gbadge-cloth-deeds: #4A2238;
+  --es-gbadge-cloth-standing: #1E4038;
+  --es-gbadge-cloth-heritage: #433219;
+  --es-gbadge-cloth-recognition: #2F2763;
+  --es-gbadge-cloth-forever: #16255E;
+  --es-gbadge-metal-1: #8E959F;
+  --es-gbadge-metal-2: #C4874D;
+  --es-gbadge-metal-3: #D8DEE8;
+  --es-gbadge-metal-4: #E0B046;
+  --es-gbadge-metal-5: #F3DB9C;
+  --es-gbadge-metal-5-glow: rgba(243,219,156,0.55);
+  --es-gbadge-metal-fixed: #CDB98E;
+  --es-gbadge-held: #5ED39B;
+  --es-gbadge-held-ink: #0C2A1E;
+  --es-gbadge-lost: #A6B4D6;
+  --es-gbadge-locked-cloth: #142A5E;
+  --es-gbadge-locked-metal: #3D5A99;
+  --es-gbadge-locked-ink: #8495C4;
+  --es-gbadge-progress: #D8AC48;
+  --es-gbadge-ribbon: #F0D58C;
+  --es-gbadge-ribbon-ink: #1B1505;
+}
+
+[data-theme="horde"] {
+  --es-gbadge-rim: #04060D;
+  --es-gbadge-rod: #2A2118;
+  --es-gbadge-rod-knob: #C9B48A;
+  --es-gbadge-ink: #F7F1E3;
+  --es-gbadge-cloth-roster: #22345A;
+  --es-gbadge-cloth-deeds: #4A2238;
+  --es-gbadge-cloth-standing: #1E4038;
+  --es-gbadge-cloth-heritage: #433219;
+  --es-gbadge-cloth-recognition: #2F2763;
+  --es-gbadge-cloth-forever: #16255E;
+  --es-gbadge-metal-1: #8E959F;
+  --es-gbadge-metal-2: #C4874D;
+  --es-gbadge-metal-3: #D8DEE8;
+  --es-gbadge-metal-4: #E0B046;
+  --es-gbadge-metal-5: #F3DB9C;
+  --es-gbadge-metal-5-glow: rgba(243,219,156,0.55);
+  --es-gbadge-metal-fixed: #CDB98E;
+  --es-gbadge-held: #6CCB8A;
+  --es-gbadge-held-ink: #0C2A1E;
+  --es-gbadge-lost: #A08D86;
+  --es-gbadge-locked-cloth: #2B1E1F;
+  --es-gbadge-locked-metal: #5C4240;
+  --es-gbadge-locked-ink: #9A8580;
+  --es-gbadge-progress: #D39650;
+  --es-gbadge-ribbon: #E8B57A;
+  --es-gbadge-ribbon-ink: #1A0E05;
+}

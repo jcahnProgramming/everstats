@@ -17,6 +17,8 @@ import { createGuildRouter } from './guilds/routes.js';
 import { createTierRouter } from './tiers/routes.js';
 import { createBadgeRouter } from './badges/routes.js';
 import { createGuildManageRouter } from './guilds/manage.js';
+import { createGuildBadgeRouter } from './guildBadges/routes.js';
+import { createFeedbackRouter } from './feedback/routes.js';
 
 /**
  * The web app (API + built client), without listening. index.js starts it; tests build it with their own database,
@@ -87,6 +89,9 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   app.use('/api', createBadgeRouter({ db, limits, networkOf }));
   // Guild page management (0.7.0): the Guild Master's and officers' panel, "Report this link", "Your guilds".
   app.use('/api', createGuildManageRouter({ db, limits, networkOf }));
+  // 0.7.1: guild badges (detail pages, emblems, Manage → Badges, GM/officer toasts) and feedback with replies.
+  app.use('/api', createGuildBadgeRouter({ db, limits, networkOf }));
+  app.use('/api', createFeedbackRouter({ db, limits, networkOf }));
 
   app.use('/api/auth', createAuthRouter({ db, limits, networkOf, fetch }));
   app.use('/api/admin', createAdminRouter({

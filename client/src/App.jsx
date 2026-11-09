@@ -5,6 +5,11 @@ import { TiersAdminPage } from './admin/TiersAdminPage.jsx';
 import { BadgesAdminPage } from './admin/BadgesAdminPage.jsx';
 import { GuildLinksAdminPage } from './admin/GuildLinksAdminPage.jsx';
 import { BadgePage } from './pages/BadgePage.jsx';
+import { GuildBadgesAdminPage } from './admin/GuildBadgesAdminPage.jsx';
+import { FeedbackAdminPage } from './admin/FeedbackAdminPage.jsx';
+import { GuildBadgePage, GuildBadgesIndexPage } from './guildBadges/GuildBadgePages.jsx';
+import { ManageBadgesPage } from './guildBadges/ManageBadgesPage.jsx';
+import { FeedbackPage, YourFeedbackPage } from './feedback/FeedbackPages.jsx';
 import { AppShell } from './chrome/AppShell.jsx';
 import { BetaPage } from './pages/BetaPage.jsx';
 import { ChangelogPage } from './pages/ChangelogPage.jsx';
@@ -45,6 +50,11 @@ export function App() {
             <Route path="guilds" element={<GuildsPage />} />
             <Route path="g/:slug" element={<GuildPage />} />
             <Route path="g/:slug/boards/:statistic" element={<GuildMemberBoardPage />} />
+            <Route path="g/:slug/manage/badges" element={<ManageBadgesPage />} />
+            <Route path="guild-badges" element={<GuildBadgesIndexPage />} />
+            <Route path="guild-badges/:id" element={<GuildBadgePage />} />
+            <Route path="feedback" element={<FeedbackPage />} />
+            <Route path="settings/feedback" element={<YourFeedbackPage />} />
             <Route path="search" element={<SearchPage />} />
             <Route path="sign-in" element={<SignInPage />} />
             <Route path="sign-in/2fa" element={<SecondFactorPage />} />
@@ -60,6 +70,8 @@ export function App() {
             <Route path="admin/tiers" element={<TiersAdminPage />} />
             <Route path="admin/badges" element={<BadgesAdminPage />} />
             <Route path="admin/guild-links" element={<GuildLinksAdminPage />} />
+            <Route path="admin/guild-badges" element={<GuildBadgesAdminPage />} />
+            <Route path="admin/feedback" element={<FeedbackAdminPage />} />
             <Route path="admin/sign-in" element={<AdminSignInPage />} />
             <Route path="admin/enroll" element={<AdminEnrollPage />} />
             <Route path="*" element={<NotFoundPage />} />

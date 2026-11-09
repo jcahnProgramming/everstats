@@ -1167,4 +1167,183 @@ export const migrations = [
       }
     },
   },
+  {
+    // 0.7.1: guild badges (server/guildBadges/), feedback with replies (server/feedback/), hiding a render
+    // (character_render_hidden), the admin Activity counters (server/activity/), and the owner's one-off "Grant beta
+    // membership" (the beta guard trigger gains ONE narrow path; see CLAUDE.md "The beta"). Everything here is
+    // Everstats' own data (retention/registry.js OURS). Guild tables key on Blizzard's guild id WITHOUT a foreign key: a
+    // guilds row ages out with the 30-day rule, our data about the guild stays.
+    id: '016_guild_badges_feedback_activity',
+    async up(q) {
+      await q.query(`
+        CREATE TABLE guild_badge_definitions (
+          id               text PRIMARY KEY CHECK (id ~ '^[a-z][a-z0-9-]{1,47}$'),
+          family           text NOT NULL CHECK (family IN ('roster', 'deeds', 'standing', 'heritage', 'recognition')),
+          name             text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 40),
+          description      text NOT NULL CHECK (char_length(description) BETWEEN 1 AND 300),
+          how              text NOT NULL CHECK (char_length(how) BETWEEN 1 AND 200),
+          art              text NOT NULL CHECK (art ~ '^[a-z]+/[a-z0-9-]+$'),
+          template         text CHECK (template IN ('deeds-template', 'partner-guild')),
+          levelled         boolean NOT NULL DEFAULT false,
+          measure          text CHECK (char_length(measure) <= 40),
+          thresholds       bigint[],
+          award            text NOT NULL CHECK (award IN ('manual', 'automatic')),
+          rule             jsonb,
+          kept_while_held  boolean NOT NULL DEFAULT false,
+          time_limited     boolean NOT NULL DEFAULT false,
+          status_mark      boolean NOT NULL DEFAULT false,
+          sort             integer NOT NULL DEFAULT 1000,
+          created_at       timestamptz NOT NULL DEFAULT now(),
+          created_by       text NOT NULL DEFAULT 'seed' CHECK (created_by IN ('seed', 'admin')),
+          CHECK ((award = 'automatic') = (rule IS NOT NULL)),
+          CHECK (NOT levelled OR (cardinality(thresholds) = 5 AND measure IS NOT NULL))
+        );
+
+        -- One row per (guild, badge). Levels only ever go UP (raising a threshold never removes one); a Standing
+        -- badge is 'lost' when the guild stops holding it and 'held' again when it regains it; 'revoked' is the admin
+        -- taking back a staff badge. Never deleted.
+        CREATE TABLE guild_badge_awards (
+          guild_id         bigint NOT NULL,
+          badge_id         text NOT NULL REFERENCES guild_badge_definitions (id),
+          state            text NOT NULL DEFAULT 'held' CHECK (state IN ('held', 'lost', 'revoked')),
+          level            smallint CHECK (level BETWEEN 1 AND 5),
+          first_at         timestamptz NOT NULL DEFAULT now(),
+          level_at         timestamptz NOT NULL DEFAULT now(),
+          held_since       timestamptz NOT NULL DEFAULT now(),
+          lost_at          timestamptz,
+          source           text NOT NULL CHECK (source IN ('automatic', 'admin')),
+          reason           text CHECK (char_length(reason) <= 500),
+          detail           jsonb NOT NULL DEFAULT '{}',     -- Standing: the boards (statistic + ruleset ids, mode); Featured: label, until
+          ribbon_at        timestamptz,                     -- the 7-day "Unlocked" ribbon; never set by the back-fill
+          shown            boolean NOT NULL DEFAULT true,   -- the Guild Master's and officers' choices
+          position         smallint,
+          pinned           boolean NOT NULL DEFAULT false,
+          PRIMARY KEY (guild_id, badge_id)
+        );
+        CREATE UNIQUE INDEX guild_badge_awards_one_pin ON guild_badge_awards (guild_id) WHERE pinned;
+        CREATE INDEX guild_badge_awards_badge ON guild_badge_awards (badge_id, state, level);
+        CREATE INDEX guild_badge_awards_guild_time ON guild_badge_awards (guild_id, level_at);
+
+        CREATE TABLE guild_badge_events (
+          id                bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          at                timestamptz NOT NULL DEFAULT now(),
+          type              text NOT NULL CHECK (type IN ('unlocked', 'level', 'lost', 'regained', 'granted', 'revoked', 'display',
+                                                          'thresholds', 'mark_uploaded', 'mark_saved', 'created', 'backfill')),
+          guild_id          bigint,
+          badge_id          text,
+          level             smallint,
+          actor             text NOT NULL CHECK (actor IN ('rule', 'admin', 'backfill', 'editor')),
+          actor_account_id  bigint,
+          notify            boolean NOT NULL DEFAULT false,   -- a toast for the guild's GM and officers
+          reason            text CHECK (char_length(reason) <= 500),
+          detail            jsonb NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX guild_badge_events_time ON guild_badge_events (at);
+        CREATE INDEX guild_badge_events_guild_time ON guild_badge_events (guild_id, at);
+
+        -- How far each GM / officer has seen the guild's toasts.
+        CREATE TABLE guild_badge_toast_seen (
+          guild_id    bigint NOT NULL,
+          account_id  bigint NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+          seen_at     timestamptz NOT NULL,
+          PRIMARY KEY (guild_id, account_id)
+        );
+        CREATE INDEX guild_badge_toast_seen_account ON guild_badge_toast_seen (account_id, seen_at);
+
+        -- A partner guild's emblem: the admin's upload (PNG/WebP, re-encoded), with written permission confirmed.
+        CREATE TABLE guild_partner_marks (
+          guild_id     bigint PRIMARY KEY,
+          mark         bytea,
+          mark_sha     text,
+          mark_set_at  timestamptz,
+          pending      bytea,
+          pending_sha  text,
+          pending_at   timestamptz
+        );
+
+        -- "Hide my render": the owner's choice. Ours, so it survives a purge and is backed up.
+        CREATE TABLE character_render_hidden (
+          character_id  bigint PRIMARY KEY,
+          account_id    bigint REFERENCES accounts (id) ON DELETE SET NULL,
+          hidden_at     timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX character_render_hidden_account ON character_render_hidden (account_id, hidden_at);
+
+        -- Feedback: one thread per message, replies in it. Plain text only. Kept until the admin deletes it or the
+        -- account is deleted (cascade). A signed-out message has no account, only the Discord name they gave, if any.
+        CREATE TABLE feedback_threads (
+          id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          account_id      bigint REFERENCES accounts (id) ON DELETE CASCADE,
+          type            text NOT NULL CHECK (type IN ('bug', 'idea', 'question', 'partnership', 'other')),
+          page            text CHECK (char_length(page) <= 300),
+          discord         text CHECK (char_length(discord) <= 40),
+          state           text NOT NULL DEFAULT 'unread' CHECK (state IN ('unread', 'read', 'replied', 'archived')),
+          player_unread   boolean NOT NULL DEFAULT false,   -- Everstats replied and the player hasn't opened it yet
+          created_at      timestamptz NOT NULL DEFAULT now(),
+          updated_at      timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX feedback_threads_state_time ON feedback_threads (state, updated_at);
+        CREATE INDEX feedback_threads_account_time ON feedback_threads (account_id, updated_at);
+
+        CREATE TABLE feedback_messages (
+          id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          thread_id   bigint NOT NULL REFERENCES feedback_threads (id) ON DELETE CASCADE,
+          author      text NOT NULL CHECK (author IN ('player', 'everstats')),
+          body        text NOT NULL CHECK (char_length(body) BETWEEN 1 AND 4000),
+          created_at  timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX feedback_messages_thread_time ON feedback_messages (thread_id, created_at);
+
+        CREATE TABLE feedback_notes (
+          id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          thread_id   bigint NOT NULL REFERENCES feedback_threads (id) ON DELETE CASCADE,
+          body        text NOT NULL CHECK (char_length(body) BETWEEN 1 AND 4000),
+          created_at  timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX feedback_notes_thread_time ON feedback_notes (thread_id, created_at);
+
+        -- Admin → Activity: COUNTS of events per UTC hour. No address, no user agent, no visitor id: a kind and a number.
+        CREATE TABLE activity_counts (
+          hour   timestamptz NOT NULL,
+          kind   text NOT NULL CHECK (char_length(kind) <= 40),
+          n      integer NOT NULL DEFAULT 0,
+          PRIMARY KEY (hour, kind)
+        );
+        INSERT INTO pipeline_facts (key, at) VALUES ('activity_counting_since', now()) ON CONFLICT DO NOTHING;
+
+        -- The owner's one-off "Grant beta membership" (admin only, reason required, logged). The guard keeps refusing
+        -- every other change; this path only turns a NON-member into a member, only for an account created before the
+        -- window closed (or while it is still open), and only inside a transaction that set everstats.granting_beta.
+        -- It never opens, extends or edits a window.
+        CREATE OR REPLACE FUNCTION accounts_beta_guard() RETURNS trigger LANGUAGE plpgsql AS $fn$
+        BEGIN
+          IF NEW.beta_member IS DISTINCT FROM OLD.beta_member OR NEW.beta_since IS DISTINCT FROM OLD.beta_since THEN
+            IF current_setting('everstats.merging', true) = 'on' AND NEW.beta_member AND NEW.beta_since IS NOT NULL
+               AND (NOT OLD.beta_member OR NEW.beta_since < OLD.beta_since) THEN
+              RETURN NEW;
+            END IF;
+            IF current_setting('everstats.granting_beta', true) = 'on' AND NOT OLD.beta_member AND NEW.beta_member
+               AND NEW.beta_since IS NOT NULL
+               AND (EXISTS (SELECT 1 FROM beta_windows WHERE closed_at IS NULL)
+                    OR OLD.created_at < (SELECT max(closed_at) FROM beta_windows)) THEN
+              RETURN NEW;
+            END IF;
+            RAISE EXCEPTION 'beta membership is permanent' USING ERRCODE = 'check_violation';
+          END IF;
+          RETURN NEW;
+        END
+        $fn$;
+      `);
+      const { SEED_GUILD_BADGES } = await import('../guildBadges/catalog.js');
+      for (const b of SEED_GUILD_BADGES) {
+        await q.query(
+          `INSERT INTO guild_badge_definitions (id, family, name, description, how, art, template, levelled, measure, thresholds, award, rule,
+                                                kept_while_held, time_limited, status_mark, sort)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::bigint[], $11, $12::jsonb, $13, $14, $15, $16) ON CONFLICT (id) DO NOTHING`,
+          [b.id, b.family, b.name, b.description, b.how, b.art, b.template ?? null, Boolean(b.levelled), b.measure ?? null, b.thresholds ?? null,
+            b.rule ? 'automatic' : 'manual', b.rule ? JSON.stringify(b.rule) : null, Boolean(b.keptWhileHeld), Boolean(b.timeLimited), Boolean(b.statusMark), b.sort],
+        );
+      }
+    },
+  },
 ];

@@ -16,6 +16,9 @@ import { retentionStatus } from '../retention/sweep.js';
 import { createAdminTierRouter } from '../tiers/routes.js';
 import { createAdminBadgeRouter } from '../badges/admin.js';
 import { createAdminGuildLinksRouter } from '../guilds/manage.js';
+import { createAdminGuildBadgeRouter } from '../guildBadges/admin.js';
+import { createAdminFeedbackRouter } from '../feedback/routes.js';
+import { createAdminActivityRouter } from '../activity/admin.js';
 
 /**
  * The admin area, under /api/admin. The admin is NOT an account: one person, passkeys only (admin_passkeys),
@@ -120,6 +123,10 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
   // Badges (grant, revoke, templates, partner marks, the log) and guild links (reports, removal, blocklist), 0.7.0.
   r.use('/', createAdminBadgeRouter({ db, writes }));
   r.use('/', createAdminGuildLinksRouter({ db, writes }));
+  // 0.7.1: guild badges (grants, thresholds, emblems, the log), the feedback inbox, and Activity. Same gate.
+  r.use('/', createAdminGuildBadgeRouter({ db, writes }));
+  r.use('/', createAdminFeedbackRouter({ db, writes }));
+  r.use('/', createAdminActivityRouter({ db, writes }));
 
   r.put('/credentials/:id', writes, route(async (req, res) => res.json({ credential: await saveCredential(db, req.params.id, req.body) })));
   r.delete('/credentials/:id', writes, route(async (req, res) => res.json({ credential: await removeCredential(db, req.params.id) })));

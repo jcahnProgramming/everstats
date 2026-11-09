@@ -45,6 +45,9 @@ export async function importAccountCharacters({ db, accountId, providerId, userT
     }
   });
   const result = await record(db, accountId, providerId, 'ok', list.length, null, queued);
+  // 0.7.1 Activity: characters looked up because their owner signed in (a count, nothing else).
+  const { countActivity } = await import('../activity/count.js');
+  countActivity(db, 'character.signin', queued);
   // 0.7.0: badges from the list Battle.net just gave (class, faction and level are on it), and Guild Master control of
   // any guild whose rank-0 character this account now owns. Neither can fail the sign-in.
   try {

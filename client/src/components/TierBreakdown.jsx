@@ -104,7 +104,7 @@ export function WhyThisTier({ tiers, name }) {
       <div className="panel pad-20 stack gap-12">
         <div className="row gap-16 align-start">
           <TierBadge letter={o.letter} size="md" />
-          <div className="stack gap-6 grow">
+          <div className="stack gap-6 flex-fill">
             <span className="strong-text">
               {o.letter ? <>Overall {o.letter} · {letterRange(o.letter, s.shares)} · #{formatNumber(o.rank)} of {formatNumber(o.of)} graded</> : <>Overall: Unranked</>}
             </span>

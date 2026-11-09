@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { parseGuildSlug } from '../../../server/stats/slug.js';
 import { api } from '../api.js';
+import { viaSearchOnce } from '../activity.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Segmented } from '../components/Controls.jsx';
 import { EmptyState, Fresh, Provenance } from '../components/EmptyState.jsx';
@@ -10,6 +11,9 @@ import { TierBadge, TierDistribution, TierLink } from '../components/Tier.jsx';
 import { formatDate, formatNumber, timeAgo } from '../format.js';
 import { NameWithBadge } from '../badges/Badges.jsx';
 import { GuildLinksArea, ManageGuild } from './GuildManage.jsx';
+import { GuildBadgeArea, GuildBadgeToasts, VerifiedMark } from '../guildBadges/GuildBadges.jsx';
+import { useSession } from '../session.jsx';
+import { startProvider } from './SignInPages.jsx';
 
 /**
  * A guild (design/v1/pages/guild), 0.5.0. GET /api/guilds/:slug answers from what Everstats stored; a guild it has
@@ -52,7 +56,9 @@ export function GuildPage() {
     if (!slug) return;
     setResult(null);
     try {
-      const r = await api(`/api/guilds/${encodeURIComponent(slug)}`);
+      // via=search: opened from a guild search (counted for the admin's Activity panel; a count, nothing else).
+      const via = viaSearchOnce();
+      const r = await api(`/api/guilds/${encodeURIComponent(slug)}${via}`);
       if (r.status === 'moved') navigate(`/g/${encodeURIComponent(r.slug)}`, { replace: true });
       else setResult(r);
     } catch (err) {
@@ -78,7 +84,7 @@ export function GuildPage() {
       <div className="wrap page-pad stack gap-24">
         <section className="sheet row gap-24 sheet-pad guild-banner" aria-busy="true">
           <GuildCrest />
-          <div className="stack gap-8 grow">
+          <div className="stack gap-8 flex-fill">
             <span className="eyebrow">Guild · US</span>
             <h1 className="h1 guild-name">{slug}</h1>
             <span className="t2 small" role="status">Looking this guild up…</span>
@@ -126,18 +132,21 @@ export function GuildPage() {
 function GuildSheet({ data, onReload }) {
   const g = data.guild;
   const c = data.counts;
+  const canManage = Boolean(data.viewerRole);
   return (
     <div className="wrap page-pad stack gap-32">
-      {data.notice && <div className="note warn small" role="status"><Icon name="warning" /><span className="grow">{NOTICES[data.notice]}</span></div>}
+      <GuildBadgeToasts slug={g.slug} enabled={canManage} />
+      {data.notice && <div className="note warn small" role="status"><Icon name="warning" /><span className="flex-fill">{NOTICES[data.notice]}</span></div>}
+      <SignUpCall guild={g} />
       <section className="sheet row gap-24 sheet-pad guild-banner" aria-label="Guild">
         <GuildCrest />
-        <div className="stack gap-8 grow">
+        <div className="stack gap-8 flex-fill">
           <div className="row gap-8">
             {g.ruleset && <Link className="tag" to={`/leaderboards?view=guilds&ruleset=${g.ruleset.id}`}>{g.ruleset.name}</Link>}
             {g.faction && <span className="tag">{g.faction}</span>}
             <span className="tag">US</span>
           </div>
-          <h1 className="h1 guild-name">{g.name}</h1>
+          <h1 className="h1 guild-name">{g.name}{data.badges?.verified && <VerifiedMark />}</h1>
           <span className="t2">
             {c.roster === null ? 'Roster not fetched yet' : <><b className="strong-text">{formatNumber(c.roster)}</b> member{c.roster === 1 ? '' : 's'} on Blizzard’s roster</>}
             {' · '}<b className="strong-text">{formatNumber(c.tracked)}</b> tracked on Everstats
@@ -162,6 +171,8 @@ function GuildSheet({ data, onReload }) {
 
       {/* 0.7.0: the guild's own Links area (only when something is set) and, for its Guild Master and officers only,
           the Manage guild panel. */}
+      <GuildBadgeArea data={data.badges} guild={g} canManage={canManage} />
+      {data.badges?.automatic && <NoGuildMaster guild={g} />}
       <GuildLinksArea links={data.links} slug={g.slug} />
       <ManageGuild slug={g.slug} onSaved={onReload} />
 
@@ -174,6 +185,36 @@ function GuildSheet({ data, onReload }) {
       </div>
 
       <TopMembers data={data} />
+    </div>
+  );
+}
+
+/**
+ * 0.7.1: the call to action at the top for signed-out visitors (what the Copy sign-up link leads to). The link itself is
+ * just the guild page: no parameter, no referral id. Signing in brings them back here.
+ */
+function SignUpCall({ guild }) {
+  const session = useSession();
+  if (session.loading || session.signedIn || session.stage === 'second_factor') return null;
+  const bnet = session.providers.find((p) => p.id === 'battlenet');
+  return (
+    <div className="note gold signup-call" role="note">
+      <Icon name="guild" />
+      <span className="flex-fill">Sign in with Battle.net to add your characters to <b>{guild.name}</b>. Every guildie who signs in is tracked and moves the guild toward its next badge.</span>
+      {bnet?.configured
+        ? <button type="button" className="btn sm gold" onClick={() => startProvider('battlenet', 'sign_in', `/g/${encodeURIComponent(guild.slug)}`).catch(() => {})}>Sign in with Battle.net</button>
+        : <Link className="btn sm" to="/sign-in">Sign in</Link>}
+    </div>
+  );
+}
+
+/** guild-no-gm: nobody on Everstats owns the rank-0 character, so the badges show automatically and nobody can edit. */
+function NoGuildMaster({ guild }) {
+  return (
+    <div className="note small" role="note">
+      <Icon name="info" />
+      <span className="flex-fill">Is this your guild? Sign in with the Guild Master’s Battle.net account to manage {guild.name}’s page and choose which badges it shows. Until then they’re shown automatically.</span>
+      <Link className="btn sm ghost" to="/sign-in">Sign in</Link>
     </div>
   );
 }
@@ -393,7 +434,7 @@ function TopMembers({ data }) {
               {cat.statistics.map((s) => (
                 <div key={s.id} className="guild-top">
                   <div className="row gap-8 guild-top-head">
-                    <b className="small grow ellipsis">{s.name}</b>
+                    <b className="small flex-fill ellipsis">{s.name}</b>
                     {s.withAny > 0 && <Link className="xsmall nowrap" to={`/g/${encodeURIComponent(slug)}/boards/${s.id}${q}`}>See all {formatNumber(s.withAny)} →</Link>}
                   </div>
                   {s.top.length === 0 ? (

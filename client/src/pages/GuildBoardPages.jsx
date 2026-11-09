@@ -6,6 +6,7 @@ import { EmptyState, Provenance } from '../components/EmptyState.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
 import { RankedTable, RulesetSwitcher } from '../components/Stats.jsx';
 import { formatDateTime, formatNumber, timeAgo } from '../format.js';
+import { GuildName } from '../guildBadges/GuildBadges.jsx';
 
 /**
  * 0.5.0: the two guild boards.
@@ -102,7 +103,7 @@ export function GuildBoardPage() {
   return (
     <div className="wrap page-pad stack gap-24">
       <div className="row gap-16 board-title">
-        <div className="stack gap-10 grow">
+        <div className="stack gap-10 flex-fill">
           <nav aria-label="Breadcrumb" className="crumbs xsmall">
             <Link to={`/leaderboards?view=guilds&ruleset=${data.ruleset.id}`}>Guild boards</Link><span aria-hidden="true">/</span>
             <Link to={`/leaderboards?view=guilds&ruleset=${data.ruleset.id}#${s.categoryKey}`}>{s.category}</Link>
@@ -162,7 +163,7 @@ export function GuildBoardPage() {
               <span className="muted xsmall">Needs {formatNumber(data.minMembers)} tracked members. {data.notYetCount > data.notYet.length ? `Showing ${data.notYet.length} of ${formatNumber(data.notYetCount)}.` : ''}</span>
               {data.notYet.map((g) => (
                 <div key={g.slug} className="kv">
-                  <Link to={`/g/${encodeURIComponent(g.slug)}`}>{g.name}</Link>
+                  <GuildName guild={g} />
                   <span className="t2 nowrap">{formatNumber(g.members)} of {formatNumber(data.minMembers)}</span>
                 </div>
               ))}
@@ -199,7 +200,7 @@ function GuildTable({ rows, mode }) {
           {rows.map((r) => (
             <tr key={r.slug}>
               <td className={`rk${r.rank <= 3 ? ` r${r.rank}` : ''}`}>{formatNumber(r.rank)}</td>
-              <td><span className="stack"><Link to={`/g/${encodeURIComponent(r.slug)}`}>{r.name}</Link>{r.faction && <span className="muted xsmall">{r.faction}</span>}</span></td>
+              <td><span className="stack"><GuildName guild={r} />{r.faction && <span className="muted xsmall">{r.faction}</span>}</span></td>
               <td className="r t2">{formatNumber(r.members)}</td>
               <td className={`r${mode === 'total' ? ' strong' : ' t2'}`}>{formatNumber(r.total)}</td>
               <td className={`r${mode === 'average' ? ' strong' : ' t2'}`}>{formatNumber(round1(r.average))}</td>
@@ -212,7 +213,7 @@ function GuildTable({ rows, mode }) {
           <li key={r.slug}>
             <Link to={`/g/${encodeURIComponent(r.slug)}`}>
               <span className={`rk${r.rank <= 3 ? ` r${r.rank}` : ''}`}>{formatNumber(r.rank)}</span>
-              <span className="strong ellipsis">{r.name}</span>
+              <span className="strong ellipsis"><GuildName guild={r} link={false} still /></span>
               <span className="strong">{formatNumber(round1(mode === 'total' ? r.total : r.average))}</span>
               <span className="muted xsmall ellipsis">{formatNumber(r.members)} members · {mode === 'total' ? `avg ${formatNumber(round1(r.average))}` : `total ${formatNumber(r.total)}`}</span>
             </Link>

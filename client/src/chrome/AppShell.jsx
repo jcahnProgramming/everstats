@@ -12,6 +12,7 @@ import { Icon } from './Icon.jsx';
 import { createScrollMemory, focusMainHeading, restoreScroll, scrollDecision } from './scrollMemory.js';
 import { TierBadge } from '../components/Tier.jsx';
 import { BadgeToastWatcher, InlineBadge } from '../badges/Badges.jsx';
+import { feedbackHref } from '../feedback/FeedbackPages.jsx';
 
 /**
  * The frame of every page (design v1, navigation option A "Ledger Bar", design/v1/components/nav.md):
@@ -20,7 +21,10 @@ import { BadgeToastWatcher, InlineBadge } from '../badges/Badges.jsx';
  *               phone (≤ 719px): two icon buttons, search and menu, each opening a sheet under the bar
  *   beta        while the beta window is open: a "Beta" badge beside the wordmark and a slim banner under the bar,
  *               both linking to /beta (BetaBanner.jsx). Gone the moment the owner closes the beta.
- *   footer      disclaimer · Privacy · the version chip, which is the ONLY link to /changelog
+ *   footer      disclaimer · Privacy · Feedback (0.7.1: the form, about the page you're on) · the version chip, which is
+ *               the ONLY link to /changelog
+ *   0.7.1       an unread dot on the account button when Everstats replied to your feedback; the phone menu lists
+ *               Feedback and, signed in, Your feedback. (There is no account dropdown: the button opens Settings.)
  *
  * No admin link anywhere, ever (CLAUDE.md "Admin"): the design's "Admin for the owner" nav item is left out on
  * purpose. The admin is not an account, so there is no "owner" signed in on the public site to show it to.
@@ -28,8 +32,10 @@ import { BadgeToastWatcher, InlineBadge } from '../badges/Badges.jsx';
 export function AppShell() {
   const { pathname } = useLocation();
   return (
-    <ToastProvider>
-      <div className="es mapbg">
+    // 0.7.1: the toast stack lives INSIDE .es, so it gets the site's font, sizes, link colours and button font like
+    // everything else (0.7.0 only gave the stack a font-family; its buttons, links and numbers still used defaults).
+    <div className="es mapbg">
+      <ToastProvider>
         <a className="skip-link" href="#main">Skip to content</a>
         <ScrollManager />
         <TopBar />
@@ -41,7 +47,7 @@ export function AppShell() {
         </main>
         <footer className="foot">
           <div className="wrap in">
-            <span>Everstats · Character data comes from Blizzard Entertainment’s game data API · Not affiliated with or endorsed by Blizzard Entertainment · <Link to="/privacy">Privacy</Link></span>
+            <span>Everstats · Character data comes from Blizzard Entertainment’s game data API · Not affiliated with or endorsed by Blizzard Entertainment · <Link to="/privacy">Privacy</Link> · <Link to={feedbackHref(pathname)}>Feedback</Link></span>
             <Link to="/changelog" className="ver" aria-label={`Everstats version ${APP_VERSION}: what's new`}>
               <span>v{APP_VERSION}</span>
               <span className="ver-sep" aria-hidden="true">·</span>
@@ -49,8 +55,8 @@ export function AppShell() {
             </Link>
           </div>
         </footer>
-      </div>
-    </ToastProvider>
+      </ToastProvider>
+    </div>
   );
 }
 
@@ -138,12 +144,29 @@ function TopBar() {
               <nav className="stack gap-4" aria-label="Primary">
                 <NavLinks block />
                 <AccountButton block />
+                <FeedbackLinks />
               </nav>
             )}
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+/** Phone menu: Feedback, and (signed in) Your feedback with its unread dot. */
+function FeedbackLinks() {
+  const session = useSession();
+  const { pathname } = useLocation();
+  return (
+    <>
+      <NavLink to={feedbackHref(pathname)} className="btn ghost block left">Feedback</NavLink>
+      {session.signedIn && (
+        <NavLink to="/settings/feedback" className="btn ghost block left">
+          Your feedback{session.feedbackUnread > 0 && <span className="dot-unread" aria-label={`${session.feedbackUnread} new repl${session.feedbackUnread === 1 ? 'y' : 'ies'}`} />}
+        </NavLink>
+      )}
+    </>
   );
 }
 
@@ -179,9 +202,12 @@ function AccountButton({ className = '', block = false }) {
     const u = session.user;
     // 0.7.0: the player's one inline badge sits BESIDE the link (a button can't live inside a link); its name shows on
     // hover, focus and tap, and the link's own label names it too.
+    const unread = session.feedbackUnread > 0;
+    const replies = unread ? `, ${session.feedbackUnread} new feedback repl${session.feedbackUnread === 1 ? 'y' : 'ies'}` : '';
     const link = (
-      <NavLink to="/settings" className={`btn ${size} ghost ${className} who-btn`} aria-label={u?.claimed ? `${u.displayName}, @${u.username}${u.badge ? `, ${u.badge.name} badge` : ''}: settings` : 'Choose a username: settings'}>
+      <NavLink to={unread ? '/settings/feedback' : '/settings'} className={`btn ${size} ghost ${className} who-btn`} aria-label={u?.claimed ? `${u.displayName}, @${u.username}${u.badge ? `, ${u.badge.name} badge` : ''}${replies}: ${unread ? 'your feedback' : 'settings'}` : `Choose a username${replies}: settings`}>
         <Icon name="user" size="sm" />
+        {unread && <span className="dot-unread on-icon" aria-hidden="true" />}
         {u?.claimed ? (
           <span className="who-names"><span className="who-display ellipsis">{u.displayName}</span><span className="who-handle ellipsis">@{u.username}</span></span>
         ) : <span className="who-claim-label">Choose a username</span>}
@@ -261,7 +287,8 @@ function TopSearch({ full = false, autoFocus = false, shortcut = false }) {
     setValue('');
     setOpen(false);
     input.current?.blur();
-    navigate(to);
+    // 0.7.1: marks the visit as a search (the admin's Activity counts searches; a count, nothing else is kept).
+    navigate(to, { state: { via: 'search' } });
   };
   const submit = (e) => {
     e.preventDefault();
@@ -332,18 +359,18 @@ function TopSearch({ full = false, autoFocus = false, shortcut = false }) {
         <div id={listId} className="search-suggest" onKeyDown={onListKey}>
           {found.characters.length > 0 && <span className="eyebrow search-suggest-h">Characters</span>}
           {found.characters.map((c) => (
-            <Link key={`c-${c.slug}`} to={`/c/${encodeURIComponent(c.slug)}`} onClick={() => done(`/c/${encodeURIComponent(c.slug)}`)}>
+            <Link key={`c-${c.slug}`} to={`/c/${encodeURIComponent(c.slug)}`} state={{ via: 'search' }} onClick={() => done(`/c/${encodeURIComponent(c.slug)}`)}>
               <span className="tag search-kind">Character</span>
               <TierBadge letter={c.tier ?? null} size="sm" />
-              <span className="ellipsis grow">{c.name} <span className="surname">{c.surname}</span></span>
+              <span className="ellipsis flex-fill">{c.name} <span className="surname">{c.surname}</span></span>
               <span className="muted xsmall nowrap">{[c.level ? `Level ${c.level}` : null, c.ruleset].filter(Boolean).join(' · ')}</span>
             </Link>
           ))}
           {found.guilds.length > 0 && <span className="eyebrow search-suggest-h">Guilds</span>}
           {found.guilds.map((g) => (
-            <Link key={`g-${g.slug}`} to={`/g/${encodeURIComponent(g.slug)}`} onClick={() => done(`/g/${encodeURIComponent(g.slug)}`)}>
+            <Link key={`g-${g.slug}`} to={`/g/${encodeURIComponent(g.slug)}`} state={{ via: 'search' }} onClick={() => done(`/g/${encodeURIComponent(g.slug)}`)}>
               <span className="tag gold search-kind">Guild</span>
-              <span className="ellipsis grow">{g.name}</span>
+              <span className="ellipsis flex-fill">{g.name}</span>
               <span className="muted xsmall nowrap">{[g.ruleset, g.faction].filter(Boolean).join(' · ')}</span>
             </Link>
           ))}

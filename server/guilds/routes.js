@@ -17,7 +17,10 @@ import { periodsInfo, rulesetList } from '../characters/routes.js';
 import { lettersFor } from '../tiers/store.js';
 import { guildTierDistribution } from '../tiers/view.js';
 import { inlineBadges } from '../badges/store.js';
-import { guildLinksView } from './manage.js';
+import { guildLinksView, guildRole } from './manage.js';
+import { guildInlineBadges } from '../guildBadges/store.js';
+import { guildBadgesView } from '../guildBadges/view.js';
+import { countActivity, looksAutomated } from '../activity/count.js';
 
 /**
  * Guild pages, guild boards, the guild index and search (0.5.0). Everything here reads what the crawler already
@@ -45,7 +48,11 @@ export const rankName = (rank) => (rank === null || rank === undefined ? null : 
 async function guildsById(db, ids) {
   if (!ids.length) return new Map();
   const rows = await db.query('SELECT id, slug, name, faction FROM guilds WHERE id = ANY($1::bigint[]) LIMIT 500', [ids]);
-  return new Map(rows.map((r) => [r.id, { slug: r.slug, name: r.name, faction: r.faction }]));
+  // 0.7.1: each guild's pinned guild badge and its Verified mark, beside its name on boards and lists.
+  const inline = await guildInlineBadges(db, rows.map((r) => r.id));
+  return new Map(rows.map((r) => [r.id, {
+    slug: r.slug, name: r.name, faction: r.faction, badge: inline.get(Number(r.id))?.badge ?? null, verified: inline.get(Number(r.id))?.verified ?? false,
+  }]));
 }
 
 /** A guild by its current slug (the most recently seen holder of it). */
@@ -69,6 +76,8 @@ export function createGuildRouter({ db, limits, networkOf }) {
   r.get('/search', route(async (req, res) => {
     const q = String(req.query.q ?? '').normalize('NFC').trim().toLowerCase().slice(0, 60);
     if (q.length < 2) return res.json({ q, guilds: [], characters: [] });
+    // 0.7.1 Activity: only the search PAGE counts (count=1), never the suggestions fetched while typing.
+    if (req.query.count === '1' && !looksAutomated(limits, networkOf(req))) countActivity(db, 'search.page');
     const like = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
     const prefix = `${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
     const guilds = await db.query(
@@ -109,9 +118,13 @@ export function createGuildRouter({ db, limits, networkOf }) {
       [ruleset.id, OVERALL_START],
     );
     const known = (await db.one('SELECT count(*)::int AS n FROM guilds WHERE ruleset_id = $1', [ruleset.id])).n;
+    const inline = await guildInlineBadges(db, rows.map((g) => g.id));
     res.json({
       rulesets, ruleset, minMembers, known,
-      guilds: rows.map((g) => ({ slug: g.slug, name: g.name, faction: g.faction, tracked: g.members, rosterMembers: g.roster_members, ranked: g.members >= minMembers })),
+      guilds: rows.map((g) => ({
+        slug: g.slug, name: g.name, faction: g.faction, tracked: g.members, rosterMembers: g.roster_members, ranked: g.members >= minMembers,
+        badge: inline.get(Number(g.id))?.badge ?? null, verified: inline.get(Number(g.id))?.verified ?? false,
+      })),
       computedAt: rows.reduce((m, g) => (!m || g.computed_at < m ? g.computed_at : m), null),
     });
   }));
@@ -126,11 +139,19 @@ export function createGuildRouter({ db, limits, networkOf }) {
       if (moved) return res.json({ status: 'moved', slug: moved });
     }
     let notice = null;
+    // 0.7.1 Activity: a view, and whether it came from a guild search; not counted from a network the look-up limiter
+    // is already refusing (treated as automated).
+    const net = networkOf(req);
+    if (!looksAutomated(limits, net)) {
+      countActivity(db, 'guild.view');
+      if (req.query.via === 'search') countActivity(db, 'guild.search');
+    }
     // Never fetched from Blizzard (unknown, or only seen on a member's profile): ask now, a person is waiting.
     if (!g?.profile_fetched_at && g?.profile_state !== 'not_found') {
       if (!(await blizzardReady())) notice = 'not_configured';
-      else if (!limits.lookups.take(networkOf(req))) notice = 'rate_limited';
+      else if (!limits.lookups.take(net)) notice = 'rate_limited';
       else {
+        countActivity(db, 'guild.lookup');
         const item = await enqueue(db, { kind: 'guild', key: slug, priority: PRIORITY.lookup });
         const done = await waitFor(db, item.id, { timeoutMs: GUILD_WAIT_MS });
         notice = !done ? 'slow' : done.state === 'failed' ? 'unavailable' : null;
@@ -153,7 +174,9 @@ export function createGuildRouter({ db, limits, networkOf }) {
     if (g.profile_state === 'not_found' && !g.profile_fetched_at) {
       return res.json({ status: 'not_found', slug, known: { name: g.name } });
     }
-    res.json({ status: 'ok', notice, ...(await guildView(db, g)) });
+    // 0.7.1: the viewer's role here (Guild Master, officer or none), so the page offers Manage badges only to them.
+    const viewer = req.session?.stage === 'full' ? req.session.accountId : null;
+    res.json({ status: 'ok', notice, viewerRole: viewer ? await guildRole(db, g.id, viewer) : null, ...(await guildView(db, g)) });
   }));
 
   // ---- The guild's top members per statistic, in a period (top TOP_PER_STAT each).
@@ -434,5 +457,8 @@ export async function guildView(db, g) {
     // 0.7.0: the guild's own Links area (description, Discord invite, links), written by its Guild Master or officers.
     // null when nothing is set, so the page shows no empty box.
     links: await guildLinksView(db, g.id),
+    // 0.7.1: guild badges (the row, the Verified mark, Next unlocks with live progress); `automatic` when nobody on
+    // Everstats manages this guild (its badges are shown by the defaults, and the page says how to claim it).
+    badges: await guildBadgesView(db, g),
   };
 }

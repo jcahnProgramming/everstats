@@ -35,6 +35,13 @@ export async function crawlerStatus(db) {
     queue: await queueDepth(db),
     // Requests in each of the last 24 UTC hours, measured (crawler_hours), plus the crawler's own rolling hour.
     hours: hours.map((h) => ({ hour: h.hour, requests: h.requests, errors: h.errors, throttled: h.throttled })),
+    // 0.7.1: the CURRENT UTC hour from crawler_hours (every Blizzard request: the worker's and the web's sign-in reads).
+    // The page used to take the newest row, which is an earlier hour when this one has none yet. Zero is a real zero.
+    thisHour: (() => {
+      const start = new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000);
+      const h = hours.find((x) => new Date(x.hour).getTime() === start.getTime());
+      return { hour: start, requests: h?.requests ?? 0, errors: h?.errors ?? 0, throttled: h?.throttled ?? 0 };
+    })(),
     today: { checked: today.checked, fetched: today.fetched, tracked: today.tracked, known: today.known },
   };
 }

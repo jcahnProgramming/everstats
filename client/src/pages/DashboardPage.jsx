@@ -73,7 +73,7 @@ export function DashboardPage() {
   return (
     <div className="wrap page-pad stack gap-28">
       <div className="row gap-12">
-        <h1 className="h1 grow">{session.user?.claimed ? `Welcome back, ${session.user.displayName}` : 'Your characters'}</h1>
+        <h1 className="h1 flex-fill">{session.user?.claimed ? `Welcome back, ${session.user.displayName}` : 'Your characters'}</h1>
         {linkedReader && (
           <button type="button" className="btn sm" onClick={() => startProvider(linkedReader.id, 'characters', '/').catch((err) => toast.err("Couldn't start", err.message))}>
             <Icon name="refresh" size="sm" />Refresh my characters
@@ -99,7 +99,7 @@ export function DashboardPage() {
       )}
       <section className="panel pad-20 row gap-14" aria-label="Find a character">
         <Icon name="search" />
-        <span className="t2 grow">Look anyone up with the search at the top of every page (press <span className="kbd">/</span>), or browse <Link to="/leaderboards">the leaderboards</Link>.</span>
+        <span className="t2 flex-fill">Look anyone up with the search at the top of every page (press <span className="kbd">/</span>), or browse <Link to="/leaderboards">the leaderboards</Link>.</span>
       </section>
     </div>
   );
@@ -109,7 +109,7 @@ function Notice({ kind, children, onDismiss }) {
   return (
     <div className={`note ${kind} small`} role="status">
       <Icon name={kind === 'ok' ? 'check' : 'error'} />
-      <span className="grow">{children}</span>
+      <span className="flex-fill">{children}</span>
       <button type="button" className="btn ghost sm" onClick={onDismiss}>Dismiss</button>
     </div>
   );
@@ -155,7 +155,7 @@ function Featured({ data, onPick }) {
   return (
     <section className="sheet sheet-pad stack gap-20" aria-labelledby="featured-h">
       <div className="row gap-16">
-        <div className="stack gap-6 grow">
+        <div className="stack gap-6 flex-fill">
           <span className="eyebrow">{data.featuredChosen ? 'Featured character' : 'Featured: your highest level'}</span>
           <h2 className="h-display char-name" id="featured-h"><Link to={`/c/${encodeURIComponent(f.slug)}`}>{f.name} <span className="surname">{f.surname}</span></Link></h2>
           <span className="t2">{[f.level ? `Level ${f.level}` : null, f.race, f.class, f.ruleset?.name].filter(Boolean).join(' · ')}</span>

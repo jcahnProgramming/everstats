@@ -139,7 +139,7 @@ export function Modal({ title, children, onClose, actions, busy = false }) {
     <div className="scrim" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <div ref={box} className="modal sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="hd">
-          <h3 className="h3 grow" id={titleId}>{title}</h3>
+          <h3 className="h3 flex-fill" id={titleId}>{title}</h3>
           <button type="button" className="btn ghost sm icon" aria-label="Close" onClick={onClose} disabled={busy}>
             <Icon name="close" size="sm" />
           </button>

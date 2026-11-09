@@ -1,0 +1,102 @@
+/* Guild badge components (0.7.1). Source: design/v2-guild-badges/components/guild-badges.css (Claude Design v2
+   guild badges), copied VERBATIM below this comment so the next handoff diffs cleanly: do not edit it here, override
+   in app.css. Loaded after badges.css, before app.css. */
+
+/* Everstats — guild badge components. Additive to v1 + v2-badges.
+   Load order: v1 fonts → v1 themes.css → v1 components.css → v2-badges badges.css (tokens + components)
+               → v2-guild-badges/tokens/guild-badges.css → this file. Only var(--es-*) values. */
+
+/* ---------------------------------------------------------------- guild badge (icon) */
+.gbdg { position: relative; display: inline-grid; place-items: center; flex: none; padding: 0; margin: 0; border: 0; background: none; cursor: pointer; border-radius: var(--es-radius-md); vertical-align: middle; color: inherit; }
+.gbdg svg { width: 100%; height: 100%; display: block; overflow: visible; transition: transform var(--es-motion-fast) var(--es-motion-ease), filter var(--es-motion-fast); }
+.gbdg.inline { width: var(--es-size-badge-inline); height: var(--es-size-badge-inline); border-radius: var(--es-radius-xs); }
+.gbdg.pill-ico { width: var(--es-size-gbadge-pill-icon); height: var(--es-size-gbadge-pill-icon); }
+.gbdg.std { width: var(--es-size-badge); height: var(--es-size-badge); }
+.gbdg.lg { width: var(--es-size-badge-lg); height: var(--es-size-badge-lg); }
+.gbdg.xl { width: var(--es-size-badge-xl); height: var(--es-size-badge-xl); }
+span.gbdg { cursor: default; }
+button.gbdg:hover svg, .gbdg.is-hover svg { transform: translateY(calc(var(--es-border-1) * -1)); filter: brightness(1.08); }
+.gbdg.is-new svg { filter: drop-shadow(0 0 var(--es-space-6) color-mix(in oklab, var(--es-badge-new) 70%, transparent)); }
+.gbdg.is-locked svg, .gbdg.is-retired svg, .gbdg.is-lost svg, .gbdg.is-progress svg {
+  --gc: var(--es-gbadge-locked-cloth) !important; --gi: var(--es-gbadge-locked-ink) !important; }
+.gbdg.is-locked svg, .gbdg.is-retired svg, .gbdg.is-lost svg { --gm: var(--es-gbadge-locked-metal) !important; }
+.gbdg.is-retired svg, .gbdg.is-lost svg { opacity: 0.7; }
+/* in progress keeps the NEXT level's metal so the target level is visible; the cloth stays dark until unlocked */
+.gbdg .mark { position: absolute; right: calc(var(--es-space-4) * -1); top: calc(var(--es-space-2) * -1); width: 38%; height: 38%; min-width: var(--es-space-14); min-height: var(--es-space-14); border-radius: var(--es-radius-round); display: grid; place-items: center; border: var(--es-border-1) solid var(--es-bg); }
+.gbdg .mark svg { width: 62%; height: 62%; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.gbdg .mark.held { background: var(--es-gbadge-held); color: var(--es-gbadge-held-ink); }
+.gbdg .mark.lost, .gbdg .mark.lock, .gbdg .mark.closed { background: var(--es-raised); color: var(--es-muted); border-color: var(--es-line-strong); top: auto; bottom: calc(var(--es-space-2) * -1); }
+.gbdg.inline .mark, .gbdg.pill-ico .mark { display: none; }
+
+/* ---------------------------------------------------------------- pill: icon + name + level */
+.gpill { position: relative; display: inline-flex; align-items: center; gap: var(--es-space-8); height: var(--es-size-gbadge-pill); padding: 0 var(--es-space-14) 0 var(--es-space-4); border-radius: var(--es-radius-pill); background: var(--es-sunken); border: var(--es-border-1) solid var(--es-line-strong); color: var(--es-text); font: var(--es-weight-semibold) var(--es-fs-13)/var(--es-lh-none) var(--es-font-body); white-space: nowrap; cursor: pointer; text-decoration: none; }
+.gpill:hover, .gpill.is-hover { border-color: var(--es-accent); }
+.gpill .lvl { font-family: var(--es-font-display); font-weight: var(--es-weight-black); color: var(--es-accent-2); letter-spacing: var(--es-tracking-display); }
+.gpill .pin { color: var(--es-accent); display: inline-flex; }
+.gpill .pin svg, .gpill .held svg { width: var(--es-space-12); height: var(--es-space-12); fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.gpill .held { display: inline-flex; align-items: center; gap: var(--es-space-3); color: var(--es-gbadge-held); font-size: var(--es-fs-11); letter-spacing: var(--es-tracking-tag); text-transform: uppercase; }
+.gpill.pinned { border-color: color-mix(in oklab, var(--es-accent) 60%, var(--es-line)); }
+.gpill.is-new { box-shadow: 0 0 0 var(--es-border-2) color-mix(in oklab, var(--es-badge-new) 55%, transparent), 0 0 var(--es-space-14) color-mix(in oklab, var(--es-badge-new) 35%, transparent); }
+.gpill.is-lost, .gpill.is-locked, .gpill.is-retired { background: transparent; border-style: dashed; color: var(--es-text-2); }
+.gpill.sm { height: var(--es-size-gbadge-pill-sm); gap: var(--es-space-6); padding: 0 var(--es-space-10) 0 var(--es-space-3); font-size: var(--es-fs-12); }
+.gpill.sm .gbdg { width: var(--es-size-gbadge-pill-icon-sm); height: var(--es-size-gbadge-pill-icon-sm); }
+.grow { display: flex; flex-wrap: wrap; gap: var(--es-space-10); align-items: center; }
+.gmore { display: inline-flex; align-items: center; height: var(--es-size-gbadge-pill); padding: 0 var(--es-space-14); border-radius: var(--es-radius-pill); border: var(--es-border-1) dashed var(--es-line-strong); background: transparent; color: var(--es-text-2); font: var(--es-weight-semibold) var(--es-fs-13) var(--es-font-body); cursor: pointer; }
+.gmore:hover { border-color: var(--es-accent); color: var(--es-text); }
+
+/* unlocked ribbon — 7 days after an unlock */
+.ribbon { position: absolute; top: calc(var(--es-space-10) * -1); right: calc(var(--es-space-6) * -1); padding: var(--es-space-2) var(--es-space-6); border-radius: var(--es-radius-xs); background: var(--es-gbadge-ribbon); color: var(--es-gbadge-ribbon-ink); font: var(--es-weight-bold) var(--es-fs-10)/var(--es-lh-snug) var(--es-font-body); letter-spacing: var(--es-tracking-tag); text-transform: uppercase; box-shadow: var(--es-shadow-raise); }
+
+/* verified guild — a status mark beside the guild name, not a featured slot */
+.gverified { display: inline-flex; align-items: center; gap: var(--es-space-4); vertical-align: middle; color: var(--es-success); font: var(--es-weight-semibold) var(--es-fs-11) var(--es-font-body); letter-spacing: var(--es-tracking-tag); text-transform: uppercase; }
+.gverified .gbdg.inline { width: var(--es-space-22); height: var(--es-space-22); }
+.gname { display: inline-flex; align-items: center; gap: var(--es-space-8); min-width: 0; }
+.gname a, .gname b { color: var(--es-text) !important; font-weight: var(--es-weight-semibold); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------------------------------------------------------------- progress strip ("Next unlocks") */
+.unlocks { display: grid; gap: var(--es-space-14); grid-template-columns: repeat(auto-fit, minmax(min(var(--es-size-gbadge-unlock-card), 100%), 1fr)); }
+.ucard { display: grid; grid-template-columns: var(--es-size-badge) minmax(0, 1fr); gap: var(--es-space-6) var(--es-space-14); align-items: center; padding: var(--es-space-14) var(--es-space-16); background: var(--es-surface); border: var(--es-border-1) solid var(--es-line); border-radius: var(--es-radius-lg); }
+.ucard .gbdg { grid-row: span 2; }
+.ucard .ttl { display: flex; align-items: baseline; gap: var(--es-space-6); flex-wrap: wrap; }
+.ucard .ttl b { font-weight: var(--es-weight-semibold); }
+.ucard .ttl .lvl { font-family: var(--es-font-display); font-weight: var(--es-weight-black); color: var(--es-accent-2); }
+.ucard .bar, .gprog { grid-column: 1 / -1; }
+.gprog { height: var(--es-size-bar-h); border-radius: var(--es-radius-pill); background: var(--es-sunken); border: var(--es-border-1) solid var(--es-line); overflow: hidden; }
+.gprog > span { display: block; height: 100%; background: var(--es-gbadge-progress); }
+.gprog.sm { height: var(--es-size-bar-h-sm); }
+.ucard .nums { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: var(--es-space-10); font-size: var(--es-fs-12); color: var(--es-muted); font-variant-numeric: tabular-nums; }
+.ucard .nums b { color: var(--es-text); font-weight: var(--es-weight-semibold); }
+.rally { display: flex; align-items: center; gap: var(--es-space-12); flex-wrap: wrap; }
+
+/* ---------------------------------------------------------------- level ladder (detail page) */
+.ladder { display: grid; gap: var(--es-space-14); grid-template-columns: repeat(auto-fit, minmax(min(var(--es-size-col-min-xs), 100%), 1fr)); }
+.rung { display: flex; flex-direction: column; align-items: center; gap: var(--es-space-8); padding: var(--es-space-16) var(--es-space-10); background: var(--es-surface); border: var(--es-border-1) solid var(--es-line); border-radius: var(--es-radius-lg); text-align: center; }
+.rung.current { border-color: var(--es-accent); box-shadow: 0 0 0 var(--es-border-1) var(--es-accent); }
+.rung .lv { font: var(--es-weight-bold) var(--es-fs-16) var(--es-font-display); letter-spacing: var(--es-tracking-heading); }
+
+/* ---------------------------------------------------------------- manage view rows */
+.mrows { display: flex; flex-direction: column; }
+.mrow { display: grid; grid-template-columns: var(--es-space-24) minmax(0, 1.4fr) minmax(0, 1.3fr) auto auto; gap: var(--es-space-14); align-items: center; padding: var(--es-space-10) var(--es-space-16); border-bottom: var(--es-border-1) solid var(--es-row-sep); }
+.mrow:last-child { border-bottom: 0; }
+.mrow .drag { color: var(--es-muted); cursor: grab; display: grid; place-items: center; }
+.mrow .drag svg { width: var(--es-space-16); height: var(--es-space-16); fill: currentColor; }
+.mrow .st { display: flex; flex-direction: column; gap: var(--es-space-4); min-width: 0; font-size: var(--es-fs-12); color: var(--es-muted); }
+.mrow.dragging { background: var(--es-raised); box-shadow: var(--es-shadow-toast); }
+.pinradio { display: inline-flex; align-items: center; gap: var(--es-space-6); min-height: var(--es-size-control); font-size: var(--es-fs-12-5); color: var(--es-text-2); cursor: pointer; }
+.pinradio input { width: var(--es-size-checkbox); height: var(--es-size-checkbox); accent-color: var(--es-accent); margin: 0; }
+
+/* ---------------------------------------------------------------- admin threshold preview */
+.hist { display: grid; grid-template-columns: var(--es-space-40) minmax(0, 1fr) var(--es-space-72); gap: var(--es-space-8) var(--es-space-12); align-items: center; font-size: var(--es-fs-12-5); }
+.hist .b { height: var(--es-space-12); border-radius: var(--es-radius-xs); background: var(--es-gbadge-progress); }
+
+/* ---------------------------------------------------------------- toast */
+.toast.gbadge-toast { align-items: center; }
+
+@media (max-width: 719px) {
+  .mrow { grid-template-columns: var(--es-space-24) minmax(0, 1fr) auto; }
+  .mrow .st { grid-column: 2; grid-row: 2; }
+  .mrow .drag { grid-row: span 2; }
+  .mrow .pinradio { grid-column: 3; grid-row: 1; }
+  .mrow .toggle { grid-column: 3; grid-row: 2; justify-self: end; }
+  .hist { grid-template-columns: var(--es-space-32) minmax(0, 1fr) var(--es-space-56); }
+}

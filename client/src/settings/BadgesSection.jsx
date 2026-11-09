@@ -125,7 +125,7 @@ export function BadgesSection() {
             <h3 className="h3">Earned</h3>
             <span className="muted small">{data.earned.length} badge{data.earned.length === 1 ? '' : 's'} · {shown.length} on your profile · {featured.length} of {data.max} featured</span>
           </div>
-          {note && <div className="note warn small" role="alert"><Icon name="warning" /><span className="grow">{note}</span></div>}
+          {note && <div className="note warn small" role="alert"><Icon name="warning" /><span className="flex-fill">{note}</span></div>}
           <div className="bcards">
             {data.earned.map((b) => (
               <div key={b.id} className={`bcard${b.featured ? ' is-featured' : ''}`}>
@@ -172,6 +172,26 @@ export function BadgesSection() {
           </div>
         )}
       </div>
+
+      {data.ineligible?.length > 0 && (
+        <div className="stack gap-12">
+          <div className="row gap-10 wrap-row">
+            <h3 className="h3">Not for this account</h3>
+            <span className="muted small">Others can still get these; this account can’t.</span>
+          </div>
+          <div className="bcards">
+            {data.ineligible.map((b) => (
+              <div key={b.id} className="bcard locked">
+                <div className="bcard-main">
+                  <BadgePill badge={b} locked heldBy={b.heldBy} />
+                  <span className="fam">{b.familyLabel}</span>
+                  <span className="sub">{b.note}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {data.unavailable.length > 0 && (
         <div className="stack gap-12">

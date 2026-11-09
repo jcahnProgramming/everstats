@@ -23,7 +23,7 @@ export function PlayersSection() {
     <section className="panel pad-20 stack gap-16" aria-labelledby="players-h">
       <h2 className="h2 h2-panel" id="players-h">Players</h2>
       <form className="row gap-8 align-end" onSubmit={search}>
-        <Field label="Username, former username or account id" className="grow" value={q} onChange={(e) => setQ(e.target.value)} />
+        <Field label="Username, former username or account id" className="flex-fill" value={q} onChange={(e) => setQ(e.target.value)} />
         <Button type="submit" className="gold">Find</Button>
       </form>
       {list && (list.length === 0 ? <span className="muted small">Nobody matches.</span> : (
@@ -31,7 +31,7 @@ export function PlayersSection() {
           {list.map((p) => (
             <button key={p.id} type="button" className="listrow linkrow" onClick={() => open(p.id)}>
               <span className="mono">{p.claimed ? `@${p.username}` : `${p.username} (placeholder)`}</span>
-              <span className="muted xsmall grow">#{p.id}{p.displayName ? ` · ${p.displayName}` : ''}</span>
+              <span className="muted xsmall flex-fill">#{p.id}{p.displayName ? ` · ${p.displayName}` : ''}</span>
             </button>
           ))}
         </div>
@@ -67,7 +67,7 @@ function PlayerDetail({ player: p, onChange }) {
         <Button type="submit" className="sm" loading={busy}>Set</Button>
       </form>
       <form className="row gap-8 align-end" onSubmit={(e) => { e.preventDefault(); act(() => api(`/api/admin/players/${p.id}/grant`, { method: 'POST', body: { username: grant, note } }), `Granted @${grant}`); }}>
-        <Field label="Grant a name (past the reserved list)" className="grow" inputClassName="mono" value={grant} onChange={(e) => setGrant(e.target.value.toLowerCase())} />
+        <Field label="Grant a name (past the reserved list)" className="flex-fill" inputClassName="mono" value={grant} onChange={(e) => setGrant(e.target.value.toLowerCase())} />
         <Button type="submit" className="sm" loading={busy} disabled={!grant}>Grant</Button>
       </form>
       <Field label="Note for the log (optional)" value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} />
@@ -138,7 +138,7 @@ export function ReservedSection() {
       <h2 className="h2 h2-panel" id="reserved-h">Reserved names</h2>
       <p className="t2 small">Compared after lookalike normalization (0→o, 1→i/l, 3→e…, separators ignored). On top of this list, any username containing admin, staff, official, moderator, support or blizzard is refused, and the profanity list (server/accounts/profanity.json). Players only ever see “That name is reserved”.</p>
       <form className="row gap-8 align-end" onSubmit={add}>
-        <Field label="Reserve a name" className="grow" inputClassName="mono" value={name} onChange={(e) => setName(e.target.value.toLowerCase())} />
+        <Field label="Reserve a name" className="flex-fill" inputClassName="mono" value={name} onChange={(e) => setName(e.target.value.toLowerCase())} />
         <Button type="submit" className="sm" disabled={!name}><Icon name="plus" size="sm" />Add</Button>
       </form>
       {Object.entries(groups).map(([kind, names]) => (
@@ -148,7 +148,7 @@ export function ReservedSection() {
         </details>
       ))}
       <form className="row gap-8 align-end" onSubmit={release}>
-        <Field label="Release a held name (reclaimed, or inside its 30 days)" className="grow" inputClassName="mono" value={hold} onChange={(e) => setHold(e.target.value.toLowerCase())} />
+        <Field label="Release a held name (reclaimed, or inside its 30 days)" className="flex-fill" inputClassName="mono" value={hold} onChange={(e) => setHold(e.target.value.toLowerCase())} />
         <Button type="submit" className="sm" disabled={!hold}>Release</Button>
       </form>
     </section>

@@ -31,6 +31,18 @@ export const MERGE_STEPS = [
     run: (q, from, to) => q.query('UPDATE characters SET owner_account_id = $2 WHERE owner_account_id = $1', [from, to]),
   },
   {
+    // 0.7.1
+    id: 'feedback',
+    describe: 'Your feedback messages and Everstats’ replies move to the account you keep.',
+    run: (q, from, to) => q.query('UPDATE feedback_threads SET account_id = $2 WHERE account_id = $1', [from, to]),
+  },
+  {
+    // 0.7.1: who hid a render (the choice stays with the character either way).
+    id: 'render_hidden',
+    describe: 'Renders you hid stay hidden.',
+    run: (q, from, to) => q.query('UPDATE character_render_hidden SET account_id = $2 WHERE account_id = $1', [from, to]),
+  },
+  {
     id: 'character_checks',
     describe: 'The record of each time Battle.net listed your characters moves too.',
     run: (q, from, to) => q.query('UPDATE account_character_checks SET account_id = $2 WHERE account_id = $1', [from, to]),

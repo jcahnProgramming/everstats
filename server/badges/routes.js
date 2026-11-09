@@ -42,7 +42,7 @@ export function createBadgeRouter({ db, limits, networkOf }) {
     const stateOf = (d) => {
       if (mine.has(d.id)) return { state: 'earned' };
       const a = availabilityFor(d, ctx, account);
-      return { state: a.status === 'unavailable' ? 'unavailable' : 'locked', note: a.note };
+      return { state: a.status === 'unavailable' ? 'unavailable' : a.status === 'ineligible' ? 'ineligible' : 'locked', note: a.note };
     };
     const held = mine.get(def.id);
     let character = null;
@@ -132,12 +132,14 @@ export async function settingsView(db, accountId) {
   });
   const earnable = [];
   const unavailable = [];
+  const ineligible = [];
   for (const d of defs) {
     if (heldIds.has(d.id)) continue;
     const a = availabilityFor(d, ctx, account);
     const view = { ...publicBadge(d, ctx), heldBy: counts.get(d.id) ?? 0, note: a.note };
     if (a.status === 'earnable') earnable.push(view);
     else if (a.status === 'unavailable') unavailable.push(view);
+    else if (a.status === 'ineligible') ineligible.push(view);
   }
   return {
     max: FEATURED_MAX,
@@ -146,5 +148,8 @@ export async function settingsView(db, accountId) {
     earned,
     earnable,
     unavailable,
+    // 0.7.1: badges this account was never eligible for while they can still be earned (Beta Tester for an account
+    // made before the beta opened). Not "no longer available": that is only for after a window closes.
+    ineligible,
   };
 }

@@ -19,7 +19,7 @@ export function CharacterLoading({ name, surname }) {
   return (
     <section className="sheet stack gap-24 sheet-pad" aria-busy="true">
       <div className="row gap-24 sheet-top">
-        <div className="stack gap-12 grow">
+        <div className="stack gap-12 flex-fill">
           <h1 className="h-display char-name">{name} <span className="surname">{surname}</span></h1>
           <span className="t2 small" role="status">Looking this character up…</span>
           <span className="skel skel-line w-60" />
@@ -70,7 +70,7 @@ export function ServiceUnavailable({ title, children, inline = false, onRetry = 
     return (
       <div className="note err" role="alert">
         <Icon name="error" />
-        <div className="stack gap-4 grow"><b>{title}</b>{children && <span className="small">{children}</span>}</div>
+        <div className="stack gap-4 flex-fill"><b>{title}</b>{children && <span className="small">{children}</span>}</div>
         {onRetry && <button type="button" className="btn sm" onClick={onRetry}><Icon name="refresh" size="sm" />Retry now</button>}
       </div>
     );

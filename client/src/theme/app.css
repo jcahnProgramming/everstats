@@ -47,7 +47,8 @@ body { background-color: var(--es-bg); color: var(--es-text); }
 
 /* ---------------------------------------------------------------- small utilities the mockups wrote inline */
 /* The mockups use style="" attributes; the CSP here forbids those (style-src 'self'), so they become classes. */
-.grow { flex: 1 1 0; min-width: 0; }
+/* 0.7.1: was .grow; renamed because the guild badge design uses .grow for its badge row. */
+.flex-fill { flex: 1 1 0; min-width: 0; }
 .justify-center { justify-content: center; }
 .between { justify-content: space-between; }
 .align-start { align-items: flex-start; }
@@ -258,3 +259,98 @@ body { background-color: var(--es-bg); color: var(--es-text); }
 /* 0.7.0 fix: a visually hidden (absolutely positioned) header inside a scrolling table escaped the scroll box and widened
    the page at 390px. The box now contains it. */
 .tblbox { position: relative; }
+
+/* ======================================================================================== 0.7.1
+   Guild badges (design/v2-guild-badges; the verbatim component CSS is theme/guild-badges.css), feedback, render
+   controls and the admin Activity panel. Tokens only. */
+.note.gold { border-color: color-mix(in oklab, var(--es-accent) 55%, var(--es-line)); }
+.note.gold .ico { stroke: var(--es-accent); }
+.signup-call { align-items: center; flex-wrap: wrap; }
+.guild-name .gverified { margin-left: var(--es-space-12); }
+.gbadge-row { row-gap: var(--es-space-14); }
+.gpill-anchor { position: relative; display: inline-flex; }
+.gpill .ico { width: var(--es-space-12); height: var(--es-space-12); }
+.gbdg-pop .hd .gbdg { cursor: default; }
+.gbdg-pop .held-line { color: var(--es-gbadge-held); align-items: center; white-space: nowrap; }
+.gbdg-pop .meta { flex-wrap: wrap; justify-content: flex-start; column-gap: var(--es-space-14); row-gap: var(--es-space-4); }
+.gbdg-pop .meta .ico { width: var(--es-space-14); height: var(--es-space-14); }
+.gbdg-pop .nums, .ucard-like .nums { display: flex; justify-content: space-between; gap: var(--es-space-10); font-size: var(--es-fs-12); color: var(--es-muted); font-variant-numeric: tabular-nums; }
+.gbdg-pop .nums b, .ucard-like .nums b { color: var(--es-text); font-weight: var(--es-weight-semibold); }
+.gbdg .mark .ico { width: 62%; height: 62%; }
+a.gbdg { text-decoration: none; }
+.gverified.compact { gap: 0; }
+.gverified.compact:focus-visible { outline: var(--es-border-2) solid var(--es-focus); outline-offset: var(--es-space-2); border-radius: var(--es-radius-xs); }
+.gname .ibdg, .gname .gverified { flex: none; }
+.ranklist .gname { min-width: 0; }
+
+/* Manage guild → Badges */
+.manage-badges .side { position: sticky; top: calc(var(--es-sticky-top, 0px) + var(--es-space-16)); }
+.manage-badges .is-current { border-color: var(--es-accent); color: var(--es-text); background: var(--es-raised); }
+.mrow .drag.btn { min-height: 0; padding: var(--es-space-4); cursor: grab; touch-action: none; }
+.mrow.drop-target { box-shadow: inset 0 var(--es-border-2) 0 var(--es-focus); }
+.mrow.notyet { grid-template-columns: var(--es-space-24) minmax(0, 1.4fr) minmax(0, 2fr); }
+.pinradio.is-disabled { opacity: 0.5; cursor: default; }
+
+/* Guild badge pages */
+.gb-index { display: grid; gap: var(--es-space-12); grid-template-columns: repeat(auto-fill, minmax(min(var(--es-size-col-min-md), 100%), 1fr)); }
+.gb-card { display: flex; gap: var(--es-space-14); align-items: center; padding: var(--es-space-14) var(--es-space-16); color: var(--es-text) !important; text-decoration: none; min-width: 0; }
+.gb-card:hover { border-color: var(--es-accent); }
+.gb-ladder { display: grid; gap: var(--es-space-14); grid-template-columns: repeat(auto-fit, minmax(min(var(--es-size-col-min-xs), 100%), 1fr)); }
+.gb-level { display: flex; flex-direction: column; align-items: center; gap: var(--es-space-6); padding: var(--es-space-18) var(--es-space-12); text-align: center; }
+.gb-level.is-yours { border-color: var(--es-accent); box-shadow: inset 0 0 0 var(--es-border-1) var(--es-accent); }
+.gb-level-name { font: var(--es-weight-bold) var(--es-fs-16) var(--es-font-display); letter-spacing: var(--es-tracking-display); }
+.gb-top li { padding: var(--es-space-10) var(--es-space-20); border-top: var(--es-border-1) solid var(--es-row-sep); }
+.lvl-num { font-family: var(--es-font-display); font-weight: var(--es-weight-black); color: var(--es-accent-2); }
+
+/* Render controls */
+.render-wrap { min-width: 0; flex: 1; }
+.render-wrap > .render { flex: 1; }
+.render-links { justify-content: center; }
+.char-toggles { align-items: flex-end; }
+
+/* Feedback */
+.hp { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+form.panel { position: relative; }
+.fb-head { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: var(--es-space-10); width: 100%; padding: var(--es-space-14) var(--es-space-20); cursor: pointer; min-width: 0; }
+.fb-head:focus-visible { outline: var(--es-border-2) solid var(--es-focus); outline-offset: calc(var(--es-space-2) * -1); }
+.fb-messages { margin: 0; }
+.fb-msg { padding: var(--es-space-12) var(--es-space-14); border-radius: var(--es-radius-md); border: var(--es-border-1) solid var(--es-line); background: var(--es-sunken); color: var(--es-text); }
+.fb-msg.everstats { border-color: color-mix(in oklab, var(--es-accent) 45%, var(--es-line)); background: var(--es-raised); }
+.fb-body { margin: var(--es-space-6) 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dot-unread { display: inline-block; flex: none; width: var(--es-space-8); height: var(--es-space-8); border-radius: var(--es-radius-round); background: var(--es-accent); margin-left: var(--es-space-6); }
+.who-btn { position: relative; }
+.dot-unread.on-icon { position: absolute; left: var(--es-space-18); top: var(--es-space-4); margin: 0; box-shadow: 0 0 0 var(--es-border-2) var(--es-bg); }
+.fb-row { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: var(--es-space-6); padding: var(--es-space-12) var(--es-space-14); cursor: pointer; background: var(--es-surface); border: var(--es-border-1) solid var(--es-line); border-radius: var(--es-radius-lg); color: var(--es-text); min-width: 0; }
+.fb-row:hover, .fb-row.is-open { border-color: var(--es-accent); }
+.fb-row:focus-visible { outline: var(--es-border-2) solid var(--es-focus); }
+.fb-preview { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.fb-admin .side { position: sticky; top: calc(var(--es-sticky-top, 0px) + var(--es-space-16)); }
+
+/* Admin → Activity */
+.split-even { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--es-size-col-min-md), 100%), 1fr)); align-items: start; }
+.kpi-delta { font-size: var(--es-fs-13); font-weight: var(--es-weight-semibold); color: var(--es-success); font-variant-numeric: tabular-nums; }
+.row.baseline { align-items: baseline; }
+.tbl.compact td, .tbl.compact th { padding-top: var(--es-space-8); padding-bottom: var(--es-space-8); }
+.mini-charts { display: grid; gap: var(--es-space-18); grid-template-columns: repeat(auto-fit, minmax(min(var(--es-size-col-min-md), 100%), 1fr)); }
+.mini-chart { margin: 0; display: flex; flex-direction: column; gap: var(--es-space-8); min-width: 0; }
+.mini-bars { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: var(--es-space-2); align-items: end; height: var(--es-size-chart-h); border-bottom: var(--es-border-1) solid var(--es-line); }
+.mini-bar { position: relative; height: 100%; display: flex; align-items: flex-end; cursor: default; }
+.mini-bar:focus-visible { outline: var(--es-border-2) solid var(--es-focus); }
+.mini-fill { display: block; width: 100%; background: var(--es-c1); border-radius: var(--es-radius-xs) var(--es-radius-xs) 0 0; }
+.mini-bar.unknown { background: repeating-linear-gradient(135deg, var(--es-line) 0 var(--es-space-2), transparent var(--es-space-2) var(--es-space-6)); }
+.mini-bar .tip { bottom: calc(100% + var(--es-space-4)); left: 50%; transform: translateX(-50%); opacity: 0; visibility: hidden; pointer-events: none; z-index: var(--es-z-dropdown); color: var(--es-text); }
+.mini-bar:hover .tip, .mini-bar:focus .tip { opacity: 1; visibility: visible; }
+.activity .grid-auto .raised { min-width: 0; }
+
+/* Admin → Guild badges */
+.thr-grid { display: grid; gap: var(--es-space-10); grid-template-columns: repeat(auto-fit, minmax(min(var(--es-size-col-min-xs), 100%), 1fr)); }
+.hist-row { display: contents; }
+.dropzone { align-items: center; text-align: center; padding: var(--es-space-20); border: var(--es-border-1) dashed var(--es-line-strong); border-radius: var(--es-radius-lg); background: var(--es-sunken); }
+
+@media (max-width: 719px) {
+  .mrow.notyet { grid-template-columns: var(--es-space-24) minmax(0, 1fr); }
+  .mrow.notyet .st { grid-column: 2; }
+  .manage-badges .side, .fb-admin .side { position: static; }
+  .char-toggles { align-items: flex-start; }
+  .signup-call .btn { width: 100%; }
+}
