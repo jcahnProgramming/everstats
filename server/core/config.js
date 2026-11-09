@@ -23,6 +23,9 @@ export const config = {
   // container (docker-compose.yml mounts the array disk there). Unset (local dev): the default tablespace.
   snapshotTablespaceDir: process.env.SNAPSHOT_TABLESPACE_DIR || null,
   clientDist: resolve(REPO_ROOT, 'client', 'dist'),
+  // Where the worker writes nightly database backups (core/backup.js). In Docker always /backups, the host folder in
+  // the BACKUP_DIR Gitea variable mounted there (docker-compose.yml). Unset (local dev): backups are off, and say so.
+  backupDir: process.env.BACKUP_DIR || null,
   // The address visitors use. OAuth redirect URIs, the passkey relying party and the CSRF origin check all derive from
   // it, so it must be exact: https://everstats.app in production, http://localhost:3000 for `npm run dev`.
   publicOrigin,

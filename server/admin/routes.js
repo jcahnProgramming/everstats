@@ -8,6 +8,7 @@ import { startFlow, takeFlow } from '../auth/flows.js';
 import { authenticationOptions, claimedCredentialId, registrationOptions, verifyAuthentication, verifyRegistration } from '../auth/passkeys.js';
 import { listSettings, setSetting } from './settings.js';
 import { crawlerStatus } from './crawler.js';
+import { backupStatus } from '../core/backup.js';
 
 /**
  * The admin area, under /api/admin. The admin is NOT an account: one person, passkeys only (admin_passkeys),
@@ -95,6 +96,8 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
       // Where CF-Connecting-IP has arrived from since this web process started (core/network.js): connection
       // addresses only, never a visitor's address. For choosing TRUSTED_PROXIES.
       proxies: proxies(),
+      // Nightly database backups, from backup_runs (the worker writes them; core/backup.js).
+      backups: await backupStatus(db, { recent: 10 }),
     });
   }));
 

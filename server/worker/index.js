@@ -7,11 +7,19 @@ import { createDb } from '../core/db.js';
 import { prepareDatabase } from '../core/prepare.js';
 import { APP_VERSION } from '../core/version.js';
 import { requireRootKey } from '../credentials/crypto.js';
+import { BACKUP_HOUR_UTC, run } from '../core/backup.js';
 import { createWorkerApp } from './app.js';
 import { JOBS } from './jobs.js';
 import { createLoop } from './loop.js';
 
 requireRootKey('worker');
+
+// Backups must exist before real data does (CLAUDE.md): production refuses to start without somewhere to write them.
+// docker-compose.yml always sets BACKUP_DIR=/backups in this container and mounts the host folder there.
+if (process.env.NODE_ENV === 'production' && !config.backupDir) {
+  console.error('[worker] BACKUP_DIR is not set: refusing to start without nightly backups (see docker-compose.yml).');
+  process.exit(1);
+}
 
 const db = createDb({ max: 4 });
 await prepareDatabase(db, { processName: 'worker' });
@@ -19,6 +27,13 @@ await prepareDatabase(db, { processName: 'worker' });
 // One row per worker in worker_status. Stable across restarts of the same container (its hostname).
 const workerId = process.env.WORKER_ID || `worker-${hostname()}`;
 const loop = createLoop({ db, jobs: JOBS, workerId, version: APP_VERSION });
+
+if (config.backupDir) {
+  const version = await run('pg_dump', ['--version']).then((r) => r.stdout.trim(), (err) => `NOT AVAILABLE (${err.message})`);
+  console.log(`[worker] Backups: nightly after ${String(BACKUP_HOUR_UTC).padStart(2, '0')}:00 UTC to ${config.backupDir} with ${version}`);
+} else {
+  console.log('[worker] Backups: off (BACKUP_DIR not set; local dev)');
+}
 
 await loop.start();
 const server = createWorkerApp({ loop, db }).listen(config.workerPort, config.listenHost, () => {

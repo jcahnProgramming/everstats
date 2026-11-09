@@ -15,6 +15,19 @@ ENV NODE_ENV=production \
     LISTEN_HOST=0.0.0.0 \
     PORT=3260 \
     WORKER_PORT=3261
+# pg_dump / pg_restore for the worker's nightly backups (server/core/backup.js). The client must be at least the
+# server's major version (postgres:17 in docker-compose.yml), and Debian bookworm only ships 15, so it comes from the
+# PostgreSQL project's own apt repository (apt.postgresql.org, signed with its published key).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && install -d /usr/share/postgresql-common/pgdg \
+ && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+ && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends postgresql-client-17 \
+ && apt-get purge -y curl && apt-get autoremove -y \
+ && rm -rf /var/lib/apt/lists/* \
+ && pg_dump --version | grep -q ' 17\.'
 WORKDIR /app
 # CHANGELOG.json is the app version at run time (server/core/version.js) and what /api/health reports. Don't drop it.
 COPY --from=build /app/package.json /app/CHANGELOG.json ./

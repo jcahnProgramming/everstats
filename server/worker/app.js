@@ -1,18 +1,35 @@
 import express from 'express';
+import { backupStatus } from '../core/backup.js';
+import { config } from '../core/config.js';
 import { createErrorHandler } from '../core/errors.js';
 import { securityHeaders } from '../core/headers.js';
 import { APP_VERSION } from '../core/version.js';
 
-/** The worker's only HTTP surface: /api/health, for the deploy and the container healthcheck. */
-export function createWorkerApp({ loop, db }) {
+/**
+ * The worker's only HTTP surface: /api/health, for the deploy and the container healthcheck (LAN only, never in the
+ * tunnel). It also says how backups stand: when the last good one finished, its size, whether the newest attempt
+ * failed. A failing backup does not make the worker unhealthy (the deploy must not roll back over it); the admin
+ * page shows why it failed.
+ */
+export function createWorkerApp({ loop, db, backupDir = config.backupDir }) {
   const app = express();
   app.disable('x-powered-by');
   app.use(securityHeaders());
   app.get('/api/health', async (req, res) => {
     const h = loop.health();
     let database = 'ok';
+    let backup = null;
     try {
       await db.ping();
+      const s = await backupStatus(db);
+      backup = {
+        configured: Boolean(backupDir),
+        lastSuccessAt: s.lastSuccessAt,
+        lastSuccessBytes: s.lastSuccessBytes,
+        lastFailureAt: s.lastFailureAt,
+        failing: s.failing,
+        running: s.running,
+      };
     } catch {
       database = 'unreachable';
     }
@@ -24,6 +41,7 @@ export function createWorkerApp({ loop, db }) {
       version: APP_VERSION,
       database,
       loop: { state: h.state, ticks: h.ticks, lastTickAt: h.lastTickAt, jobs: h.jobs.length, problem: h.problem },
+      backup,
     });
   });
   app.use((req, res) => res.status(404).json({ error: 'Not found' }));

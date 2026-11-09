@@ -11,8 +11,10 @@
 #   PG_SNAPSHOT_DIR    host folder for the "snapshots" tablespace: the bulk, kept-forever daily snapshots. On the
 #                      array (a /mnt/diskN path), never /mnt/user
 #   POSTGRES_PASSWORD  in .env (`npm run gen-key postgres` prints one)
-# Both folders must exist before deploying, owned by 999:999 (the postgres user in the image). Docker must never
-# create them (create_host_path: false; the deploy's preflight checks them first).
+#   BACKUP_DIR         host folder for the worker's nightly pg_dump archives (a flat file write: /mnt/user is fine
+#                      here), owned by 1000:1000 (the image's node user)
+# The database folders must exist before deploying, owned by 999:999 (the postgres user in the image). Docker must
+# never create any of the three (create_host_path: false; the deploy's preflight checks them first).
 #
 # Room for later: an everstats-mcp container (read-only, its own port, LAN only) will join this file and connect
 # with a read-only Postgres role. Not built in 1.0.
@@ -84,6 +86,17 @@ services:
       <<: *app-env
       WORKER_PORT: 3261
       WORKER_ID: everstats-worker
+      # Inside the container the backup folder is always /backups (what the app reads); the host folder is BACKUP_DIR.
+      BACKUP_DIR: /backups
+    volumes:
+      # Nightly pg_dump archives (server/core/backup.js, RESTORE.md). A flat file write, so a /mnt/user share is fine
+      # here (unlike the live database folders). Must exist before deploying and be writable by uid 1000 (the image's
+      # node user). Docker must never create it.
+      - type: bind
+        source: "${BACKUP_DIR:?Set BACKUP_DIR to the host folder for nightly database backups (see docker-compose.yml)}"
+        target: /backups
+        bind:
+          create_host_path: false
     ports:
       - "${BIND_IP:?Set BIND_IP to the host address to publish on (see docker-compose.yml)}:${WORKER_PORT:-3261}:3261"
     healthcheck:

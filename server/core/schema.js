@@ -188,4 +188,25 @@ export const migrations = [
       `);
     },
   },
+  {
+    // Nightly database backups (core/backup.js): one row per attempt, so the admin page and the worker's health can
+    // say when the last good one finished, how big it was, and why the last failure failed. Kept forever (tiny).
+    id: '003_backup_runs',
+    async up(q) {
+      await q.query(`
+        CREATE TABLE backup_runs (
+          id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          trigger      text NOT NULL CHECK (trigger IN ('nightly', 'manual')),
+          outcome      text NOT NULL CHECK (outcome IN ('running', 'ok', 'failed')),
+          started_at   timestamptz NOT NULL DEFAULT now(),
+          finished_at  timestamptz,
+          file_name    text,
+          bytes        bigint,
+          -- A short reason on failure (a pg_dump or file-system message: paths, never data), or a note on success.
+          detail       text CHECK (length(detail) <= 400)
+        );
+        CREATE INDEX backup_runs_outcome_time ON backup_runs (outcome, started_at);
+      `);
+    },
+  },
 ];

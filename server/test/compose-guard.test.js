@@ -20,11 +20,20 @@ test('the database publishes no port', () => {
   assert.doesNotMatch(db, /ports:/);
 });
 
-test('database folders are required, never created by Docker, never under /mnt/user', () => {
-  assert.equal((compose.match(/create_host_path: false/g) ?? []).length, 2);
+test('database and backup folders are required, never created by Docker; database folders never under /mnt/user', () => {
+  assert.equal((compose.match(/create_host_path: false/g) ?? []).length, 3);
+  assert.match(compose, /BACKUP_DIR:\?/);
+  assert.ok(workflow.includes('BACKUP_DIR: ${{ vars.BACKUP_DIR }}'));
+  // Backups may live on /mnt/user (a flat file write); the refusal applies to the live database folders only.
+  assert.ok(workflow.includes('case "$PG_DATA_DIR$PG_SNAPSHOT_DIR" in'));
   assert.match(compose, /PG_DATA_DIR:\?/);
   assert.match(compose, /PG_SNAPSHOT_DIR:\?/);
   assert.match(workflow, /\*\/mnt\/user\/\*\)/);
+});
+
+test('the image has pg_dump 17 for backups (the database is postgres:17)', () => {
+  assert.match(dockerfile, /postgresql-client-17/);
+  assert.match(compose, /image: postgres:17-/);
 });
 
 test('the image carries CHANGELOG.json, and the deploy checks the version and .env', () => {
