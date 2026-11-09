@@ -1,0 +1,36 @@
+/* Everstats collections — additive tokens. Load after v1/tokens/themes.css.
+   Every colour is built from the active theme's own tokens, so it follows Forever / Alliance / Horde. */
+:root {
+  --es-coll-tile: 64px;
+  --es-coll-tile-phone: 52px;
+  --es-coll-tile-lg: 88px;
+  --es-coll-tile-col: 96px;
+  --es-coll-tile-col-phone: 72px;
+  --es-coll-tile-gap: 12px;
+  --es-coll-mark: 18px;
+  --es-coll-count-min: 168px;
+  --es-coll-slotpick-w: 248px;
+  --es-coll-detail-w: 340px;
+  --es-coll-standing-h: 10px;
+  --es-coll-standing-gap: 2px;
+  --es-coll-boss-pip: 14px;
+  --es-coll-glyph: 22px;
+  --es-coll-glyph-lg: 32px;
+  --es-coll-collected-edge: var(--es-line-strong);
+  --es-coll-missing-edge: var(--es-line-strong);
+  --es-coll-missing-bg: transparent;
+  --es-coll-missing-opacity: 0.42;
+  --es-coll-mark-collected: var(--es-success);
+  --es-coll-mark-ink: var(--es-bg);
+  --es-coll-selected: var(--es-focus);
+  --es-coll-acct: var(--es-c3);
+  --es-coll-optional-edge: var(--es-line-strong);
+  --es-standing-hated: var(--es-danger);
+  --es-standing-hostile: color-mix(in oklab, var(--es-danger) 70%, var(--es-warning));
+  --es-standing-unfriendly: var(--es-warning);
+  --es-standing-neutral: var(--es-line-strong);
+  --es-standing-friendly: color-mix(in oklab, var(--es-success) 70%, var(--es-line-strong));
+  --es-standing-honored: var(--es-success);
+  --es-standing-revered: color-mix(in oklab, var(--es-success) 45%, var(--es-accent));
+  --es-standing-exalted: var(--es-accent);
+}

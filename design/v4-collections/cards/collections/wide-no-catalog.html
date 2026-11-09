@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" data-theme="forever">
+<head>
+<meta charset="utf-8">
+<title>Everstats collections card · wide</title>
+<link rel="stylesheet" href="../../../v1/assets/fonts/fonts.css">
+<link rel="stylesheet" href="../../../v1/tokens/themes.css">
+<link rel="stylesheet" href="../../../v1/components/components.css">
+<link rel="stylesheet" href="../../../v3-share-cards/tokens/cards.css">
+<link rel="stylesheet" href="../../../v3-share-cards/cards/cards.css">
+<link rel="stylesheet" href="../../tokens/collections.css">
+<link rel="stylesheet" href="../collections-card.css">
+</head>
+<body>
+<!-- TEMPLATE collections/wide (example wiring without the catalog module; same template). Same contract as v3 cards: inject window.CARD_DATA in place of the example data script,
+     render at the card size, wait for <html data-ready="1">, screenshot [data-card]. Bindings: ../../../v3-share-cards/cards/fill.js -->
+<div class="card fmt-wide t-coll" data-card>
+<div class="bgfx mapbg" aria-hidden="true"></div><div class="frame" aria-hidden="true"></div>
+<div class="body">
+  <div class="ident a-i"><div class="tagrow"><span class="ctag accent">Collections</span><span class="ctag" data-slot="faction"></span><span class="ctag" data-slot="ruleset"></span></div>
+    <h1 class="cname" data-fit><span data-slot="first"></span> <span class="last" data-slot="last"></span></h1>
+    <span class="cmeta" data-slot="meta"></span><span class="cmeta" data-if="show.guild">&lt;<span data-slot="guild"></span>&gt;</span></div>
+  <div class="tmog solid a-t" data-if="show.transmog"><svg class="g" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6a2 2 0 1 1 2 2c-1 0-2 .6-2 1.6V10l8.5 6.3a1 1 0 0 1-.6 1.8H4.1a1 1 0 0 1-.6-1.8L12 10"/></svg><div class="tx"><span class="big" data-slot="transmog.big"></span><span class="sub" data-slot="transmog.sub"></span></div>
+    <div class="cbar2" data-if="transmog.w"><span data-slot-width="transmog.w"></span></div></div>
+  <div class="counts a-c" data-repeat="counts"><div class="stat" data-item><span class="l"><span data-f="label"></span><svg class="acc" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="3"/><circle cx="16" cy="8" r="3"/><path d="M3 19c.8-3 2.6-5 5-5 1.4 0 2.6.6 3.5 1.7M21 19c-.8-3-2.6-5-5-5-1.4 0-2.6.6-3.5 1.7"/></svg></span><span class="v" data-f="value"></span></div></div>
+  <div class="show a-s" data-if="showcase">
+    <div class="sc" data-repeat="showcase"><span class="it" data-item><i data-f-class="q"><img data-f-src="icon" alt=""><span data-f-html="glyph"></span></i><span class="n" data-f="name"></span></span></div>
+    <span class="acctnote" data-if="show.acct"><svg class="acc" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="3"/><circle cx="16" cy="8" r="3"/><path d="M3 19c.8-3 2.6-5 5-5 1.4 0 2.6.6 3.5 1.7M21 19c-.8-3-2.6-5-5-5-1.4 0-2.6.6-3.5 1.7"/></svg>Shared across this account</span></div>
+</div>
+<footer class="card-foot"><span class="wm"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" style="fill:none;stroke:var(--es-accent);stroke-width:3"/><path d="M32 6 L35 29 L58 32 L35 35 L32 58 L29 35 L6 32 L29 29 Z" style="fill:var(--es-accent);opacity:var(--es-opacity-ornament)"/><text x="32" y="42" text-anchor="middle" font-size="28" style="font-family:var(--es-font-display);font-weight:var(--es-weight-black);fill:var(--es-text)">E</text></svg>Everstats</span><span class="info"><span class="url" data-fit data-slot="url"></span><span class="attr">Data: Blizzard Entertainment · as of <span data-slot="asof"></span></span></span></footer>
+</div>
+<script src="../data/collections-no-catalog.example.js"></script>
+<script src="../../../v3-share-cards/cards/fill.js"></script>
+</body>
+</html>

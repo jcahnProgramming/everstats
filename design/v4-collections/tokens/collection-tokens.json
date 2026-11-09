@@ -1,0 +1,154 @@
+{
+  "$description": "Collections tokens (additive to v1). Colours reference v1 theme tokens and re-resolve per theme.",
+  "size": {
+    "coll-tile": {
+      "$type": "dimension",
+      "$value": "64px"
+    },
+    "coll-tile-phone": {
+      "$type": "dimension",
+      "$value": "52px"
+    },
+    "coll-tile-lg": {
+      "$type": "dimension",
+      "$value": "88px"
+    },
+    "coll-tile-col": {
+      "$type": "dimension",
+      "$value": "96px"
+    },
+    "coll-tile-col-phone": {
+      "$type": "dimension",
+      "$value": "72px"
+    },
+    "coll-tile-gap": {
+      "$type": "dimension",
+      "$value": "12px"
+    },
+    "coll-mark": {
+      "$type": "dimension",
+      "$value": "18px"
+    },
+    "coll-count-min": {
+      "$type": "dimension",
+      "$value": "168px"
+    },
+    "coll-slotpick-w": {
+      "$type": "dimension",
+      "$value": "248px"
+    },
+    "coll-detail-w": {
+      "$type": "dimension",
+      "$value": "340px"
+    },
+    "coll-standing-h": {
+      "$type": "dimension",
+      "$value": "10px"
+    },
+    "coll-standing-gap": {
+      "$type": "dimension",
+      "$value": "2px"
+    },
+    "coll-boss-pip": {
+      "$type": "dimension",
+      "$value": "14px"
+    },
+    "coll-glyph": {
+      "$type": "dimension",
+      "$value": "22px"
+    },
+    "coll-glyph-lg": {
+      "$type": "dimension",
+      "$value": "32px"
+    }
+  },
+  "role": {
+    "coll-collected-edge": {
+      "$type": "color",
+      "$value": "var(--es-line-strong)",
+      "$description": "Collected tile border fallback (common quality / unknown). Otherwise the item quality colour --es-q-*, solid line."
+    },
+    "coll-missing-edge": {
+      "$type": "color",
+      "$value": "var(--es-line-strong)",
+      "$description": "Missing tile border (dashed line, never quality-coloured)."
+    },
+    "coll-missing-bg": {
+      "$type": "color",
+      "$value": "transparent",
+      "$description": "Missing tile background (hollow)."
+    },
+    "coll-missing-opacity": {
+      "$type": "number",
+      "$value": "0.42",
+      "$description": "Missing tile icon opacity (with greyscale) \u2014 plus a hollow ring mark and the word Missing."
+    },
+    "coll-mark-collected": {
+      "$type": "color",
+      "$value": "var(--es-success)",
+      "$description": "Check mark disc on collected tiles."
+    },
+    "coll-mark-ink": {
+      "$type": "color",
+      "$value": "var(--es-bg)",
+      "$description": "Glyph inside the check disc."
+    },
+    "coll-selected": {
+      "$type": "color",
+      "$value": "var(--es-focus)",
+      "$description": "Selected tile outline (detail pane open)."
+    },
+    "coll-acct": {
+      "$type": "color",
+      "$value": "var(--es-c3)",
+      "$description": "Account-wide marker glyph colour (always shown with its text)."
+    },
+    "coll-optional-edge": {
+      "$type": "color",
+      "$value": "var(--es-line-strong)",
+      "$description": "Dashed edge of \"optional module\" design annotations (mockups only)."
+    }
+  },
+  "standing": {
+    "hated": {
+      "$type": "color",
+      "$value": "var(--es-danger)",
+      "$description": "Hated (step 1 of 8)"
+    },
+    "hostile": {
+      "$type": "color",
+      "$value": "color-mix(in oklab, var(--es-danger) 70%, var(--es-warning))",
+      "$description": "Hostile (step 2 of 8)"
+    },
+    "unfriendly": {
+      "$type": "color",
+      "$value": "var(--es-warning)",
+      "$description": "Unfriendly (step 3 of 8)"
+    },
+    "neutral": {
+      "$type": "color",
+      "$value": "var(--es-line-strong)",
+      "$description": "Neutral (step 4 of 8)"
+    },
+    "friendly": {
+      "$type": "color",
+      "$value": "color-mix(in oklab, var(--es-success) 70%, var(--es-line-strong))",
+      "$description": "Friendly (step 5 of 8)"
+    },
+    "honored": {
+      "$type": "color",
+      "$value": "var(--es-success)",
+      "$description": "Honored (step 6 of 8)"
+    },
+    "revered": {
+      "$type": "color",
+      "$value": "color-mix(in oklab, var(--es-success) 45%, var(--es-accent))",
+      "$description": "Revered (step 7 of 8)"
+    },
+    "exalted": {
+      "$type": "color",
+      "$value": "var(--es-accent)",
+      "$description": "Exalted (step 8 of 8)"
+    }
+  }
+}
