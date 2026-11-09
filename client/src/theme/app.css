@@ -44,3 +44,76 @@ body { background-color: var(--es-bg); color: var(--es-text); }
 
 /* ---------------------------------------------------------------- toasts */
 .toast .x { flex: none; }
+
+/* ---------------------------------------------------------------- small utilities the mockups wrote inline */
+/* The mockups use style="" attributes; the CSP here forbids those (style-src 'self'), so they become classes. */
+.grow { flex: 1 1 0; min-width: 0; }
+.justify-center { justify-content: center; }
+.between { justify-content: space-between; }
+.align-start { align-items: flex-start; }
+.w-60 { width: 60%; } .w-40 { width: 40%; }
+.r { text-align: right; }
+.sheet-pad { padding: var(--es-space-28); }
+.narrow-panel { max-width: var(--es-size-container-narrow); }
+.narrow-text { max-width: var(--es-size-col-min-xl); }
+.center-panel { align-items: center; text-align: center; }
+.tips { margin: 0; padding-left: var(--es-space-18); }
+.skel-block { display: block; height: var(--es-space-48); border-radius: var(--es-radius-lg); }
+.loading-render { place-items: center; }
+.bar-fill { display: block; height: 100%; }
+
+/* ---------------------------------------------------------------- SVG artwork (classes instead of inline styles) */
+.emblem { width: 100%; height: auto; }
+.emblem .em-outer { fill: none; stroke: var(--es-accent); stroke-width: 1; opacity: 0.5; }
+.emblem .em-dash { fill: none; stroke: var(--es-accent); stroke-width: 0.6; stroke-dasharray: 2 4; opacity: 0.6; }
+.emblem .em-disc { fill: var(--es-surface); stroke: var(--es-accent); stroke-width: 1.4; }
+.emblem .em-inner { fill: none; stroke: var(--es-line-strong); stroke-width: 0.6; }
+.emblem .em-rose { fill: var(--es-accent); opacity: 0.18; }
+.emblem .em-rose-2 { fill: var(--es-accent-2); opacity: 0.22; }
+.emblem .em-diamond { fill: none; stroke: var(--es-accent); stroke-width: 0.8; opacity: 0.7; }
+.emblem .em-letter { font-family: var(--es-font-display); font-weight: var(--es-weight-black); fill: var(--es-text); }
+.emblem .em-point { font-family: var(--es-font-display); fill: var(--es-accent-2); }
+.render .ring .cr-outer, .ring .cr-outer { fill: none; stroke: var(--es-accent); stroke-width: 0.8; }
+.ring .cr-dash { fill: none; stroke: var(--es-accent); stroke-width: 0.5; stroke-dasharray: 2 4; }
+.ring .cr-rose { fill: var(--es-accent); opacity: 0.14; }
+.spinner.xl { width: var(--es-size-icon-xl); height: var(--es-size-icon-xl); }
+.spinner.xxxl { width: var(--es-size-icon-3xl); height: var(--es-size-icon-3xl); }
+.spinner .sp-track { fill: none; stroke: var(--es-line-strong); stroke-width: 2; }
+.spinner .sp-arc { fill: none; stroke: var(--es-accent); stroke-width: 3; stroke-linecap: round; }
+.state-glyph { width: var(--es-size-icon-2xl); height: var(--es-size-icon-2xl); }
+.state-glyph .glyph-ring { fill: none; stroke: var(--es-line-strong); stroke-width: 2; stroke-dasharray: 4 5; }
+.state-glyph .glyph-q { font-family: var(--es-font-display); font-weight: var(--es-weight-bold); fill: var(--es-muted); }
+.state-glyph .glyph-err { fill: none; stroke: var(--es-danger); stroke-width: 2; }
+.state-glyph .glyph-err-x { stroke: var(--es-danger); stroke-width: 2.5; stroke-linecap: round; }
+
+/* ---------------------------------------------------------------- the four empty states (EmptyState.jsx) */
+/* Never alike: soon = solid gold-tinted frame + clock; nodata = dashed (design .empty-box); nocoverage = hatched
+   (design .nocov) + crossed circle; unranked = the "–" shield + warning progress line. */
+.state { display: flex; gap: var(--es-space-16); align-items: flex-start; padding: var(--es-space-20) var(--es-space-24); border-radius: var(--es-radius-md); color: var(--es-text-2); min-width: 0; }
+.state.compact { gap: var(--es-space-12); padding: var(--es-space-14) var(--es-space-16); }
+.state-body { flex: 1 1 0; min-width: 0; }
+.state-kind { font: var(--es-weight-semibold) var(--es-fs-11)/var(--es-lh-snug) var(--es-font-body); letter-spacing: var(--es-tracking-eyebrow); text-transform: uppercase; }
+.state-title { font: var(--es-weight-bold) var(--es-fs-18)/var(--es-lh-snug) var(--es-font-display); letter-spacing: var(--es-tracking-heading); color: var(--es-text); }
+.state.compact .state-title { font-size: var(--es-fs-15); }
+.state-icon { flex: none; }
+.state-soon { background: linear-gradient(180deg, var(--es-raised), var(--es-surface)); border: var(--es-border-1) solid color-mix(in oklab, var(--es-accent) 55%, var(--es-line)); box-shadow: inset var(--es-border-3) 0 0 var(--es-accent); }
+.state-soon .state-kind, .state-soon .state-icon { color: var(--es-accent-2); }
+.state-nodata { background: var(--es-surface); border: var(--es-border-1-5) dashed var(--es-line-strong); }
+.state-nodata .state-kind, .state-nodata .state-icon { color: var(--es-text-2); }
+.state-nocoverage { border: var(--es-border-1) solid var(--es-line); background: repeating-linear-gradient(135deg, var(--es-surface) 0 var(--es-space-10), color-mix(in oklab, var(--es-line) 45%, var(--es-surface)) var(--es-space-10) var(--es-space-11)); }
+.state-nocoverage .state-kind, .state-nocoverage .state-icon { color: var(--es-muted); }
+.state-nocoverage .state-title { color: var(--es-text-2); }
+.state-unranked { background: var(--es-surface); border: var(--es-border-1) solid var(--es-line); align-items: center; }
+.state-unranked .state-kind { color: var(--es-warning); }
+.state-ruleset { align-self: flex-start; }
+
+/* Provenance: where a section's numbers came from and how fresh they are. */
+.provenance { display: flex; flex-wrap: wrap; gap: var(--es-space-6) var(--es-space-18); align-items: center; padding-top: var(--es-space-10); border-top: var(--es-border-1) dashed var(--es-line); font-size: var(--es-fs-12); color: var(--es-muted); }
+.provenance b { color: var(--es-text-2); font-weight: var(--es-weight-semibold); }
+
+/* ---------------------------------------------------------------- components the design draws inline */
+.chart-head { justify-content: space-between; }
+.chart-empty { min-height: var(--es-size-chart-h-phone); }
+.cathead .cat-title { font-size: var(--es-fs-15); }
+.slot .icon img { width: 100%; height: 100%; border-radius: var(--es-radius-xs); }
+.tbl th.r { text-align: right; }

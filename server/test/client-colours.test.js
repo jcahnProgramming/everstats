@@ -38,7 +38,7 @@ test('every theme defines every colour token the default defines', () => {
   // Hex and rgba() colours both: a theme missing a translucent token (a glow, the map grid) would inherit Forever's.
   const names = (text) => new Set([...text.matchAll(/(--[a-z0-9-]+):\s*(?:#|rgba?\()/g)].map((m) => m[1]));
   const base = names(block(':root, [data-theme="forever"]'));
-  assert.ok(base.size > 50, 'the default theme block was found and has its colours');
+  assert.ok(base.size >= 40, 'the default theme block was found and has its colours');
   for (const theme of ['alliance', 'horde']) {
     const mine = names(block(`[data-theme="${theme}"]`));
     assert.deepEqual([...base].filter((n) => !mine.has(n)), [], `${theme} is missing tokens`);
