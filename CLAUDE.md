@@ -60,6 +60,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Badges | `badge_definitions` (data; seeded from `server/badges/catalog.js` SEED_BADGES) + catalog.js TEMPLATES | id, family, name, how, art, manual or automatic rule, kept-while-held; new ones from templates on /admin/badges, no deploy |
 | Data sources | `server/sources/registry.js` | id, label, credential, userProvider, create() → `get(path, { namespace, auth, userToken })`. One so far: `blizzard`. A provider named as a `userProvider` reads characters at sign-in |
 | Discovery endpoints | `server/discovery/endpoints.js` | what a discovery run asks for (data, account, character, guild, slug probes) |
+| Endpoint probe | `server/discovery/probe/endpoints.js` | every endpoint in Blizzard's docs adapted to Forever, in run order: area, path template, namespace kind, where its ids come from |
 | Suggestion rules | `server/discovery/suggest.js` | per-statistic suggestions (category, bad, leaderboard), each with its reasoning |
 | Share cards | `server/cards/catalog.js` | card types (layouts, show toggles, template), formats, themes, accents; `cleanOptions` is the only way options get in |
 | "Why sign in?" benefits | `server/signin/benefits.js` | id, title, text (ALL the wording, one place), `live(ctx)`: a benefit shows only while its feature is live |
@@ -142,6 +143,24 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   summaries and the combined catalog from stored responses with the current rules (no Blizzard request); a finished
   run rebuilds the combined catalog too. The raw responses are the record and are never rebuilt. Old `bad` decisions
   stay in the append-only history.
+
+## Endpoint probe (0.8.3: `server/discovery/probe/`, `client/src/admin/ProbeSection.jsx`)
+
+- A second kind of discovery run (`options.kind = 'probe'`), queued from /admin/discovery (character + guild, prefilled
+  Path Vexley / Post Nerf Clarity), run by the same worker job, one run of either kind at a time. Discovery only: it
+  builds nothing. Its responses are `discovery_responses` rows (endpoint `ep.<id>`), same retention; probes never feed
+  the statistics catalog (`analyseCombined` and re-analyse-all skip them).
+- **No invented ids or namespaces**: a `{param}` comes from an earlier answer (links matching the path first, then the
+  listed ids), at most two tried, stopping at a 200; common values (`common`: pvp brackets, house-1) only where no
+  index exists, every one tried. No value → a recorded skip with the reason. Static namespace = detected from links,
+  else static entries are skipped. A path-free data entry that 404s is asked once more in the other data namespace.
+  connected-realm/index decides whether realm/auction entries run. protected-character uses the Discovery grant, else
+  "skipped: needs user token". Search: once each with `orderby=id&_page=1` (the source's `query` option, 0.8.3; the
+  query is part of the stored path, never a token).
+- Stop: `POST /runs/:id/stop` sets `stop_requested_at`; the run checks before every request and ends `stopped` with
+  the results so far. `analyseProbe` builds results and the plain-English answers (`probe/answers.js`: yes / no /
+  unknown, never a guess) from stored responses + `summary.live`, so Re-analyse asks Blizzard nothing.
+- Exports: CSV one row per request (or skip); JSON with the summary, outlines and every body cut to 20,000 characters.
 
 ## Crawler and the production data (0.4.0: `server/crawler/`, `server/stats/`, `server/characters/`)
 

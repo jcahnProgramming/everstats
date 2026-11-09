@@ -9,6 +9,7 @@ import {
 import { grantToken } from './grant.js';
 import { findDuplicateCandidates, suggestionsFor } from './suggest.js';
 import { APP_VERSION } from '../core/version.js';
+import { executeProbe } from './probe/run.js';
 
 /**
  * One discovery run, start to finish (the worker's discovery job calls this in the background):
@@ -391,7 +392,8 @@ const MAX_COMBINED_RUNS = 200;
  * newest first, so a character sampled by two runs counts once, with its newest values. Returns the summary.
  */
 export async function analyseCombined(db) {
-  const runs = await db.query("SELECT id FROM discovery_runs WHERE status = 'done' ORDER BY id DESC LIMIT $1", [MAX_COMBINED_RUNS]);
+  // Endpoint probes (0.8.3) aren't statistics samples: the combined catalog comes from discovery runs only.
+  const runs = await db.query("SELECT id FROM discovery_runs WHERE status = 'done' AND (options->>'kind') IS DISTINCT FROM 'probe' ORDER BY id DESC LIMIT $1", [MAX_COMBINED_RUNS]);
   const obs = createObserver();
   const profiles = new Map(); // subject → { ruleset, faction, run }, newest run first
   const endpoints = [...CATALOG_ENDPOINTS, 'character.profile'];
@@ -458,6 +460,8 @@ export async function analyseCombined(db) {
 
 /** Claims and runs one queued run; records the outcome. Errors keep to this app's words (never a body or token). */
 export async function executeRun({ db, runId, fetch, sleep }) {
+  const kind = (await db.one("SELECT options->>'kind' AS kind FROM discovery_runs WHERE id = $1", [runId]))?.kind;
+  if (kind === 'probe') return executeProbe({ db, runId, fetch, sleep }); // 0.8.3: the endpoint probe
   try {
     const summary = await runDiscovery({ db, runId, fetch, sleep });
     await db.query("UPDATE discovery_runs SET status = 'done', finished_at = now(), heartbeat_at = now(), summary = $2::jsonb, progress = jsonb_set(progress, '{phase}', '\"done\"') WHERE id = $1", [runId, JSON.stringify(summary)]);

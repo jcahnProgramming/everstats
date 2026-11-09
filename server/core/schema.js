@@ -1562,4 +1562,18 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.8.3: the endpoint probe (discovery/probe/), a second kind of discovery run (options.kind = 'probe'). It can be
+    // stopped: the admin asks (stop_requested_at), the run notices before its next request, analyses what it has and
+    // ends 'stopped'. Same tables, same retention: a probe's responses are discovery_responses like any run's.
+    id: '020_endpoint_probe',
+    async up(q) {
+      await q.query(`
+        ALTER TABLE discovery_runs DROP CONSTRAINT IF EXISTS discovery_runs_status_check;
+        ALTER TABLE discovery_runs ADD CONSTRAINT discovery_runs_status_check
+          CHECK (status IN ('queued', 'running', 'done', 'failed', 'interrupted', 'stopped'));
+        ALTER TABLE discovery_runs ADD COLUMN stop_requested_at timestamptz;
+      `);
+    },
+  },
 ];

@@ -8,6 +8,7 @@ import { useToasts } from '../components/Toasts.jsx';
 import { formatBytes, formatDateTime, formatNumber, timeAgo } from '../format.js';
 import { NotFoundPage } from '../pages/NotFoundPage.jsx';
 import { SettingRow } from './AdminPages.jsx';
+import { ProbeDetail, ProbePanel } from './ProbeSection.jsx';
 
 /**
  * /admin/discovery: the Blizzard API discovery pass (server/discovery/). Admin only, like the rest of /admin: without
@@ -24,10 +25,11 @@ const AUTH_ERRORS = {
   provider_failed: 'Battle.net didn’t complete the authorization. Try again.',
 };
 const ACTIVE = ['queued', 'running'];
-const RUN_TAG = { queued: '', running: 'gold', done: 'ok', failed: 'err', interrupted: 'warn' };
-const statusTag = (code) => (code === 'no answer' || code === null ? 'err' : Number(code) < 300 ? 'ok' : Number(code) === 404 ? 'warn' : 'err');
-const ms = (v) => (Number.isFinite(v) ? `${formatNumber(v)} ms` : '—');
-const duration = (v) => (Number.isFinite(v) ? (v < 120_000 ? `${Math.round(v / 1000)} s` : `${Math.round(v / 60_000)} min`) : '—');
+const RUN_TAG = { queued: '', running: 'gold', done: 'ok', failed: 'err', interrupted: 'warn', stopped: 'warn' };
+const isProbe = (run) => run?.options?.kind === 'probe';
+export const statusTag = (code) => (code === 'no answer' || code === null ? 'err' : Number(code) < 300 ? 'ok' : Number(code) === 404 ? 'warn' : 'err');
+export const ms = (v) => (Number.isFinite(v) ? `${formatNumber(v)} ms` : '—');
+export const duration = (v) => (Number.isFinite(v) ? (v < 120_000 ? `${Math.round(v / 1000)} s` : `${Math.round(v / 60_000)} min`) : '—');
 
 export function DiscoveryPage() {
   const toast = useToasts();
@@ -100,10 +102,13 @@ export function DiscoveryPage() {
       <div className="grid-auto col-xl gap-24 align-start-grid">
         <AuthorizePanel grant={state.grant} configured={state.configured} onChanged={load} />
         <RunPanel state={state} active={active} onQueued={(run) => { setSelected(run.id); load(); toast.ok(`Run #${run.id} queued`, 'The worker starts it within about 30 seconds.'); }} onSettings={load} />
+        <ProbePanel state={state} active={active} onQueued={(run) => { setSelected(run.id); load(); toast.ok(`Probe #${run.id} queued`, 'The worker starts it within about 30 seconds.'); }} />
       </div>
-      <CombinedSection key={`combined-${combinedVersion}-${state.runs.filter((r) => r.status === 'done').length}`} hasRuns={state.runs.some((r) => r.status === 'done')} onReanalysed={() => { setCombinedVersion((v) => v + 1); load(); }} focusStat={focusStat} onUnfocus={() => setFocusStat(null)} />
+      <CombinedSection key={`combined-${combinedVersion}-${state.runs.filter((r) => r.status === 'done' && !isProbe(r)).length}`} hasRuns={state.runs.some((r) => r.status === 'done' && !isProbe(r))} onReanalysed={() => { setCombinedVersion((v) => v + 1); load(); }} focusStat={focusStat} onUnfocus={() => setFocusStat(null)} />
       <RunsSection runs={state.runs} selected={selected} onSelect={setSelected} />
-      {selected && <RunDetail key={selected} runId={selected} listedStatus={state.runs.find((r) => r.id === selected)?.status} outerVersion={combinedVersion} onReanalysed={() => setCombinedVersion((v) => v + 1)} />}
+      {selected && (isProbe(state.runs.find((r) => r.id === selected))
+        ? <ProbeDetail key={selected} runId={selected} listed={state.runs.find((r) => r.id === selected)} onChanged={load} />
+        : <RunDetail key={selected} runId={selected} listedStatus={state.runs.find((r) => r.id === selected)?.status} outerVersion={combinedVersion} onReanalysed={() => setCombinedVersion((v) => v + 1)} />)}
     </div>
   );
 }
@@ -226,7 +231,7 @@ function AuthorizePanel({ grant, configured, onChanged }) {
 }
 
 function RunPanel({ state, active, onQueued, onSettings }) {
-  const last = state.runs[0]?.options?.primary;
+  const last = state.runs.find((r) => !isProbe(r))?.options?.primary;
   const [name, setName] = useState(last?.name ?? '');
   const [surname, setSurname] = useState(last?.surname ?? '');
   const [account, setAccount] = useState(true);
@@ -281,7 +286,7 @@ function RunsSection({ runs, selected, onSelect }) {
             <tbody>
               {runs.map((r) => (
                 <tr key={r.id} className={r.id === selected ? 'me' : undefined}>
-                  <td className="strong">#{r.id}</td>
+                  <td className="strong">#{r.id}{isProbe(r) && <span className="tag probe-flag">Endpoint probe</span>}</td>
                   <td className="t2">{formatDateTime(r.requestedAt)}</td>
                   <td><span className={`tag ${RUN_TAG[r.status]}`}>{r.status}</span></td>
                   <td>{r.options?.primary ? `${r.options.primary.name} ${r.options.primary.surname}` : '—'}</td>
@@ -379,7 +384,7 @@ function RunDetail({ runId, listedStatus, outerVersion, onReanalysed }) {
   );
 }
 
-function Q({ title, children }) {
+export function Q({ title, children }) {
   return (
     <div className="stack gap-8 disc-q">
       <h3 className="h3">{title}</h3>
@@ -499,7 +504,7 @@ function Answers({ run }) {
   );
 }
 
-function Figure({ label, value, note }) {
+export function Figure({ label, value, note }) {
   return (
     <div className="panel pad-16 stack gap-4 disc-figure">
       <span className="muted xsmall">{label}</span>
@@ -777,7 +782,7 @@ function ValueTypeRow({ stat, busy, onSet, onClear }) {
 
 const MAX_SHOWN_BODY = 200_000;
 
-function Responses({ runId }) {
+export function Responses({ runId }) {
   const [rows, setRows] = useState([]);
   const [next, setNext] = useState(0);
   const [problem, setProblem] = useState(null);

@@ -151,6 +151,9 @@ ol.codes { margin: 0; list-style: none; }
    itself, never the page. */
 .disc-pre { margin: 0; max-height: 60vh; overflow: auto; padding: var(--es-space-12); background: var(--es-sunken); color: var(--es-text); border: var(--es-border-1) solid var(--es-line); border-radius: var(--es-radius-md); font: var(--es-fs-12)/var(--es-lh-snug) var(--es-font-mono); white-space: pre; }
 .tbl td.mono.xsmall { white-space: normal; overflow-wrap: anywhere; }
+/* The endpoint probe (admin/ProbeSection.jsx, 0.8.3). */
+.probe-answer { padding-top: var(--es-space-8); border-top: var(--es-border-1) solid var(--es-row-sep); min-width: 0; overflow-wrap: anywhere; }
+.probe-flag { margin-left: var(--es-space-6); vertical-align: middle; }
 
 /* ---------------------------------------------------------------- changelog */
 .release-head { align-items: baseline; }

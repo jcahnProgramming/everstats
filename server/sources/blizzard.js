@@ -8,6 +8,7 @@ import { BLIZZARD_API } from '../core/config.js';
  *   const src = createBlizzardSource({ clientId, clientSecret, fetch, perSecond })
  *   await src.get('/data/wow/ruleset/index', { namespace: 'dynamic-forever-us' })            app token
  *   await src.get(href, { auth: 'user', userToken })                                            a user's token
+ *   await src.get('/data/wow/search/mount', { namespace, query: { orderby: 'id', _page: 1 } })  named extra parameters
  *   → { path, namespace, auth, status, latencyMs, attempts, headers, contentType, bytes, body, truncated, json,
  *       error, fetchedAt }
  *
@@ -87,8 +88,12 @@ export function createBlizzardSource({
     return token.value;
   }
 
-  /** A path or an href → { url, path, namespace }. Refuses any host but the API's. */
-  function resolve(pathOrHref, namespace) {
+  /**
+   * A path or an href → { url, path, namespace }. Refuses any host but the API's. An href's own query is dropped (only
+   * its namespace is kept); `query` adds parameters the caller names (search filters, 0.8.3), never a namespace, locale
+   * or token, and they are part of the returned `path`, so a stored row says exactly what was asked.
+   */
+  function resolve(pathOrHref, namespace, query = null) {
     let url;
     try {
       url = new URL(pathOrHref, apiOrigin);
@@ -100,11 +105,18 @@ export function createBlizzardSource({
     const clean = new URL(url.pathname, apiOrigin);
     if (ns) clean.searchParams.set('namespace', ns);
     if (locale) clean.searchParams.set('locale', locale);
-    return { url: clean.toString(), path: url.pathname, namespace: ns };
+    const extra = new URLSearchParams();
+    for (const [k, v] of Object.entries(query ?? {})) {
+      if (k === 'namespace' || k === 'locale' || /token/i.test(k)) throw new SourceError('Refused: the source sets that parameter itself', 'bad_query');
+      extra.set(k, String(v));
+      clean.searchParams.set(k, String(v));
+    }
+    const qs = extra.toString();
+    return { url: clean.toString(), path: qs ? `${url.pathname}?${qs}` : url.pathname, namespace: ns };
   }
 
-  async function get(pathOrHref, { namespace, auth = 'app', userToken = null } = {}) {
-    const { url, path, namespace: ns } = resolve(pathOrHref, namespace);
+  async function get(pathOrHref, { namespace, auth = 'app', userToken = null, query = null } = {}) {
+    const { url, path, namespace: ns } = resolve(pathOrHref, namespace, query);
     if (auth === 'user' && !userToken) throw new SourceError('No user token for a user-token request', 'no_user_token');
     const bearer = auth === 'user' ? userToken : await appToken();
     const out = { path, namespace: ns, auth, status: null, latencyMs: null, attempts: 0, headers: {}, contentType: null, bytes: null, body: null, truncated: false, json: null, error: null, fetchedAt: null };

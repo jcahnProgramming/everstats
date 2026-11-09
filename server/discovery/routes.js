@@ -12,6 +12,13 @@ import { analyseCombined, analyseStored } from './run.js';
 import { clearCatalogCache, currentDecisions } from '../stats/catalog.js';
 import { requestTierRecompute } from '../tiers/store.js';
 import { guessValueType } from './analyze.js';
+import { parseGuildSlug } from '../stats/slug.js';
+import { analyseProbe, probeCsv } from './probe/run.js';
+
+const isProbe = (run) => run?.options?.kind === 'probe';
+const MAX_EXPORT_BODY = 20_000; // characters of each raw body in a probe's JSON export (the page has every body in full)
+/** A guild name as typed ("Post Nerf Clarity") or a slug → Blizzard's slug (post-nerf-clarity), or null. */
+const guildSlugOf = (input) => parseGuildSlug(String(input ?? '').trim().toLowerCase().replace(/\s+/g, '-'));
 
 /**
  * /api/admin/discovery/*: mounted INSIDE the admin router, after its gate, so without an admin session every one of
@@ -45,6 +52,7 @@ const runView = (r, { skeletons = false } = {}) => {
     options: r.options,
     progress: r.progress,
     problem: r.problem,
+    stopRequestedAt: r.stop_requested_at ?? null,
     ...(summary !== undefined ? { summary } : {}),
   };
 };
@@ -117,9 +125,9 @@ const combinedView = async (db) => {
 
 /** Re-analyses every finished run (newest MAX_REANALYSE_RUNS), then rebuilds the combined catalog. No Blizzard request. */
 async function reanalyseAll(db) {
-  const runs = await db.query("SELECT id, summary FROM discovery_runs WHERE status = 'done' AND summary IS NOT NULL ORDER BY id DESC LIMIT $1", [MAX_REANALYSE_RUNS]);
+  const runs = await db.query("SELECT id, summary, options FROM discovery_runs WHERE status IN ('done', 'stopped') AND summary IS NOT NULL ORDER BY id DESC LIMIT $1", [MAX_REANALYSE_RUNS]);
   for (const run of runs) {
-    const summary = await analyseStored(db, run.id, run.summary);
+    const summary = isProbe(run) ? await analyseProbe(db, run.id, run.summary.live, run.options) : await analyseStored(db, run.id, run.summary);
     await db.query('UPDATE discovery_runs SET summary = $2::jsonb WHERE id = $1', [run.id, JSON.stringify(summary)]);
   }
   const combined = await analyseCombined(db);
@@ -168,7 +176,7 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy }) {
     const limit = pageLimit(req.query.limit, { fallback: 25, max: 100 });
     const before = req.query.before ? intParam(req.query.before) : null;
     const rows = await db.query(
-      `SELECT id, status, requested_at, started_at, finished_at, heartbeat_at, options, progress, problem,
+      `SELECT id, status, requested_at, started_at, finished_at, heartbeat_at, options, progress, problem, stop_requested_at,
               (summary IS NOT NULL) AS has_summary, summary->'requests' AS requests, summary->'catalogSize' AS catalog_size, summary->'wallMs' AS wall_ms
          FROM discovery_runs WHERE ($1::bigint IS NULL OR id < $1) ORDER BY id DESC LIMIT $2`,
       [before, limit + 1],
@@ -200,15 +208,55 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy }) {
       maxCharacters: await getSetting(db, 'discovery.maxCharacters'),
       requestsPerSecond: await getSetting(db, 'discovery.requestsPerSecond'),
     };
-    const row = await db.tx(async (q) => {
-      await q.query('LOCK TABLE discovery_runs IN SHARE ROW EXCLUSIVE MODE');
-      const busy = await q.one("SELECT id FROM discovery_runs WHERE status IN ('queued', 'running') LIMIT 1");
-      if (busy) throw new HttpError(409, `Run #${busy.id} hasn't finished yet.`, 'busy');
-      const created = await q.one("INSERT INTO discovery_runs (status, options) VALUES ('queued', $1::jsonb) RETURNING *", [JSON.stringify(options)]);
-      await q.query("INSERT INTO admin_events (type, detail) VALUES ('discovery.queued', $1::jsonb)", [JSON.stringify({ run: created.id })]);
-      return created;
+    res.status(201).json({ run: runView(await queueRun(options, 'discovery.queued')) });
+  }));
+
+  /** One run at a time, discovery or probe: the worker claims the oldest queued one. */
+  const queueRun = (options, eventType) => db.tx(async (q) => {
+    await q.query('LOCK TABLE discovery_runs IN SHARE ROW EXCLUSIVE MODE');
+    const busy = await q.one("SELECT id FROM discovery_runs WHERE status IN ('queued', 'running') LIMIT 1");
+    if (busy) throw new HttpError(409, `Run #${busy.id} hasn't finished yet.`, 'busy');
+    const created = await q.one("INSERT INTO discovery_runs (status, options) VALUES ('queued', $1::jsonb) RETURNING *", [JSON.stringify(options)]);
+    await q.query('INSERT INTO admin_events (type, detail) VALUES ($1, $2::jsonb)', [eventType, JSON.stringify({ run: created.id })]);
+    return created;
+  });
+
+  // 0.8.3: the endpoint probe (discovery/probe/): every endpoint in Blizzard's docs, tried once against Forever.
+  r.post('/probes', writes, route(async (req, res) => {
+    if (!(await isConfigured(db, source.credential))) throw new HttpError(409, 'Enter the Blizzard API keys in the key manager first.', 'not_configured');
+    const slug = characterSlug(req.body?.name, req.body?.surname);
+    if (!slug.ok) throw new HttpError(400, slug.problem, 'invalid');
+    const guildName = String(req.body?.guild ?? '').trim().slice(0, 120);
+    const guildSlug = guildSlugOf(guildName);
+    if (!guildSlug) throw new HttpError(400, 'Enter the guild’s name (letters, digits, spaces, apostrophes or hyphens).', 'invalid');
+    const options = {
+      kind: 'probe',
+      primary: { name: String(req.body.name).trim(), surname: String(req.body.surname).trim(), slug: slug.slug },
+      guild: { name: guildName, slug: guildSlug },
+      requestsPerSecond: await getSetting(db, 'discovery.requestsPerSecond'),
+    };
+    res.status(201).json({ run: runView(await queueRun(options, 'discovery.probe_queued')) });
+  }));
+
+  // Stop a probe: a queued one never starts; a running one stops before its next request and keeps what it has.
+  r.post('/runs/:id/stop', writes, route(async (req, res) => {
+    const id = intParam(req.params.id);
+    const run = await db.one('SELECT * FROM discovery_runs WHERE id = $1', [id]);
+    if (!run) throw new HttpError(404, 'Not found');
+    if (!isProbe(run)) throw new HttpError(409, 'Only an endpoint probe can be stopped.', 'not_probe');
+    if (!['queued', 'running'].includes(run.status)) throw new HttpError(409, 'That probe has already finished.', 'not_running');
+    await db.tx(async (q) => {
+      await q.query(
+        `UPDATE discovery_runs SET stop_requested_at = coalesce(stop_requested_at, now()),
+                status = CASE WHEN status = 'queued' THEN 'stopped' ELSE status END,
+                finished_at = CASE WHEN status = 'queued' THEN now() ELSE finished_at END,
+                problem = CASE WHEN status = 'queued' THEN 'Stopped before it started.' ELSE problem END
+          WHERE id = $1`,
+        [id],
+      );
+      await q.query("INSERT INTO admin_events (type, detail) VALUES ('discovery.stop_requested', $1::jsonb)", [JSON.stringify({ run: id })]);
     });
-    res.status(201).json({ run: runView(row) });
+    res.json({ run: runView(await db.one('SELECT * FROM discovery_runs WHERE id = $1', [id])) });
   }));
 
   r.get('/runs/:id', route(async (req, res) => {
@@ -222,8 +270,8 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy }) {
     const id = intParam(req.params.id);
     const run = await db.one('SELECT * FROM discovery_runs WHERE id = $1', [id]);
     if (!run) throw new HttpError(404, 'Not found');
-    if (run.status !== 'done' || !run.summary) throw new HttpError(409, 'Only a finished run can be re-analysed.', 'not_done');
-    const summary = await analyseStored(db, id, run.summary);
+    if (!['done', 'stopped'].includes(run.status) || !run.summary) throw new HttpError(409, 'Only a finished run can be re-analysed.', 'not_done');
+    const summary = isProbe(run) ? await analyseProbe(db, id, run.summary.live, run.options) : await analyseStored(db, id, run.summary);
     await db.tx(async (q) => {
       await q.query('UPDATE discovery_runs SET summary = $2::jsonb WHERE id = $1', [id, JSON.stringify(summary)]);
       await q.query("INSERT INTO admin_events (type, detail) VALUES ('discovery.reanalysed', $1::jsonb)", [JSON.stringify({ run: id })]);
@@ -318,6 +366,13 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy }) {
   // ---- exports (GET, so a plain download link works; the admin cookie is SameSite=Strict and same-origin)
   r.get('/runs/:id/export.csv', route(async (req, res) => {
     const id = intParam(req.params.id);
+    const run = await db.one('SELECT id, options, summary FROM discovery_runs WHERE id = $1', [id]);
+    if (!run) throw new HttpError(404, 'Not found');
+    if (isProbe(run)) {
+      if (!run.summary) throw new HttpError(409, 'That probe has no results yet.', 'not_done');
+      res.set('Content-Disposition', `attachment; filename="everstats-probe-${id}.csv"`);
+      return res.type('text/csv; charset=utf-8').send(probeCsv(run.summary));
+    }
     const csv = catalogCsv(await loadCatalog(db, id));
     res.set('Content-Disposition', `attachment; filename="everstats-discovery-${id}-catalog.csv"`);
     res.type('text/csv; charset=utf-8').send(csv);
@@ -327,6 +382,23 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy }) {
     const id = intParam(req.params.id);
     const run = await db.one('SELECT * FROM discovery_runs WHERE id = $1', [id]);
     if (!run) throw new HttpError(404, 'Not found');
+    if (isProbe(run)) {
+      // Every request with its body, each cut to MAX_EXPORT_BODY characters (the field outline and counts in the
+      // summary come from the full bodies; any body in full is on the page, Raw responses).
+      const raw = await db.query(
+        `SELECT id, endpoint, subject_kind, subject, path, namespace, auth, status, latency_ms, attempts, headers, content_type, bytes, truncated, error, fetched_at,
+                left(body, $2) AS body, (length(body) > $2) AS body_cut
+           FROM discovery_responses WHERE run_id = $1 ORDER BY id LIMIT 5000`,
+        [id, MAX_EXPORT_BODY],
+      );
+      res.set('Content-Disposition', `attachment; filename="everstats-probe-${id}.json"`);
+      return res.json({
+        exportedAt: new Date().toISOString(),
+        note: `Everstats endpoint probe export. "summary.answers" answers the Collections questions in words; "summary.entries" is every endpoint in Blizzard's docs as tried on WoW Forever (status, size, item count, values tried and why, or why it was skipped); "summary.skeletons" each answer's field outline by response id; "raw" every request with its body cut to ${MAX_EXPORT_BODY} characters (body_cut). Blizzard data: delete this file within 30 days.`,
+        run: runView(run, { skeletons: true }),
+        raw,
+      });
+    }
     const primary = run.summary?.characters?.[0]?.path ?? null;
     // Raw bodies, exactly as received, for the evidence that answers the run's questions: game data, the account,
     // the slug probes, the guild's profile, and every endpoint of the primary character. The rest stay on the page.

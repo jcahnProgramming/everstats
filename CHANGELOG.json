@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.8.3",
+      "date": "2026-11-09",
+      "title": "An endpoint probe for the owner",
+      "sections": {
+        "New": [
+          "Behind the scenes: an owner-only tool that asks Blizzard’s WoW Forever API, once, for every endpoint in Blizzard’s documentation and records what answers. It tells us what data exists before upcoming features (Collections) are built on it. Nothing changes for players."
+        ]
+      }
+    },
+    {
       "version": "0.8.2",
       "date": "2026-11-09",
       "title": "Reporting profiles, fair bans with appeals, and an update bar",

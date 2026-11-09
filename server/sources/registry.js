@@ -9,7 +9,7 @@ import { SourceError, createBlizzardSource } from './blizzard.js';
  *   label         what the admin sees
  *   credential    the credentials/registry.js id holding its keys
  *   userProvider  the sign-in provider (auth/providers.js) whose user token reads account-scoped endpoints, or null
- *   create(values, opts) → { get(pathOrHref, { namespace, auth, userToken }), … }
+ *   create(values, opts) → { get(pathOrHref, { namespace, auth, userToken, query }), … }
  */
 export const SOURCES = [
   {
