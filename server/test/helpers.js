@@ -36,10 +36,10 @@ export async function startDb() {
  * The web app on a real port, with a cookie jar per client.
  *   const t = await startApp({ fetch: fakeFetch }); const c = t.client(); await c.post('/api/…', body)
  */
-export async function startApp({ fetch: outbound, now } = {}) {
+export async function startApp({ fetch: outbound, now, onHeader, trustedProxies } = {}) {
   const { createApp } = await import('../app.js');
   const { db, close: closeDb } = await startDb();
-  const app = createApp({ db, fetch: outbound, now });
+  const app = createApp({ db, fetch: outbound, now, ...(onHeader ? { onHeader } : {}), ...(trustedProxies !== undefined ? { trustedProxies } : {}) });
   const server = await new Promise((res) => {
     const s = app.listen(0, '127.0.0.1', () => res(s));
   });

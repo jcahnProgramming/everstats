@@ -9,7 +9,7 @@ import { loadSession } from './auth/sessions.js';
 import { config } from './core/config.js';
 import { createErrorHandler, HttpError, route } from './core/errors.js';
 import { securityHeaders } from './core/headers.js';
-import { createNetworkResolver } from './core/network.js';
+import { createNetworkResolver, logHeaderSources, trustedProxyEntries } from './core/network.js';
 import { createLimits, limitBy } from './core/rateLimit.js';
 import { requireSameOrigin } from './core/sameOrigin.js';
 import { APP_VERSION } from './core/version.js';
@@ -24,17 +24,25 @@ import { parseSlug } from './stats/slug.js';
  * @param {() => number} [opts.now] the clock the rate limits run on
  * @param {typeof fetch} [opts.fetch] outbound HTTP (OAuth token + identity calls, key tests); tests pass a fake
  * @param {string} [opts.trustedProxies] see core/network.js
- * @param {Function} [opts.onHeader] told where each CF-Connecting-IP arrived from
+ * @param {Function} [opts.onHeader] told where each CF-Connecting-IP arrived from (default: log each new source once
+ *   and keep the list for the admin page, core/network.js)
  */
-export function createApp({ db, now = Date.now, fetch = globalThis.fetch, trustedProxies, onHeader } = {}) {
+export function createApp({ db, now = Date.now, fetch = globalThis.fetch, trustedProxies = process.env.TRUSTED_PROXIES, onHeader = logHeaderSources() } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(securityHeaders({ hsts: config.secureCookies }));
-  app.use(express.json({ limit: '50kb' }));
 
   const limits = createLimits({ now });
   const networkOf = createNetworkResolver({ trustedProxies, onHeader });
   app.locals.limits = limits;
+
+  // Every request, pages and files included, goes past the resolver once, so the first page load through the tunnel
+  // logs where CF-Connecting-IP arrives from (TRUSTED_PROXIES discovery). Rate limits still run their own lookup.
+  app.use((req, res, next) => {
+    networkOf(req);
+    next();
+  });
+  app.use(express.json({ limit: '50kb' }));
 
   // The deploy probes this (and checks the version against CHANGELOG.json), as do the container healthcheck and
   // anyone curious. Status, version and whether the database answers: nothing else, the app is public.
@@ -88,7 +96,10 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   }));
 
   app.use('/api/auth', createAuthRouter({ db, limits, networkOf, fetch }));
-  app.use('/api/admin', createAdminRouter({ db, limits, networkOf, fetch }));
+  app.use('/api/admin', createAdminRouter({
+    db, limits, networkOf, fetch,
+    proxies: () => ({ trustedProxies: trustedProxyEntries(trustedProxies), sources: onHeader?.sources?.() ?? [] }),
+  }));
   app.use('/api', createAccountRouter({ db, limits, networkOf }));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 

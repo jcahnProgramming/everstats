@@ -31,7 +31,7 @@ async function startAdminSession(db, res) {
   setCookie(res, COOKIE.admin, token, { maxAgeMs: ADMIN_TTL_MS, sameSite: 'Strict' });
 }
 
-export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fetch }) {
+export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fetch, proxies = () => ({ trustedProxies: null, sources: [] }) }) {
   const r = express.Router();
   const adminLimit = limitBy(limits.admin, networkOf);
   const writes = limitBy(limits.writes, networkOf);
@@ -92,6 +92,9 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
       credentials: await listPublic(db),
       settings: await listSettings(db),
       crawler: await crawlerStatus(db),
+      // Where CF-Connecting-IP has arrived from since this web process started (core/network.js): connection
+      // addresses only, never a visitor's address. For choosing TRUSTED_PROXIES.
+      proxies: proxies(),
     });
   }));
 

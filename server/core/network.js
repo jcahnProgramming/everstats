@@ -19,28 +19,51 @@ import { BlockList, isIP } from 'node:net';
  */
 export function createNetworkResolver({ trustedProxies = process.env.TRUSTED_PROXIES, onHeader } = {}) {
   const trusted = parseTrusted(trustedProxies);
+  // One answer per request: the app's every-request pass and a route's rate limiter both ask, and the header source
+  // must be counted once.
+  const answered = new WeakMap();
   return function networkOf(req) {
+    if (answered.has(req)) return answered.get(req);
+    const network = resolve(req);
+    answered.set(req, network);
+    return network;
+  };
+  function resolve(req) {
     const socket = cleanIp(req.socket?.remoteAddress);
     const header = req.headers['cf-connecting-ip'];
     const fromHeader = typeof header === 'string' ? cleanIp(header.trim()) : null;
     const honour = Boolean(fromHeader && (!trusted || (socket && trusted.check(socket, isIP(socket) === 6 ? 'ipv6' : 'ipv4'))));
     if (fromHeader && onHeader) onHeader(socket, honour, Boolean(trusted));
     return groupOf(honour ? fromHeader : socket) ?? 'unknown';
-  };
+  }
 }
 
 /**
  * onHeader for createNetworkResolver: logs each connection address the header arrives from, once, and whether it was
- * honoured. It is how TRUSTED_PROXIES is found (open the site through the tunnel and read the log) and how a wrong
- * one shows up (every tunnel visitor sharing one bucket would otherwise be silent). It never logs the header's
- * value, only the address of the connection that carried it. At most `max` addresses are remembered.
+ * honoured. It is how TRUSTED_PROXIES is found (open the site through the tunnel, then
+ * `docker logs everstats 2>&1 | grep CF-Connecting-IP`, or read the admin page) and how a wrong one shows up (every
+ * tunnel visitor sharing one bucket would otherwise be silent). It never logs or keeps the header's value (a
+ * visitor's address), only the address of the connection that carried it. At most `max` addresses are remembered,
+ * in memory: a restart starts the list again.
+ *
+ * The app runs the resolver on EVERY request (app.js), not only on rate-limited routes: in 0.1.0 it ran only inside
+ * the limiters, so an ordinary page load through the tunnel logged nothing.
+ *
+ * The returned function has .sources(): [{ address, honoured, firstSeenAt, lastSeenAt, requests }] for the admin page.
  */
-export function logHeaderSources({ log = console, max = 32 } = {}) {
-  const seen = new Set();
-  return (socket, honoured, restricted) => {
+export function logHeaderSources({ log = console, max = 32, now = Date.now } = {}) {
+  const seen = new Map();
+  const observe = (socket, honoured, restricted) => {
     const key = `${socket}|${honoured}`;
-    if (seen.has(key) || seen.size >= max) return;
-    seen.add(key);
+    const known = seen.get(key);
+    if (known) {
+      known.lastSeenAt = new Date(now()).toISOString();
+      known.requests += 1;
+      return;
+    }
+    if (seen.size >= max) return;
+    const at = new Date(now()).toISOString();
+    seen.set(key, { address: socket, honoured, firstSeenAt: at, lastSeenAt: at, requests: 1 });
     const from = socket ?? 'an unknown address';
     if (honoured) {
       log.log(`[web] CF-Connecting-IP arrived on a connection from ${from}: honoured (${restricted ? 'in TRUSTED_PROXIES' : 'TRUSTED_PROXIES not set'})`);
@@ -48,6 +71,14 @@ export function logHeaderSources({ log = console, max = 32 } = {}) {
       log.warn(`[web] CF-Connecting-IP arrived on a connection from ${from}: IGNORED, not in TRUSTED_PROXIES. Those requests are rate-limited as ${from}. If this is cloudflared, add it to TRUSTED_PROXIES.`);
     }
   };
+  observe.sources = () => [...seen.values()].map((s) => ({ ...s }));
+  return observe;
+}
+
+/** The configured TRUSTED_PROXIES entries, as written (for the admin page), or null when unset. */
+export function trustedProxyEntries(trustedProxies = process.env.TRUSTED_PROXIES) {
+  const entries = String(trustedProxies ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  return entries.length ? entries : null;
 }
 
 /** Describes the mode for the start-up log (no addresses). */

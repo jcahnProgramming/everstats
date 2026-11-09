@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { createApp, sweepExpired } from './app.js';
 import { config } from './core/config.js';
 import { createDb } from './core/db.js';
-import { describeTrust, logHeaderSources } from './core/network.js';
+import { describeTrust } from './core/network.js';
 import { prepareDatabase } from './core/prepare.js';
 import { APP_VERSION } from './core/version.js';
 import { requireRootKey } from './credentials/crypto.js';
@@ -17,7 +17,7 @@ if (!existsSync(config.clientDist)) {
 const db = createDb();
 await prepareDatabase(db, { processName: 'web' });
 
-const app = createApp({ db, onHeader: logHeaderSources() });
+const app = createApp({ db });
 const httpServer = app.listen(config.port, config.listenHost, () => {
   console.log(`[web] Everstats ${APP_VERSION} listening on ${config.listenHost}:${config.port} for ${config.publicOrigin}`);
   console.log(`[web] Rate limits per network: ${describeTrust()}`);
