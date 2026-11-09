@@ -38,6 +38,19 @@ test('a letter for a score placed against stored cutoffs', async () => {
   assert.equal(letterForScore(80, { S: null, A: 70, B: null, C: null, D: 5 }), 'A');
 });
 
+test('a tier bar shows ranked letters only, each non-zero one wide enough to read, and never Unranked', async () => {
+  const { tierBarParts } = await import('../stats/tiers.js');
+  // Post Nerf Clarity's shape (0.9.0 report): 134 tracked, 92 Unranked, S 1.
+  const r = tierBarParts({ S: 1, A: 6, B: 13, C: 14, D: 8, unranked: 92 });
+  assert.equal(r.ranked, 42);
+  assert.deepEqual(r.parts.map((p) => p.letter), ['S', 'A', 'B', 'C', 'D']);
+  assert.ok(r.parts.every((p) => p.pct >= 9), 'no sliver');
+  assert.ok(Math.abs(r.parts.reduce((s, p) => s + p.pct, 0) - 100) < 0.5);
+  assert.ok(r.parts.find((p) => p.letter === 'C').pct > r.parts.find((p) => p.letter === 'A').pct, 'still proportional above the floor');
+  assert.deepEqual(tierBarParts({ S: 0, A: 0, B: 2, C: 0, D: 0, unranked: 5 }).parts, [{ letter: 'B', n: 2, pct: 100 }]);
+  assert.deepEqual(tierBarParts({ unranked: 7 }), { ranked: 0, parts: [] });
+});
+
 test('categories weigh the same, a category without a letter still counts its score, and the half rules hold', async () => {
   const { gradeRuleset } = await import('../tiers/engine.js');
   // Two overall categories: "big" with 4 statistics, "small" with 1. Character 0 tops the small one only.
@@ -321,6 +334,52 @@ test('the tier board: best first, ties share a rank, Unranked counted not listed
   assert.equal((await t.client().get(`/api/tiers/boards?ruleset=${RS}&scope=nope`)).status, 404);
 });
 
+test('a provisional letter is the stored score against the stored cutoffs, or nothing', async () => {
+  const { provisionalLetter } = await import('../tiers/view.js');
+  const cut = { S: 90, A: 70, B: 40, C: 20, D: 1 };
+  assert.equal(provisionalLetter(45, cut), 'B');
+  assert.equal(provisionalLetter(0, cut), 'D');
+  assert.equal(provisionalLetter(null, cut), null);
+  assert.equal(provisionalLetter(50, { S: null, A: null, B: null, C: null, D: null }), null, 'nobody lettered: nothing to place against');
+  assert.equal(provisionalLetter(50, undefined), null);
+});
+
+test('below a minimum on a graded ruleset: a provisional letter on the page, never on a board, a tier bar or a badge', async () => {
+  // Overall needs a letter in every overall category: some characters fall below it but keep their scores.
+  await t.client().put('/api/admin/tiers/settings', { shares: { S: 5, A: 15, B: 30, C: 30, D: 20 }, minPopulation: 50, categoryHalf: 100, overallHalf: 100 }, admin);
+  await gradeNow();
+  const below = await t.db.query('SELECT character_id, score FROM character_tiers WHERE letter IS NULL AND score IS NOT NULL ORDER BY score DESC LIMIT 5');
+  assert.ok(below.length > 0, 'the fixture has characters below the overall minimum');
+  const id = Number(below[0].character_id);
+  const page = (await t.client().get(`/api/characters/${slugOf(id)}`)).json.tiers;
+  assert.equal(page.status, 'graded');
+  assert.equal(page.overall.letter, null);
+  assert.match(page.overall.provisional, /^[SABCD]$/);
+  assert.ok(page.overall.reason.text.length > 0, 'the reason is still said');
+  const { letterForScore } = await import('../stats/tiers.js');
+  const tr = await t.db.one('SELECT scopes FROM tier_rulesets WHERE ruleset_id = $1', [RS]);
+  assert.equal(page.overall.provisional, letterForScore(below[0].score, tr.scopes.overall.cutoffs));
+  // A category below its minimum gets one too, from its own cutoffs; a lettered category has none.
+  const unlettered = page.categories.find((c) => c.letter === null && Number.isFinite(c.score));
+  if (unlettered) assert.match(unlettered.provisional ?? '', /^[SABCD]?$/);
+  assert.ok(page.categories.filter((c) => c.letter).every((c) => c.provisional === null));
+  assert.ok(page.categories.filter((c) => c.nonzero === 0).every((c) => c.provisional === null), 'nothing above zero: nothing to go on');
+  // Nowhere else: not stored, not on the tier board, not in a list's letters, not an S-Tier badge.
+  assert.equal((await tierOf(id)).letter, null);
+  const board = (await t.client().get(`/api/tiers/boards?ruleset=${RS}&limit=100`)).json;
+  assert.ok(!board.rows.some((r) => r.characterId === id));
+  const { lettersFor } = await import('../tiers/store.js');
+  assert.equal((await lettersFor(t.db, [id])).get(id), null);
+  const { tierBrief } = await import('../tiers/view.js');
+  const brief = await tierBrief(t.db, { id, ruleset_id: RS, hidden: false });
+  assert.equal(brief.letter, null);
+  assert.equal(brief.provisional, page.overall.provisional);
+  const sTier = await t.db.one("SELECT count(*)::int AS n FROM character_tiers WHERE character_id = $1 AND letter = 'S'", [id]);
+  assert.equal(sTier.n, 0);
+  await t.client().put('/api/admin/tiers/settings', { shares: { S: 5, A: 15, B: 30, C: 30, D: 20 }, minPopulation: 50, categoryHalf: 50, overallHalf: 50 }, admin);
+  await gradeNow();
+});
+
 test('admin: the preview changes nothing; shares must add up to 100; every change is logged', async () => {
   const before2 = await t.db.query('SELECT character_id, letter FROM character_tiers ORDER BY character_id');
   const c = t.client();
@@ -381,6 +440,9 @@ test('below the ruleset minimum nobody is graded, and the page says how many are
   const page = (await t.client().get(`/api/characters/${slugOf(N)}`)).json.tiers;
   assert.equal(page.status, 'unranked');
   assert.equal(page.reason.text, `Tiers open once 100 characters are tracked on Normal (${N - 0} so far).`);
+  assert.equal(page.overall, null, 'below the ruleset minimum there is no provisional letter either');
+  const { tierBrief } = await import('../tiers/view.js');
+  assert.equal((await tierBrief(t.db, { id: N, ruleset_id: RS, hidden: false })).provisional, undefined);
   const how = (await t.client().get('/api/tiers/how')).json;
   assert.equal(how.settings.minPopulation, 100);
   assert.ok(how.categories.some((c) => c.label === 'Social' && c.farmable && c.counted.length === 1));

@@ -223,8 +223,8 @@ function GuildTiers({ data }) {
     <section className="panel pad-20 stack gap-10 guild-tiers" aria-label="Members by tier">
       {t.graded ? (
         <>
-          <TierDistribution letters={t.letters} />
-          <span className="muted xsmall">Tracked members by overall tier on {rs?.name}{t.gradedAt ? `, graded ${timeAgo(t.gradedAt)}` : ''}. Unranked: below a minimum (each member’s page says which). <Link to="/tiers/how">How tiers work</Link></span>
+          <TierDistribution letters={t.letters} unrankedWhy={<Link to="/tiers/how#unranked-h">why</Link>} />
+          <span className="muted xsmall">Tracked members by overall tier on {rs?.name}{t.gradedAt ? `, graded ${timeAgo(t.gradedAt)}` : ''}. The bar shows ranked members only; each unranked member’s page says which minimum they’re below. <Link to="/tiers/how">How tiers work</Link></span>
         </>
       ) : (
         <>

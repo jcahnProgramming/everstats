@@ -11,7 +11,7 @@ import { characterTierView, guildTierDistribution } from '../tiers/view.js';
 import { guildView } from '../guilds/routes.js';
 import { guildLinksView } from '../guilds/manage.js';
 import { guildBadgesView } from '../guildBadges/view.js';
-import { TIER_LETTERS } from '../stats/tiers.js';
+import { TIER_LETTERS, tierBarParts } from '../stats/tiers.js';
 import { periodStart } from '../stats/periods.js';
 import { BOARD_PERIODS, statsShown } from './catalog.js';
 import { guildBadgeSvg, playerBadgeSvg } from './badgeSvg.js';
@@ -265,10 +265,12 @@ export async function guildCard(db, { slug, options }) {
   totals = totals.filter((t) => t.total > 0).slice(0, 4);
   const best = view.placements?.[0] ?? null;
   const dist = options.show.tierbar ? await guildTierDistribution(db, g) : null;
-  const sum = dist ? Object.values(dist.letters).reduce((n, x) => n + x, 0) : 0;
-  const tiers = dist?.graded && sum > 0
-    ? [...TIER_LETTERS.map((l) => ({ k: l.toLowerCase(), w: Math.round((dist.letters[l] / sum) * 1000) / 10, t: l })), { k: 'u', w: Math.round((dist.letters.unranked / sum) * 1000) / 10, t: '–' }].filter((x) => x.w > 0)
-    : [];
+  // 0.9.0: ranked members only, each non-zero letter wide enough for "S 1"; Unranked is its own line under the bar
+  // (cards-layout.js), never a segment and never folded into D.
+  const bar = dist?.graded ? tierBarParts(dist.letters) : { ranked: 0, parts: [] };
+  const tiers = bar.parts.map((p) => ({ k: p.letter.toLowerCase(), w: p.pct, t: `${p.letter} ${num(p.n)}` }));
+  const unrankedN = dist?.graded ? dist.letters.unranked ?? 0 : 0;
+  const tiersUnranked = tiers.length && unrankedN > 0 ? `${num(unrankedN)} unranked: below a tier minimum` : '';
   const links = await guildLinksView(db, g.id);
   const discord = links?.discord?.code ? `discord.gg/${links.discord.code}` : '';
   const rs = view.guild?.ruleset?.name ?? '';
@@ -286,6 +288,7 @@ export async function guildCard(db, { slug, options }) {
     totals: totals.map((t) => ({ label: t.name, value: num(t.total) })),
     place: best ? { rank: `#${num(best.rank)}`, stat: best.name, scope: `Guild board · ${best.mode} · ${rs} · Overall` } : null,
     tiers,
+    tiers_unranked: tiersUnranked,
     discord,
     show: { recruiting: options.show.recruiting && Boolean(discord) },
   };

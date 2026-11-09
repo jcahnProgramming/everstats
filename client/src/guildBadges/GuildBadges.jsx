@@ -97,6 +97,7 @@ function GuildPopoverCard({ badge, popRef, pos, id }) {
           : badge.keptWhileHeld
             ? <><span className="row gap-4 held-line"><Icon name="hourglass" size="sm" />Held since {formatDate(badge.heldSince)}</span><span>Kept while held</span></>
             : <span>Unlocked {formatDate(badge.levelled ? badge.levelAt : badge.firstAt)}</span>}
+        {badge.ribbon && badge.keptWhileHeld && badge.state !== 'lost' && <span>Unlocked {formatDate(badge.ribbon)}</span>}
         <span>Held by {formatNumber(badge.heldBy)} guild{badge.heldBy === 1 ? '' : 's'}{badge.levelled ? ` at ${badge.numeral}` : ''}</span>
       </div>
       <Link className="small" to={`/guild-badges/${badge.id}`}>Badge details →</Link>
@@ -105,8 +106,9 @@ function GuildPopoverCard({ badge, popRef, pos, id }) {
 }
 
 /**
- * A guild badge PILL (guild-pill.md): icon + name + level numeral, as a button opening the popover. `ribbon`: the
- * 7-day "Unlocked [date]" ribbon (unlocked-ribbon.md).
+ * A guild badge PILL (guild-pill.md): icon + name + level numeral, as a button opening the popover. `ribbon`: for 7 days
+ * after an unlock, a small "NEW" marker INSIDE the pill (0.9.0). The design's "Unlocked [date]" ribbon (unlocked-ribbon.md)
+ * floated over the pill and cut off it and its neighbours; the date now lives in the popover and on the badge's page.
  */
 export function GuildPill({ badge, pinned = false, small = false, ribbon = true }) {
   const popId = useId();
@@ -122,7 +124,7 @@ export function GuildPill({ badge, pinned = false, small = false, ribbon = true 
         {badge.numeral && <span className="lvl">{badge.numeral}</span>}
         {pinned && <span className="pin" aria-hidden="true"><Icon name="pin" /></span>}
         {held && <span className="held"><Icon name="hourglass" />Held</span>}
-        {showRibbon && <span className="ribbon" aria-hidden="true">Unlocked {formatDate(badge.ribbon)}</span>}
+        {showRibbon && <span className="gnew" aria-hidden="true">New</span>}
       </button>
       {open && <GuildPopoverCard badge={badge} popRef={pop} pos={pos} id={popId} />}
     </span>

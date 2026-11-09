@@ -63,6 +63,7 @@ export function HowTiersPage() {
           <li>They’re below level 10 or haven’t been fully fetched yet. Blizzard only shows characters from level 10.</li>
           <li>For a category letter: they have a value above zero in fewer than {s ? `${s.categoryHalf}%` : 'half'} of its graded statistics.</li>
           <li>For the overall letter: they have a letter in fewer than {s ? `${s.overallHalf}%` : 'half'} of the categories that count toward it.</li>
+          <li>Below a category or overall minimum on a graded ruleset, the character page shows a <b className="strong-text">provisional</b> letter (“≈ B (provisional)”, in a hatched outline): what their score so far would earn against the last full grading. It isn’t a real letter: it’s on no tier board, doesn’t count in a guild’s tier bar and earns no badge. Below the ruleset minimum there’s none.</li>
           <li>Hidden characters aren’t graded and aren’t on any board.</li>
         </ul>
         {data && data.rulesets.length > 0 && (

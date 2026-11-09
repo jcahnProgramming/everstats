@@ -31,7 +31,7 @@ const CARDS_DIR = resolve(KIT, 'v3-share-cards', 'cards');
  */
 const LAYOUT_DIR = resolve(import.meta.dirname, 'layout');
 const LAYOUT_PATH = '/everstats-layout/';
-export const LAYOUT_VERSION = 2;
+export const LAYOUT_VERSION = 3;
 const LAYOUT_TAGS = {
   css: `<link rel="stylesheet" href="${LAYOUT_PATH}cards-layout.css">`,
   js: `<script src="${LAYOUT_PATH}cards-layout.js"></script>`,

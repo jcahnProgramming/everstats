@@ -263,7 +263,7 @@ function CoreStats({ attributes, equipment }) {
  */
 function categorySummary(cat, tier) {
   let head;
-  if (tier) head = tier.letter ?? 'Unranked';
+  if (tier) head = tier.letter ?? (tier.provisional ? `≈ ${tier.provisional} (provisional)` : 'Unranked');
   else if (tier === undefined) head = 'No graded stats yet';
   else head = cat.graded ? 'No letter' : 'Not graded';
   const ranked = cat.statistics.filter((s) => s.rank !== null).sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
@@ -325,7 +325,7 @@ function Statistics({ stats, character: c, count, tiers }) {
             <div key={cat.key} className="panel clip" id={`cat-${cat.key}`}>
               <div className={`cathead cat-toggle${isOpen ? '' : ' is-collapsed'}`}>
                 <button type="button" className="cat-toggle-btn" aria-expanded={isOpen} aria-controls={`cat-body-${cat.key}`} onClick={() => toggle(cat.key)}>
-                  <TierBadge letter={t?.letter ?? null} size="md" label={t?.letter ? `${cat.label}: tier ${t.letter}` : `${cat.label}: no letter`} />
+                  <TierBadge letter={t?.letter ?? null} size="md" provisional={t?.provisional ?? null} label={t?.letter ? `${cat.label}: tier ${t.letter}` : t?.provisional ? `${cat.label}: no letter, provisionally ${t.provisional}` : `${cat.label}: no letter`} />
                   <span className="title">
                     <h3>{cat.label}</h3>
                     <span className="muted xsmall">{categorySummary(cat, t)}</span>

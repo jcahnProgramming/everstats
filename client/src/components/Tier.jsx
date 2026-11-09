@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { TIER_LETTERS, bandRanges } from '../../../server/stats/tiers.js';
+import { TIER_LETTERS, bandRanges, tierBarParts } from '../../../server/stats/tiers.js';
 import { formatNumber } from '../format.js';
 
 /**
@@ -12,13 +12,16 @@ import { formatNumber } from '../format.js';
  * Rank is told three ways, never by colour alone: the letter, the fill and the frame. The large S gets the glow and
  * three pips. Badges are never interactive themselves; wrap one in a.tier-link for that.
  */
-export function TierBadge({ letter = null, size = 'md', loading = false, label }) {
+export function TierBadge({ letter = null, size = 'md', loading = false, label, provisional = null }) {
   const l = loading ? null : letter;
-  const cls = loading ? 'is-loading' : l ? l.toLowerCase() : 'u';
-  const aria = label ?? (loading ? 'Tier loading' : l ? `Tier ${l}` : 'Unranked');
+  // 0.9.0: a PROVISIONAL letter (below a minimum, from the score so far): a hatched ring in the letter's colour around a
+  // hollow shield, "≈B", never the solid fill of a real letter. Shown only where a real letter is null.
+  const p = !loading && !l && provisional ? provisional : null;
+  const cls = loading ? 'is-loading' : l ? l.toLowerCase() : p ? `prov ${p.toLowerCase()}` : 'u';
+  const aria = label ?? (loading ? 'Tier loading' : l ? `Tier ${l}` : p ? `Unranked, provisionally ${p}` : 'Unranked');
   const badge = (
     <span className={`tier ${size} ${cls}`} role="img" aria-label={aria}>
-      <b aria-hidden="true">{loading ? '' : l ?? '–'}</b>
+      <b aria-hidden="true">{loading ? '' : l ?? (p ? `≈${p}` : '–')}</b>
     </span>
   );
   if (size !== 'lg' || l !== 'S') return badge;
@@ -57,22 +60,30 @@ export function letterRange(letter, shares) {
 }
 
 /**
- * A distribution of letters (design: guild "Members by tier"): the tier bar, sized by the real counts, plus the same
- * counts in words, so it never relies on the bar alone. letters: { S, A, B, C, D, unranked }.
+ * A distribution of letters (design: guild "Members by tier"), 0.9.0: the bar shows RANKED members only, as S/A/B/C/D
+ * proportions, every non-zero letter wide enough to read its letter and count ("S 1") (server/stats/tiers.js
+ * tierBarParts). Unranked is never a segment and never folded into D: it has its own line, with why. The counts are
+ * also said in words, so it never relies on the bar alone. letters: { S, A, B, C, D, unranked }. unrankedWhy: a node
+ * (a link) after "below a tier minimum".
  */
-export function TierDistribution({ letters, label = 'Members by tier' }) {
-  const total = [...TIER_LETTERS, 'unranked'].reduce((n, l) => n + (letters[l] ?? 0), 0);
-  const parts = [...TIER_LETTERS.map((l) => [l, l.toLowerCase(), l]), ['unranked', 'u', '–']].filter(([k]) => letters[k] > 0);
-  const words = [...TIER_LETTERS.map((l) => `${l} ${formatNumber(letters[l] ?? 0)}`), `Unranked ${formatNumber(letters.unranked ?? 0)}`].join(' · ');
+export function TierDistribution({ letters, label = 'Members by tier', unrankedWhy = null }) {
+  const { ranked, parts } = tierBarParts(letters);
+  const unranked = letters.unranked ?? 0;
+  const words = TIER_LETTERS.map((l) => `${l} ${formatNumber(letters[l] ?? 0)}`).join(' · ');
   return (
     <div className="stack gap-8">
       <span className="eyebrow">{label}</span>
-      {total > 0 && (
-        <div className="tierbar" role="img" aria-label={words}>
-          {parts.map(([k, cls, text]) => <span key={k} className={cls} style={{ flex: letters[k] }}>{text}</span>)}
+      {ranked > 0 ? (
+        <div className="tierbar tierbar-ranked" role="img" aria-label={`Ranked: ${words}`}>
+          {parts.map((p) => <span key={p.letter} className={p.letter.toLowerCase()} style={{ width: `${p.pct}%` }}>{p.letter} {formatNumber(p.n)}</span>)}
         </div>
+      ) : <span className="t2 small">Nobody here has a letter yet.</span>}
+      {ranked > 0 && <span className="t2 small tier-words">{formatNumber(ranked)} ranked · {words}</span>}
+      {unranked > 0 && (
+        <span className="t2 small tier-unranked-line">
+          <TierBadge letter={null} size="sm" /> {formatNumber(unranked)} unranked: below a tier minimum{unrankedWhy ? <> · {unrankedWhy}</> : null}
+        </span>
       )}
-      <span className="t2 small tier-words">{words}</span>
     </div>
   );
 }
@@ -95,13 +106,21 @@ export function TierBrief({ brief, slug }) {
   if (!brief) return null;
   return (
     <Link className="row gap-12 tier-brief" to={`/c/${encodeURIComponent(slug)}#why-tier`}>
-      <TierBadge letter={brief.letter} size="md" />
+      <TierBadge letter={brief.letter} size="md" provisional={brief.provisional ?? null} />
       <span className="stack gap-2">
         <span className="eyebrow">Overall tier</span>
-        <span className="small strong-text">{brief.letter ? `Tier ${brief.letter}` : 'Unranked'}</span>
+        <span className="small strong-text">{brief.letter ? `Tier ${brief.letter}` : brief.provisional ? <ProvisionalText letter={brief.provisional} /> : 'Unranked'}</span>
         {brief.reason && <span className="muted xsmall">{brief.reason}</span>}
         <span className="xsmall">Why this tier →</span>
       </span>
     </Link>
   );
+}
+
+/**
+ * "≈ B (provisional)" (0.9.0): the words beside a provisional badge. A provisional letter is what the score so far
+ * would earn against the ruleset's last full grading, for someone still below a minimum; it is never on a board.
+ */
+export function ProvisionalText({ letter }) {
+  return <span className="tier-prov-text">≈ {letter} <span className="tier-prov-word">(provisional)</span></span>;
 }

@@ -184,13 +184,15 @@ function Featured({ data, onPick, onReordered }) {
             <>
               <span className="pin-grip">{grip}</span>
               <Link className="panel statcard" draggable={false} to={`/leaderboards/${f.ruleset.id}/${p.id}`}>
-              <span className="eyebrow ellipsis">{p.name ?? 'Statistic no longer available'}</span>
+              {/* 0.9.0: the label wraps (two lines, a step smaller when long) in a box that leaves room for the grip,
+                  so the grip can never sit on it; rank and movement each have their own line, movement at the foot. */}
+              <span className={`eyebrow pin-label${(p.name ?? '').length > 22 ? ' is-long' : ''}`} title={p.name ?? undefined}>{p.name ?? 'Statistic no longer available'}</span>
               <span className="big">{p.text ? <span className="small muted">{p.text} · </span> : null}{formatNumber(p.value)}</span>
-              <span className="row gap-8 small">
+              <span className="small pin-rank">
                 {p.rank !== null ? <span className="t2"><b className="strong-text">#{formatNumber(p.rank)}</b> of {formatNumber(p.withAny)} with any</span> : <span className="muted">Not ranked</span>}
-                <span className={p.move > 0 ? 'up' : p.move < 0 ? 'down' : 'muted'} title={p.move === null ? 'Movement shows once there is a week of rank history' : `Since ${formatDate(p.since)}`}>
-                  {p.move === null ? '—' : p.move > 0 ? `▲ ${p.move}` : p.move < 0 ? `▼ ${-p.move}` : '± 0'}
-                </span>
+              </span>
+              <span className={`small pin-move ${p.move > 0 ? 'up' : p.move < 0 ? 'down' : 'muted'}`} title={p.move === null ? 'Movement shows once there is a week of rank history' : `Since ${formatDate(p.since)}`}>
+                {p.move === null ? '— vs a week ago' : p.move > 0 ? `▲ ${p.move} vs a week ago` : p.move < 0 ? `▼ ${-p.move} vs a week ago` : '± 0 vs a week ago'}
               </span>
             </Link>
             </>

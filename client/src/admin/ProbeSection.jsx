@@ -16,7 +16,8 @@ const DEFAULTS = { name: 'Path', surname: 'Vexley', guild: 'Post Nerf Clarity' }
 const VERDICT = { yes: { tag: 'ok', label: 'Yes' }, no: { tag: 'warn', label: 'No' }, unknown: { tag: '', label: 'Unknown' } };
 const OUTCOME = { answered: 'ok', 'not found': 'warn', other: 'err', skipped: '', 'not asked': '' };
 const FLAG = { first: 'first probe', later: 'later expansion', classic: 'classic docs', guess: 'Forever guess' };
-const short = (t) => String(t).replace('{C}', 'C').replace('{G}', 'G').replace('/data/wow/', '');
+// 0.9.0: {C} and {G} stand for the probed character's and guild's own paths; spelled out (a bare "C" read as nothing).
+const short = (t) => String(t).replace('{C}', 'character').replace('{G}', 'guild').replace('/data/wow/', '');
 
 export function ProbePanel({ state, active, onQueued }) {
   const last = state.runs.find((r) => r.options?.kind === 'probe')?.options;
@@ -142,7 +143,7 @@ export function ProbeDetail({ runId, listed, onChanged }) {
     { id: 'responses', label: 'Raw responses', count: s.requests },
   ];
   return (
-    <section className="panel clip stack" aria-labelledby="probe-detail-h">
+    <section className="panel clip stack gap-14" aria-labelledby="probe-detail-h">
       <div className="row gap-12 panel-head-row">
         <h2 className="h2 h2-panel" id="probe-detail-h">Probe #{run.id}</h2>
         <span className="muted small">{s.primary ? `${s.primary.name} ${s.primary.surname}` : '—'} · {s.guild?.name ?? '—'} · {run.status} {formatDateTime(run.finishedAt)} · analysed with v{s.analysedWith}</span>
@@ -188,8 +189,8 @@ function ProbeAnswers({ summary: s }) {
       <Q title="Answered, though we didn’t expect it">
         <span className="muted xsmall">A Forever guess, a path never probed before 0.8.3, or a system retail added in a later expansion, that answered 200.</span>
         {s.unexpected.length === 0 ? <span className="t2 small">Nothing.</span> : (
-          <div className="tblbox listbox"><table className="tbl"><thead><tr><th scope="col">Path</th><th scope="col">Why unexpected</th><th scope="col" className="r">Items</th><th scope="col" className="r">Size</th></tr></thead><tbody>
-            {s.unexpected.map((u) => <tr key={u.id}><td className="mono xsmall">{u.path}</td><td className="small">{u.flags.map((f) => FLAG[f]).join(', ')}</td><td className="r">{u.count === null ? '—' : formatNumber(u.count)}</td><td className="r">{formatBytes(u.bytes) ?? '—'}</td></tr>)}
+          <div className="tblbox listbox"><table className="tbl probe-stack"><thead><tr><th scope="col">Path</th><th scope="col">Why unexpected</th><th scope="col" className="r">Items</th><th scope="col" className="r">Size</th></tr></thead><tbody>
+            {s.unexpected.map((u) => <tr key={u.id}><td className="mono xsmall" data-label="Path">{u.path}</td><td className="small" data-label="Why unexpected">{u.flags.map((f) => FLAG[f]).join(', ')}</td><td className="r" data-label="Items">{u.count === null ? '—' : formatNumber(u.count)}</td><td className="r" data-label="Size">{formatBytes(u.bytes) ?? '—'}</td></tr>)}
           </tbody></table></div>
         )}
       </Q>
@@ -221,7 +222,7 @@ function ProbeAreas({ summary: s }) {
               <span className="muted xsmall">{formatNumber(area.answered)} answered · {formatNumber(area.notFound)} 404 · {formatNumber(area.other)} other · {formatNumber(area.skipped)} skipped{area.notAsked ? ` · ${formatNumber(area.notAsked)} not asked` : ''}</span>
             </div>
             <div className="tblbox listbox">
-              <table className="tbl disc-catalog">
+              <table className="tbl disc-catalog probe-stack">
                 <thead><tr><th scope="col">Endpoint</th><th scope="col">Tried</th><th scope="col">Answer</th><th scope="col" className="r">Size</th><th scope="col" className="r">Items</th><th scope="col"><span className="sr-only">Field outline</span></th></tr></thead>
                 <tbody>
                   {list.flatMap((e) => {
@@ -229,16 +230,16 @@ function ProbeAreas({ summary: s }) {
                     const outline = best ? s.skeletons?.[best.responseId] : null;
                     const rows = [(
                       <tr key={e.id} className={open === e.id ? 'me' : undefined}>
-                        <td className="mono xsmall">{short(e.template)}{e.flags.map((f) => <span key={f} className="tag probe-flag">{FLAG[f]}</span>)}</td>
-                        <td className="xsmall">
+                        <td className="mono xsmall" data-label="Endpoint">{short(e.template)}{e.flags.map((f) => <span key={f} className="tag probe-flag">{FLAG[f]}</span>)}</td>
+                        <td className="xsmall" data-label="Tried">
                           {e.skipped ? <span className="t2">Skipped: {e.skipped}</span> : e.attempts.length === 0 ? <span className="t2">Not asked (stopped first)</span> : e.attempts.map((a) => (
                             <div key={a.responseId}><span className="mono">{a.path}</span> <span className="muted">{a.namespace} · {a.basis}</span></div>
                           ))}
                         </td>
-                        <td><div className="row gap-4">{e.attempts.length ? e.attempts.map((a) => <span key={a.responseId} className={`tag ${statusTag(a.status)}`}>{a.status ?? a.error ?? 'no answer'}</span>) : <span className={`tag ${OUTCOME[e.outcome]}`}>{e.outcome}</span>}</div></td>
-                        <td className="r">{best ? formatBytes(best.bytes) ?? '—' : '—'}</td>
-                        <td className="r">{best?.count === null || best?.count === undefined ? '—' : `${formatNumber(best.count)}`}</td>
-                        <td className="r">{outline && <button type="button" className="btn sm ghost" aria-expanded={open === e.id} onClick={() => setOpen(open === e.id ? null : e.id)}>{open === e.id ? 'Hide' : 'Fields'}</button>}</td>
+                        <td data-label="Answer"><div className="row gap-4">{e.attempts.length ? e.attempts.map((a) => <span key={a.responseId} className={`tag ${statusTag(a.status)}`}>{a.status ?? a.error ?? 'no answer'}</span>) : <span className={`tag ${OUTCOME[e.outcome]}`}>{e.outcome}</span>}</div></td>
+                        <td className="r" data-label="Size">{best ? formatBytes(best.bytes) ?? '—' : '—'}</td>
+                        <td className="r" data-label="Items">{best?.count === null || best?.count === undefined ? '—' : `${formatNumber(best.count)}`}</td>
+                        <td className="r probe-fields">{outline && <button type="button" className="btn sm ghost" aria-expanded={open === e.id} onClick={() => setOpen(open === e.id ? null : e.id)}>{open === e.id ? 'Hide' : 'Fields'}</button>}</td>
                       </tr>
                     )];
                     if (open === e.id && outline) {

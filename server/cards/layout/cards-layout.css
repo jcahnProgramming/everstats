@@ -70,3 +70,11 @@
 .fmt-story.t-char.v-a .a-s { margin-top: calc(var(--c-gap) * 0.6); }
 .fmt-story.t-char.v-b .body { grid-template-rows: auto minmax(calc(var(--c-h) * 0.4), 1fr) auto; }
 .fmt-story.t-char .stat { padding: calc(var(--c-gap) * 0.45) calc(var(--c-gap) * 0.5); }
+
+/* ---------------------------------------------------------------- guild tier bar (0.9.0)
+   Ranked letters only (data.js, tierBarParts: every non-zero letter at least 9% so "S 1" reads); Unranked is a line of
+   its own under the bar (cards-layout.js wraps both in .ctierwrap, which takes the bar's grid area). */
+.ctierwrap { display: flex; flex-direction: column; gap: calc(var(--c-meta) * 0.35); width: 100%; }
+.t-guild .ctierwrap { grid-area: d; align-self: end; }
+.ctierbar > span { white-space: nowrap; flex: none; }
+.ctierunr { font: var(--es-weight-semibold) calc(var(--c-meta) * 0.8) var(--es-font-body); color: var(--es-text-2); }

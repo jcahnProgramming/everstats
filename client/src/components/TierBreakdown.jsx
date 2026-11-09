@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { formatNumber, timeAgo } from '../format.js';
 import { Icon } from '../chrome/Icon.jsx';
-import { TierBadge, letterRange } from './Tier.jsx';
+import { ProvisionalText, TierBadge, letterRange } from './Tier.jsx';
 import { ShareButton } from '../share/ShareButtons.jsx';
 
 /**
@@ -41,7 +41,8 @@ export function OverallTier({ tiers }) {
           </>
         ) : (
           <>
-            <span className="h3">Unranked</span>
+            <span className="h3">{o?.provisional ? <ProvisionalText letter={o.provisional} /> : 'Unranked'}</span>
+            {o?.provisional && <span className="muted xsmall">Not a real letter yet: from the score so far, against {tiers.ruleset?.name ?? 'the ruleset'}’s last full grading. Never on a tier board.</span>}
             <span className="muted xsmall tier-reason">{(o?.reason ?? tiers.reason)?.text}</span>
           </>
         )}
@@ -50,7 +51,7 @@ export function OverallTier({ tiers }) {
           <Link to="/tiers/how">How tiers work</Link>
         </span>
       </div>
-      <TierBadge letter={letter} size="lg" label={letter ? `Overall tier ${letter}` : 'Unranked'} />
+      <TierBadge letter={letter} size="lg" provisional={o?.provisional ?? null} label={letter ? `Overall tier ${letter}` : o?.provisional ? `Unranked, provisionally ${o.provisional}` : 'Unranked'} />
     </div>
   );
 }
@@ -106,10 +107,10 @@ export function WhyThisTier({ tiers, name, shareTo = null }) {
       <div className="orn"><span className="gem" /><h2 className="h2" id="why-h">Why this tier</h2><span className="rule" /><span className="muted xsmall">Graded against {formatNumber(tiers.population)} tier-eligible characters on {rs}</span>{shareTo && <ShareButton to={shareTo} label="Share tier" gold={false} />}</div>
       <div className="panel pad-20 stack gap-12">
         <div className="row gap-16 align-start">
-          <TierBadge letter={o.letter} size="md" />
+          <TierBadge letter={o.letter} size="md" provisional={o.provisional ?? null} />
           <div className="stack gap-6 flex-fill">
             <span className="strong-text">
-              {o.letter ? <>Overall {o.letter} · {letterRange(o.letter, s.shares)} · #{formatNumber(o.rank)} of {formatNumber(o.of)} graded</> : <>Overall: Unranked</>}
+              {o.letter ? <>Overall {o.letter} · {letterRange(o.letter, s.shares)} · #{formatNumber(o.rank)} of {formatNumber(o.of)} graded</> : o.provisional ? <>Overall: Unranked · <ProvisionalText letter={o.provisional} /></> : <>Overall: Unranked</>}
             </span>
             <span className="t2 small">
               Overall score <b className="strong-text">{score(o.score)}</b> = {s.weighting === 'sqrt'
@@ -130,10 +131,10 @@ export function WhyThisTier({ tiers, name, shareTo = null }) {
       <div className="grid-auto col-sm gap-10 tier-cards">
         {tiers.categories.map((c) => (
           <a key={c.key} className="panel row gap-12 tier-card" href={`#why-${c.key}`} onClick={() => setOpen((x) => new Set(x).add(c.key))}>
-            <TierBadge letter={c.letter} size="md" />
+            <TierBadge letter={c.letter} size="md" provisional={c.provisional ?? null} />
             <span className="stack ellipsis">
               <span className="tier-card-title">{c.label}</span>
-              <span className="muted xsmall">{c.letter ? `Score ${score(c.score)}` : 'Unranked'}{!c.inOverall ? ' · own tier' : ''}</span>
+              <span className="muted xsmall">{c.letter ? `Score ${score(c.score)}` : c.provisional ? <span className="tier-prov-word">Provisional</span> : 'Unranked'}{!c.inOverall ? ' · own tier' : ''}</span>
               {c.inOverall && weightPct(c.weight) && <span className="muted xsmall tier-card-weight">Weight {weightPct(c.weight)}</span>}
             </span>
           </a>
@@ -146,7 +147,7 @@ export function WhyThisTier({ tiers, name, shareTo = null }) {
           return (
             <div key={c.key} id={`why-${c.key}`} className="panel clip">
               <button type="button" className="cathead is-collapsed why-head" aria-expanded={isOpen} aria-controls={`why-body-${c.key}`} onClick={() => toggle(c.key)}>
-                <TierBadge letter={c.letter} size="sm" />
+                <TierBadge letter={c.letter} size="sm" provisional={c.provisional ?? null} />
                 <span className="title">
                   <span className="h3 cat-title">{c.label}</span>
                   <span className="muted xsmall">
@@ -159,7 +160,7 @@ export function WhyThisTier({ tiers, name, shareTo = null }) {
               </button>
               {isOpen && (
                 <div id={`why-body-${c.key}`}>
-                  {c.reason && <div className="pad-x-18 why-reason"><span className="small tier-reason"><Icon name="info" size="sm" /> {c.reason.text}</span></div>}
+                  {c.reason && <div className="pad-x-18 why-reason"><span className="small tier-reason"><Icon name="info" size="sm" /> {c.provisional ? <>Provisionally {c.provisional} from the score so far (not a real letter, never on a board). </> : null}{c.reason.text}</span></div>}
                   <div className="statrow head why-row" aria-hidden="true"><span className="eyebrow">Statistic</span><span className="eyebrow r">Value</span><span className="eyebrow r">Percentile</span><span className="eyebrow">Counts toward</span></div>
                   {c.statistics.map((st) => (
                     <div key={st.id} className="statrow why-row">
