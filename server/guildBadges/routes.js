@@ -96,6 +96,7 @@ export function createGuildBadgeRouter({ db, limits, networkOf }) {
         state: award?.state ?? null,
         level: def.levelled ? level : null,
         firstAt: award?.first_at ?? null,
+        levelAt: award?.level_at ?? null,
         heldSince: award?.held_since ?? null,
         lostAt: award?.lost_at ?? null,
         measured: def.levelled ? value !== null && value !== undefined : null,

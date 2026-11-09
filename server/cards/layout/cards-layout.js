@@ -6,7 +6,9 @@
      2. names: one line first (shrinking to 60%); only a name that still doesn't fit wraps, at a stepped-down size
      3. the render panel: the figure (already cut to its outline on the server) is sized from the panel, head near the
         top of the ring, feet near the bottom, centred; the ring is sized from the panel too, and both stay above the
-        gear strip when it shows */
+        gear strip when it shows
+     4. (0.9.0) the guild tier bar: Unranked members get their own line under the bar (CARD_DATA.tiers_unranked); the
+        bar itself holds ranked letters only. The bar and the line share the bar's grid area in one wrapper. */
 (function () {
   function visible(e) { return !e.hidden && getComputedStyle(e).display !== 'none'; }
   function overflows(e) { return e.scrollWidth > e.clientWidth + 1; }
@@ -96,10 +98,26 @@
     });
   }
 
+  function tierLine(card) {
+    var bar = card.querySelector('.ctierbar');
+    var text = (window.CARD_DATA || {}).tiers_unranked;
+    if (!bar || !text || bar.parentNode.classList.contains('ctierwrap')) return;
+    var wrap = document.createElement('div');
+    wrap.className = 'ctierwrap a-d';
+    bar.parentNode.insertBefore(wrap, bar);
+    bar.classList.remove('a-d');
+    wrap.appendChild(bar);
+    var line = document.createElement('span');
+    line.className = 'ctierunr';
+    line.textContent = text;
+    wrap.appendChild(line);
+  }
+
   window.everstatsLayout = function () {
     var card = document.querySelector('[data-card]');
     if (!card) return false;
     names(card);
+    tierLine(card);
     tiles(card);
     renderPanels(card);
     document.documentElement.setAttribute('data-laid-out', '1');

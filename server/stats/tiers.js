@@ -76,3 +76,33 @@ export const atLeastShare = (total, percent) => (total > 0 ? Math.max(1, Math.ce
  * default 50 since 0.6.0). Below that every character there is Unranked, with the count so far.
  */
 export const isGraded = (population, minPopulation) => Number.isInteger(population) && population >= minPopulation;
+
+/**
+ * A tier distribution bar's segments (0.9.0: guild "Members by tier", the guild share card). RANKED members only, as
+ * S/A/B/C/D proportions: Unranked is never a segment (it filled most of the bar as one block) and never folds into D;
+ * callers say it on its own line. Every non-zero letter gets at least `minPct` % of the bar so its letter and count
+ * read ("S 1"); the rest share what's left in proportion. letters: { S, A, B, C, D } counts.
+ *   → { ranked, parts: [{ letter, n, pct }] }  (pct sums to 100 when ranked > 0)
+ */
+export function tierBarParts(letters, { minPct = 9 } = {}) {
+  const list = TIER_LETTERS.map((letter) => ({ letter, n: Math.max(0, Number(letters?.[letter]) || 0) })).filter((p) => p.n > 0);
+  const ranked = list.reduce((s, p) => s + p.n, 0);
+  if (!ranked) return { ranked: 0, parts: [] };
+  const floor = Math.min(minPct, 100 / list.length);
+  // Letters whose share is under the floor get the floor; the others share the rest by their counts (repeat until
+  // stable, since lifting one can push another under).
+  const fixed = new Set();
+  for (let i = 0; i < list.length; i++) {
+    const free = list.filter((p) => !fixed.has(p.letter));
+    const room = 100 - fixed.size * floor;
+    const n = free.reduce((s, p) => s + p.n, 0);
+    const under = free.filter((p) => (p.n / n) * room < floor);
+    if (!under.length) break;
+    for (const p of under) fixed.add(p.letter);
+  }
+  const free = list.filter((p) => !fixed.has(p.letter));
+  const room = 100 - fixed.size * floor;
+  const n = free.reduce((s, p) => s + p.n, 0);
+  const parts = list.map((p) => ({ letter: p.letter, n: p.n, pct: Math.round((fixed.has(p.letter) ? floor : (p.n / n) * room) * 10) / 10 }));
+  return { ranked, parts };
+}

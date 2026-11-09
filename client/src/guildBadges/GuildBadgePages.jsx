@@ -166,7 +166,7 @@ function YourGuild({ data }) {
     return (
       <div className="panel pad-16 stack gap-8 ucard-like">
         <span><b>Your guild · {g}</b></span>
-        <span className="muted xsmall">{y.level === 5 ? `At ${at} · the top level` : `${at}${y.progress ? ` · next ${y.progress.numeral}` : ''}`}</span>
+        <span className="muted xsmall">{y.level === 5 ? `At ${at} · the top level` : `${at}${y.progress ? ` · next ${y.progress.numeral}` : ''}`}{y.level > 0 && (y.levelAt ?? y.firstAt) ? ` · unlocked ${formatDate(y.levelAt ?? y.firstAt)}` : ''}</span>
         {y.progress ? (
           <>
             <div className="gprog"><span style={{ width: `${(y.progress.pct * 100).toFixed(1)}%` }} /></div>

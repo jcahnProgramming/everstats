@@ -1,6 +1,6 @@
 import { pageLimit } from '../core/db.js';
 import { TRACKED_MEMBER } from '../stats/guildTotals.js';
-import { TIER_LETTERS, bandRanges } from '../stats/tiers.js';
+import { TIER_LETTERS, bandRanges, letterForScore } from '../stats/tiers.js';
 import { ROLE_LABELS } from './counting.js';
 import { categoryWeights } from './engine.js';
 import { countingNow, eligibleCount, tierSettings } from './store.js';
@@ -19,6 +19,18 @@ export const REASONS = {
   few_nonzero: ({ needed, counted, nonzero }) => `Needs a value above zero in at least ${needed} of this category’s ${plural(counted, 'graded statistic')} (has ${nonzero}).`,
   no_stats: () => 'No graded stats yet.',
 };
+
+/**
+ * A PROVISIONAL letter (0.9.0) for a character below a category or overall minimum in a GRADED ruleset: the letter its
+ * score would earn against the ruleset's stored cutoffs (the lowest score that earned each letter at the last full
+ * grading), or null when there is no score or nobody was given a letter in that scope. Computed when a page is drawn,
+ * never stored: tier boards, guild tier bars, S-Tier and Strong Roster read the stored letters only, so a provisional
+ * letter can never reach them. A ruleset below the population minimum gets none ("Tiers open once…").
+ */
+export function provisionalLetter(score, cutoffs) {
+  if (!Number.isFinite(score) || !cutoffs || !TIER_LETTERS.some((l) => Number.isFinite(cutoffs[l]))) return null;
+  return letterForScore(score, cutoffs);
+}
 
 async function rankIn(db, table, { rulesetId, key = null, score }) {
   const keyCond = key === null ? '' : 'AND t.category_key = $3';
@@ -70,6 +82,8 @@ export async function characterTierView(db, row) {
       farmable: pc.farmable,
       inOverall: pc.inOverall,
       letter: c?.letter ?? null,
+      // Only with something to go on: a category where nothing is above zero gets no provisional letter.
+      provisional: c && !c.letter && c.nonzero > 0 ? provisionalLetter(c.score, tr.scopes?.[pc.key]?.cutoffs) : null,
       score: c?.score ?? null,
       overallPart: c?.overall_part ?? null,
       nonzero: c?.nonzero ?? 0,
@@ -99,6 +113,7 @@ export async function characterTierView(db, row) {
     settings: { shares: used.shares, categoryHalf: used.categoryHalf, overallHalf: used.overallHalf, minPopulation: used.minPopulation, weighting: used.weighting ?? 'equal' },
     overall: {
       letter: t.letter,
+      provisional: t.letter ? null : provisionalLetter(t.score, tr.scopes?.overall?.cutoffs),
       score: t.score,
       rank: rank?.rank ?? null,
       of: rank?.of ?? null,
@@ -259,8 +274,14 @@ export async function tierBrief(db, row) {
     const rs = await db.one('SELECT name FROM rulesets WHERE id = $1', [row.ruleset_id]);
     return { letter: null, status: 'unranked', reason: REASONS.ruleset_small({ min: settings.minPopulation, ruleset: rs?.name ?? 'this ruleset', n: population }) };
   }
-  const t = await db.one('SELECT letter, reason, lettered, needed, total FROM character_tiers WHERE character_id = $1', [row.id]);
+  const t = await db.one('SELECT letter, reason, lettered, needed, total, score FROM character_tiers WHERE character_id = $1', [row.id]);
   if (!t) return { letter: null, status: 'pending', reason: REASONS.pending() };
   if (t.letter) return { letter: t.letter, status: 'graded', reason: null };
-  return { letter: null, status: 'unranked', reason: REASONS[t.reason]({ needed: t.needed, total: t.total, lettered: t.lettered }) };
+  const tr = await db.one('SELECT graded, scopes FROM tier_rulesets WHERE ruleset_id = $1', [row.ruleset_id]);
+  return {
+    letter: null,
+    provisional: tr?.graded ? provisionalLetter(t.score, tr.scopes?.overall?.cutoffs) : null,
+    status: 'unranked',
+    reason: REASONS[t.reason]({ needed: t.needed, total: t.total, lettered: t.lettered }),
+  };
 }

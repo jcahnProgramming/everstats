@@ -430,9 +430,17 @@ body.is-sorting, body.is-sorting * { cursor: grabbing !important; -webkit-user-s
 .sp .sort-grip { width: var(--es-space-20); height: var(--es-space-20); }
 .statpick .sort-gap { border-radius: 0; }
 /* dashboard pins: the grip sits above the card's link (CLAUDE.md "Bugs that cost us": controls above the click target) */
-.pin-item { display: grid; }
-.pin-item > .statcard { height: 100%; padding-right: var(--es-space-40); }
+/* 0.9.0: the grip overlapped long labels because the item's grid track was `auto` (min-content): a one-line label made
+   the card wider than its slot, and the grip (placed on the slot) landed on the text. The track is now minmax(0, 1fr),
+   the label wraps to two lines (a step smaller when long) inside a box that ends before the grip's column, rank and
+   movement each get their own line, and movement sits at the foot so cards in a row line up (grid rows stretch). */
+.pin-item { display: grid; grid-template-columns: minmax(0, 1fr); }
+.pin-item > .statcard { height: 100%; min-width: 0; box-sizing: border-box; }
 .pin-item > .pin-grip { position: absolute; top: var(--es-space-8); right: var(--es-space-8); z-index: 2; }
+.statcard .pin-label { padding-right: var(--es-space-28); min-height: calc(2 * var(--es-lh-snug) * 1em); line-height: var(--es-lh-snug); white-space: normal; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.statcard .pin-label.is-long { font-size: var(--es-fs-10); letter-spacing: 0.04em; }
+.statcard .pin-move { margin-top: auto; padding-top: var(--es-space-4); white-space: nowrap; }
 
 /* Verified Content Creator (0.8.1): the mark on a checked handle (text + check, never a platform logo), the code */
 .verified-mark { display: inline-flex; align-items: center; gap: var(--es-space-4); color: var(--es-success); font: var(--es-weight-semibold) var(--es-fs-11) var(--es-font-body); letter-spacing: var(--es-tracking-tag); text-transform: uppercase; white-space: nowrap; }
@@ -498,3 +506,36 @@ li.verified-mark .mono { text-transform: none; letter-spacing: 0; color: var(--e
 /* 0.8.2: a locked featured badge (staff, partner) shows a lock where the others have a grip; the lock takes the grip's
    slot width, so every icon in the list starts at the same place. */
 .feat-pill .sort-lock { flex: none; display: inline-flex; justify-content: center; width: var(--es-space-24); }
+
+/* 0.9.0 guild badge pills: "NEW" for 7 days after an unlock, INSIDE the pill. The design's floating "Unlocked [date]"
+   ribbon (and the is-new glow) spilled over the pill and its neighbours; the date is in the popover and badge page now. */
+.gpill.is-new { box-shadow: none; border-color: color-mix(in oklab, var(--es-badge-new) 70%, var(--es-line-strong)); }
+.gpill .gnew { flex: none; display: inline-flex; align-items: center; height: var(--es-space-16); padding: 0 var(--es-space-5); border-radius: var(--es-radius-xs);
+  background: var(--es-gbadge-ribbon); color: var(--es-gbadge-ribbon-ink); font: var(--es-weight-bold) var(--es-fs-10)/1 var(--es-font-body); letter-spacing: var(--es-tracking-tag); text-transform: uppercase; }
+
+/* 0.9.0 tier distribution bars: ranked letters only, each non-zero letter at least wide enough for "S 1"
+   (server/stats/tiers.js tierBarParts sets the widths); Unranked on its own line, never a segment */
+.tierbar-ranked > span { flex: none; white-space: nowrap; padding: 0 var(--es-space-2); font-variant-numeric: tabular-nums lining-nums; }
+.tier-unranked-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--es-space-4) var(--es-space-8); }
+
+/* 0.9.0 provisional tier letters: never a real letter's look. A hatched ring in the letter's colour (the "dashed"
+   outline: a clip-path shield can't take a dashed border), a hollow centre and "≈B" in body text colour, always beside
+   the word "provisional" and the reason it isn't a real letter yet. */
+.tier.prov { background: repeating-linear-gradient(135deg, var(--fill) 0 var(--es-space-3), transparent var(--es-space-3) var(--es-space-6)); }
+.tier.prov > b { background: var(--es-surface); color: var(--es-text); font-family: var(--es-font-body); font-weight: var(--es-weight-semibold); }
+.tier.lg.prov > b { box-shadow: none; }
+.tier-prov-text { white-space: nowrap; }
+.tier-prov-word { font-weight: var(--es-weight-medium); color: var(--es-text-2); font-style: italic; }
+
+/* 0.9.0 probe results at phone width: the two probe tables (unexpected answers, endpoints by area) squeezed a path into
+   a one-character column and pushed Answer / Size out of view. Under 640px each row becomes a small card: every cell
+   on its own line with its column name in front (data-label), long paths wrap at any character. */
+@media (max-width: 640px) {
+  .tbl.probe-stack thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .tbl.probe-stack, .tbl.probe-stack tbody { display: block; width: 100%; }
+  .tbl.probe-stack tr { display: flex; flex-direction: column; gap: var(--es-space-4); padding: var(--es-space-10) var(--es-space-12); border-bottom: var(--es-border-1) solid var(--es-row-sep); }
+  .tbl.probe-stack td { display: flex; gap: var(--es-space-8); align-items: baseline; padding: 0; border: 0; text-align: left; min-width: 0; overflow-wrap: anywhere; }
+  .tbl.probe-stack td[data-label]::before { content: attr(data-label); flex: none; min-width: 7.5em; color: var(--es-muted); font: var(--es-weight-semibold) var(--es-fs-11) var(--es-font-body); letter-spacing: var(--es-tracking-eyebrow); text-transform: uppercase; }
+  .tbl.probe-stack td.probe-fields:empty { display: none; }
+  .tbl.probe-stack td > div { min-width: 0; }
+}
