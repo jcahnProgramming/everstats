@@ -176,7 +176,7 @@ export function GuildFetch({ slug, onDone }) {
               <span className="stack gap-2">
                 <b>{plural(s.result.added, 'member')} added</b>
                 <span>
-                  {[s.result.notFound > 0 ? `${formatNumber(s.result.notFound)} Blizzard didn’t return (recorded; tried again on the daily refresh)` : null,
+                  {[s.result.notFound > 0 ? `${formatNumber(s.result.notFound)} not returned by Blizzard (recorded; tried again on the daily refresh)` : null,
                     s.result.failed > 0 ? `${formatNumber(s.result.failed)} couldn’t be fetched just now` : null].filter(Boolean).join(' · ')}
                   {(s.result.notFound > 0 || s.result.failed > 0) ? '. ' : ''}
                   Guild totals, tiers and badges update within a few minutes.
