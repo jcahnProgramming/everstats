@@ -3,8 +3,17 @@
 Every night after 04:00 UTC the worker container (`everstats-worker`) dumps the database with `pg_dump` into the host
 folder in the `BACKUP_DIR` Gitea variable (mounted at `/backups` in the container), as `everstats-YYYY-MM-DD.dump`
 (the UTC date, custom format). Each dump is read all the way through with `pg_restore` before it is kept: one that
-can't be read is deleted and the failure is recorded. The 14 newest dumps are kept, plus the first dump of every
-month, forever. If the worker was down at 04:00, the dump runs as soon as it's back.
+can't be read is deleted and the failure is recorded. If the worker was down at 04:00, the dump runs as soon as it's back.
+
+**Each dump is deleted 3 days after it was taken** (measured in hours, by the hourly retention sweep and after every good
+backup). There are no monthly copies. A dump holds Blizzard's game data as it was that night, and Blizzard's API terms
+allow keeping that data at most 30 days: the database keeps 26 days, a dump at most 3 more, and 1 day is slack
+(server/retention/policy.js). So **the oldest restore point is about 3 days old**. If backups fail for more than 3 days
+in a row, the old ones are still deleted on time and there is no restore point until a backup succeeds again: the admin
+page and the worker's health say so.
+
+After a restore, Blizzard data in it may be up to 3 days older than when the dump was taken; the hourly sweep deletes
+anything past the window within the hour, and the daily refresh fetches every character again.
 
 How it's going: the admin page (Backups), the worker's health (`curl -s http://<BIND_IP>:3261/api/health`, the
 `backup` part), and the log: `docker logs everstats-worker 2>&1 | grep '\[backup\]'`. A failure logs `[backup] FAILED`
@@ -81,7 +90,7 @@ database and migrate it), then stop the two app containers and restore as above.
 
 ## How this was tested
 
-`server/test/backup.test.js` covers the logic with a stand-in for `pg_dump`: naming, the 14-plus-monthly retention,
+`server/test/backup.test.js` covers the logic with a stand-in for `pg_dump`: naming, the 3-day retention,
 that the password goes in the environment and never on a command line, that a failed or unreadable dump leaves no file
 and keeps every earlier one, the lock, the recorded status, and that the nightly job doesn't stall the worker's
 heartbeat. **The real `pg_dump` / `pg_restore` commands and this restore procedure have not yet been run against the

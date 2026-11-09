@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { closeSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
 import { devNull } from 'node:os';
 import { join } from 'node:path';
+import { BACKUP_KEEP_DAYS, DAY_MS } from '../retention/policy.js';
 
 /**
  * Nightly backups of the Everstats database (RESTORE.md says how to put one back). The worker runs them
@@ -19,14 +20,13 @@ import { join } from 'node:path';
  * A run that fails at any step removes its partial file, records the failure (backup_runs) and logs
  * `[backup] FAILED`; the earlier backups are untouched.
  *
- * Kept: the newest KEEP_NIGHTLY backups, plus the earliest backup of every calendar month, forever. Everything else
- * named like a backup is deleted after a good run (CLAUDE.md names this as a retention exception). Nothing else in
- * the folder is ever touched.
+ * Kept: 0.4.2, for Blizzard's 30-day rule, each backup for BACKUP_KEEP_DAYS (3) from when it was taken, then deleted
+ * (by a good run, and by the hourly retention sweep: retention/sweep.js). No monthly copies. Nothing else in the folder
+ * is ever touched.
  *
  * A dump holds everything in the database: account identities, session hashes, sealed keys and 2FA secrets (sealed
  * with the root key, which is NOT in the dump). The folder must be as private as the database.
  */
-export const KEEP_NIGHTLY = 14;
 // When the nightly backup becomes due, in UTC. The dump is consistent at any hour (one transaction snapshot).
 export const BACKUP_HOUR_UTC = 4;
 // After a failed nightly attempt, wait this long before trying again.
@@ -38,23 +38,38 @@ const NAME = /^everstats-(\d{4}-\d{2}-\d{2})\.dump$/;
 
 export const backupName = (ms) => `everstats-${new Date(ms).toISOString().slice(0, 10)}.dump`;
 
-/** The backups in `dir`, newest first: [{ name, date }]. Only files named like a backup. */
+/** The backups in `dir`, newest first: [{ name, date, takenAt (ms: the file's modification time) }]. */
 export function listBackups(dir) {
   return readdirSync(dir)
     .map((name) => ({ name, date: NAME.exec(name)?.[1] }))
     .filter((b) => b.date)
+    .map((b) => {
+      let takenAt = Date.parse(`${b.date}T00:00:00Z`);
+      try {
+        takenAt = statSync(join(dir, b.name)).mtimeMs;
+      } catch {
+        /* vanished: the date is the best we know */
+      }
+      return { ...b, takenAt };
+    })
     .sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
 /**
- * Which backups to delete: everything except the newest `keep` and the earliest of each month. Pure, so the rule is
- * tested on its own. `backups` newest first ([{ name, date }]); returns names.
+ * 0.4.2, Blizzard's 30-day rule: which backups to delete. A dump holds every Blizzard row as it was that night, so it
+ * may be kept only BACKUP_KEEP_DAYS (retention/policy.js) from the moment it was taken, measured in hours, not dates.
+ * No exception for the newest or for month-firsts any more: if backups have been failing for days, the old ones still
+ * go. Pure, so the rule is tested on its own. Returns names.
  */
-export function planPrune(backups, keep = KEEP_NIGHTLY) {
-  const monthly = new Map(); // 'YYYY-MM' → name of that month's earliest backup
-  for (const b of backups) monthly.set(b.date.slice(0, 7), b.name); // newest first, so the last write is the earliest
-  const keepNames = new Set([...backups.slice(0, keep).map((b) => b.name), ...monthly.values()]);
-  return backups.filter((b) => !keepNames.has(b.name)).map((b) => b.name);
+export function planPrune(backups, { keepMs, now = Date.now() }) {
+  return backups.filter((b) => now - b.takenAt > keepMs).map((b) => b.name);
+}
+
+/** Deletes backups past their keep time. → how many. (The retention sweep calls this every hour; so does a backup.) */
+export function pruneBackups(dir, { keepMs, now = Date.now() }) {
+  const removed = planPrune(listBackups(dir), { keepMs, now });
+  for (const old of removed) rmSync(join(dir, old), { force: true });
+  return removed;
 }
 
 /** libpq's environment for a postgres:// URL: the password never appears in a command line. */
@@ -119,7 +134,7 @@ function takeLock(dir, now) {
  * Takes one backup now. Resolves { name, bytes, durationMs, removed } or rejects (partial file removed).
  * `exec` is the program runner (tests pass a fake: they have no pg_dump).
  */
-export async function runBackup({ dir, databaseUrl, now = Date.now(), exec = run }) {
+export async function runBackup({ dir, databaseUrl, now = Date.now(), exec = run, keepMs = BACKUP_KEEP_DAYS * DAY_MS }) {
   const started = Date.now();
   const unlock = takeLock(dir, now);
   const name = backupName(now);
@@ -133,8 +148,7 @@ export async function runBackup({ dir, databaseUrl, now = Date.now(), exec = run
     await exec('pg_restore', [`--file=${devNull}`, partial]);
     renameSync(partial, join(dir, name));
     const bytes = statSync(join(dir, name)).size;
-    const removed = planPrune(listBackups(dir));
-    for (const old of removed) rmSync(join(dir, old), { force: true });
+    const removed = pruneBackups(dir, { keepMs, now });
     return { name, bytes, durationMs: Date.now() - started, removed };
   } catch (err) {
     rmSync(partial, { force: true });

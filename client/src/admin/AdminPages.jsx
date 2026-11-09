@@ -11,6 +11,7 @@ import { AuthCard } from '../pages/SignInPages.jsx';
 import { passkeyRegister, passkeySignIn, wasCancelled } from '../passkeyClient.js';
 import { useCoverage } from '../useCoverage.js';
 import { PlayersSection, ReservedSection } from './PlayersSection.jsx';
+import { RetentionSection } from './RetentionSection.jsx';
 
 /**
  * The admin area (design/v1/pages/admin). Not linked from anywhere. Without an admin session, /admin sends the browser
@@ -65,6 +66,7 @@ export function AdminPage() {
         <GradingSection settings={state.settings} onSaved={(settings) => setState((s) => ({ ...s, settings }))} />
         <CrawlerSection crawler={state.crawler} settings={state.settings} onSaved={(settings) => setState((st) => ({ ...st, settings }))} onRefresh={load} />
         <BetaSection beta={state.beta} settings={state.settings} onBeta={(beta) => setState((st) => ({ ...st, beta }))} onSaved={(settings) => setState((st) => ({ ...st, settings }))} />
+        <RetentionSection retention={state.retention} setting={state.settings.find((st) => st.key === 'retention.window')} onSaved={load} />
         <BackupsSection backups={state.backups} />
         <ProxiesSection proxies={state.proxies} />
         <PlayersSection />
@@ -438,7 +440,7 @@ function BackupsSection({ backups: b }) {
           </table>
         </div>
       )}
-      <span className="muted xsmall">By hand: <span className="mono">docker exec everstats-worker node server/tools/backup.js now</span>. Keeps the 14 newest plus the first of each month. Restoring: RESTORE.md.</span>
+      <span className="muted xsmall">By hand: <span className="mono">docker exec everstats-worker node server/tools/backup.js now</span>. Each backup is deleted 3 days after it’s taken: backups hold Blizzard data, which Blizzard’s terms allow keeping for at most 30 days (Data retention). No monthly copies. Restoring: RESTORE.md.</span>
     </section>
   );
 }

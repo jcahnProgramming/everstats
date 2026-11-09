@@ -14,7 +14,7 @@ export const MAX_PINS = 12;
 
 export async function defaultPinIds(db) {
   const { statistics } = await loadCatalog(db);
-  const byName = new Map([...statistics.values()].map((s) => [s.name.toLowerCase(), s.id]));
+  const byName = new Map([...statistics.values()].filter((s) => s.name !== null).map((s) => [s.name.toLowerCase(), s.id]));
   return DEFAULT_PIN_NAMES.map((n) => byName.get(n.toLowerCase())).filter((id) => id !== undefined);
 }
 
@@ -24,6 +24,36 @@ export async function pinsOf(db, accountId) {
   if (!acct?.pins_customised) return { ids: await defaultPinIds(db), isDefault: true };
   const rows = await db.query('SELECT statistic_id FROM account_pins WHERE account_id = $1 ORDER BY position, statistic_id LIMIT $2', [accountId, MAX_PINS]);
   return { ids: rows.map((r) => r.statistic_id), isDefault: false };
+}
+
+/**
+ * The pinned-stat cards for a character (the dashboard, and the public profile when the player shows them): each
+ * pin's value, its rank on the character's ruleset board (null at zero: not ranked), how many have any, and the move
+ * since a week ago (null until a week of rank history exists). A statistic whose name has aged out of the retention
+ * window (no character returned it lately) is { name: null }: shown as unavailable, never given an invented name.
+ */
+export async function pinCards(db, ids, character) {
+  const { rankOn } = await import('./boards.js');
+  const { utcDay } = await import('./periods.js');
+  const { statistics } = await loadCatalog(db);
+  const weekAgo = utcDay(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const out = [];
+  for (const id of ids) {
+    const s = statistics.get(id);
+    if (!s) continue;
+    const cs = await db.one('SELECT value, text FROM character_statistics WHERE character_id = $1 AND statistic_id = $2', [character.id, id]);
+    const rk = character.hidden ? null : await rankOn(db, { characterId: character.id, statisticId: id, rulesetId: character.ruleset_id });
+    const then = rk?.rank
+      ? await db.one('SELECT rank, day FROM pin_rank_history WHERE character_id = $1 AND statistic_id = $2 AND day <= $3 ORDER BY day DESC LIMIT 1', [character.id, id, weekAgo])
+      : null;
+    out.push({
+      id, name: s.name, category: s.category, grading: s.grading, value: cs?.value ?? 0, text: cs?.text ?? null,
+      rank: rk?.rank ?? null, withAny: rk?.withAny ?? null,
+      // Positive = moved up the board. null until a week of rank history exists (shown as "—").
+      move: then && rk?.rank ? then.rank - rk.rank : null, since: then?.day ?? null,
+    });
+  }
+  return out;
 }
 
 export async function setPins(q, accountId, ids) {

@@ -1,6 +1,30 @@
 {
   "releases": [
     {
+      "version": "0.4.2",
+      "date": "2026-11-11",
+      "title": "30 days of history, fuller profiles, a proper character sheet",
+      "sections": {
+        "New": [
+          "Profiles say more about you: a short bio, links to your Twitch, YouTube, X, Bluesky, Kick, TikTok, Instagram or Discord server (you type just your handle and Everstats builds the link), when you joined, your main ruleset and faction, your guilds, and your pinned statistics with their ranks. Fill them in under Settings → Profile. Anything you leave empty simply doesn't show, and your pinned statistics can be switched off.",
+          "Core stats on the character page are grouped like the in-game character sheet (Base, Health & power, Melee, Ranged, Spell, Defense, Resistances) and laid out side by side across the page."
+        ],
+        "Improved": [
+          "Everstats now keeps game data from Blizzard for at most 30 days, as Blizzard's rules for its API require. The site keeps 26 days and its backups 3 more, so nothing is ever older than 30. History, rank movement and progress go back about four weeks and no further.",
+          "\"Monthly\" boards are now \"Last 26 days\": what each character gained over the most recent 26 days, a rolling window that opens once there are 26 days of snapshots. Weekly boards are unchanged.",
+          "If Blizzard stops returning a character (deleted, renamed or made private), its page and your character list say so with the date, and its old numbers come off the boards straight away instead of being shown as current. If it doesn't come back within 30 days, everything Everstats had about it is deleted.",
+          "The footer says where character data comes from: Blizzard Entertainment's game data API.",
+          "The privacy page explains the 30-day limit.",
+          "For the site owner: a Data retention panel on the admin page shows the window, the last sweep, what it deleted and the age of the oldest game data stored. Backups are now kept 3 days each instead of 14 plus one a month, because they hold game data too. Discovery runs older than the window are deleted, and the Discovery page says so."
+        ],
+        "Fixed": [
+          "\"Choose a username\" no longer wraps onto its own row in the top bar at mid-sized widths.",
+          "Going to /dashboard now takes you to your dashboard instead of \"Nothing here\".",
+          "The \"Claim your username\" prompt no longer appears over the admin area."
+        ]
+      }
+    },
+    {
       "version": "0.4.1",
       "date": "2026-11-10",
       "title": "Usernames, profiles, and gear that looks like the game",

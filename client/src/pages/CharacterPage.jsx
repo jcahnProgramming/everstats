@@ -7,9 +7,10 @@ import { EmptyState, Fresh, Provenance } from '../components/EmptyState.jsx';
 import { CharacterLoading, CharacterNotFound, ServiceUnavailable } from '../components/States.jsx';
 import { RankPill, RenderFrame } from '../components/Stats.jsx';
 import { GearSheet } from '../components/GearSheet.jsx';
+import { groupCoreStats } from '../coreStats.js';
 import { TierLegend } from '../components/Tier.jsx';
 import { useToasts } from '../components/Toasts.jsx';
-import { formatDateTime, formatNumber, timeAgo } from '../format.js';
+import { formatDate, formatDateTime, formatNumber, timeAgo } from '../format.js';
 import { useSession } from '../session.jsx';
 
 /**
@@ -82,6 +83,16 @@ export function CharacterPage() {
         </EmptyState>
       </div>
     );
+  } else if (result.status === 'missing') {
+    body = (
+      <section className="stack gap-16 narrow-panel">
+        <h1 className="h2">{result.name} {result.surname}</h1>
+        <EmptyState kind="couldnt" title={`Blizzard hasn’t returned this character since ${formatDate(result.since)}`}>
+          <span>It may have been deleted, renamed, transferred or made private. Everstats keeps checking on the usual schedule; until Blizzard returns it, none of its old numbers are shown or ranked.</span>
+          <span>Blizzard’s rules let Everstats keep its data for at most 30 days, so if it doesn’t come back by then, everything Everstats had about it is deleted.</span>
+        </EmptyState>
+      </section>
+    );
   } else if (result.status === 'unavailable') {
     body = (
       <section className="stack gap-16 narrow-panel">
@@ -148,14 +159,9 @@ function CharacterSheet({ data, onReload }) {
             render={<RenderFrame src={c.media.state === 'ok' ? c.media.render : null} alt={`${c.name} ${c.surname}, as Blizzard renders them`} pending={c.media.state !== 'ok'} />}
           />
           {!c.equipment?.length && <span className="muted xsmall">No equipment on the last fetch.</span>}
-          <div className="well stack core-stats">
-            <span className="eyebrow">Core stats</span>
-            {c.attributes?.length ? c.attributes.map((a) => (
-              <div key={a.key} className="kv"><span className="t2">{a.label}</span><span className="num strong">{formatNumber(a.value)}{a.percent ? '%' : ''}</span></div>
-            )) : <span className="muted xsmall">Blizzard didn't send core stats on the last fetch.</span>}
-          </div>
+          <CoreStats attributes={c.attributes} />
         </div>
-        <Provenance source="Blizzard: profile, equipment, statistics" fetchedAt={c.fetchedAt}>
+        <Provenance source="Blizzard Entertainment’s game data API: profile, equipment, statistics" fetchedAt={c.fetchedAt}>
           <span className="muted">Render: {c.media.state === 'ok' ? <>fetched {timeAgo(c.media.fetchedAt)} (renders lag the profile by hours)</> : 'not ready yet at Blizzard'}</span>
         </Provenance>
       </section>
@@ -175,6 +181,28 @@ function CharacterSheet({ data, onReload }) {
         <TierLegend />
       </section>
     </>
+  );
+}
+
+/**
+ * Core stats grouped like the in-game character sheet (coreStats.js), as cards in a grid that fills the sheet's width:
+ * as many columns as fit, down to one on a phone. Only what Blizzard returned; an empty group isn't drawn.
+ */
+function CoreStats({ attributes }) {
+  const groups = groupCoreStats(attributes);
+  if (!groups.length) return <span className="muted xsmall">Blizzard didn't send core stats on the last fetch.</span>;
+  return (
+    <section className="stack gap-10 core-section" aria-labelledby="core-h">
+      <h2 className="eyebrow" id="core-h">Core stats</h2>
+      <div className="core-grid">
+        {groups.map((g) => (
+          <div key={g.id} className="well core-card">
+            <h3 className="eyebrow core-card-title">{g.label}</h3>
+            {g.rows.map((r) => <div key={r.key} className="kv"><span className="t2">{r.label}</span><span className="num strong">{r.value}</span></div>)}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

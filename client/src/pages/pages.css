@@ -36,7 +36,9 @@
 /* ---------------------------------------------------------------- character */
 .sheet-top { align-items: flex-start; }
 .char-ident { flex: 1 1 var(--es-size-col-min-xl); min-width: 0; }
-.char-name { overflow-wrap: anywhere; }
+/* break-word, not anywhere: a name breaks between words, and only splits a word too long for the line on its own. */
+.char-name { overflow-wrap: break-word; }
+@media (max-width: 719px) { .char-name { font-size: var(--es-fs-26); } }
 .char-line { font-size: var(--es-fs-16); }
 .char-tier { flex-wrap: nowrap; }
 .char-tier-text { align-items: flex-end; text-align: right; }
@@ -297,3 +299,31 @@ button.armory-slot[aria-expanded="true"] { border-color: var(--qc, var(--es-line
 .listrow.linkrow:focus-visible { outline: var(--es-border-2) solid var(--es-focus); }
 .reserved-list { padding-top: var(--es-space-8); }
 .reserved-list .tag { cursor: pointer; background: none; text-transform: none; }
+
+/* ---------------------------------------------------------------- 0.4.2 */
+/* The top bar never wraps: the search shrinks first, and "Choose a username" folds to its icon between phone and wide
+   desktop (its full name stays in aria-label; on phones it's in the menu sheet, written out). */
+.topbar .in { flex-wrap: nowrap; }
+.topbar .top-search { min-width: 0; flex: 0 1 auto; }
+@media (min-width: 720px) and (max-width: 1199px) { .topbar .who-claim-label { display: none; } }
+
+/* Core stats: cards in a grid as wide as the sheet, as many columns as fit, one on a phone. */
+.core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(var(--es-size-col-min-xs) + var(--es-space-56), 100%), 1fr)); gap: var(--es-space-12); }
+.core-card { padding: var(--es-space-12) var(--es-space-14); display: flex; flex-direction: column; }
+.core-card-title { margin: 0 0 var(--es-space-6); }
+
+/* Profiles */
+.profile-bio { white-space: pre-line; overflow-wrap: anywhere; margin: 0; max-width: var(--es-size-col-min-xl); }
+.profile-links { flex-wrap: wrap; }
+.profile-handle { color: var(--es-text-2); font-weight: var(--es-weight-regular); }
+.profile-bio-input { min-height: var(--es-space-96); resize: vertical; font: inherit; }
+
+/* Admin: retention panel */
+.retention-table td { white-space: normal; }
+.pins-head { flex-wrap: wrap; row-gap: var(--es-space-2); }
+.pins-head h2 { margin: 0; }
+/* The sheet body aligns its children to the start, which would shrink the grid to one column: it takes the full width. */
+.core-section { width: 100%; }
+/* Phones: a field with buttons beside it takes the full row, and the buttons go underneath. */
+.wrap-field-row { flex-wrap: wrap; }
+@media (max-width: 719px) { .wrap-field-row > .field { flex: 1 1 100%; } }

@@ -1,5 +1,6 @@
 import { recordStatistics } from '../stats/catalog.js';
-import { PERIODS, periodStart, utcDay } from '../stats/periods.js';
+import { ROLLING_START, periodStart, utcDay } from '../stats/periods.js';
+import { retentionPolicy } from '../retention/policy.js';
 import { EQUIPMENT_VERSION } from './parse.js';
 
 /**
@@ -32,8 +33,8 @@ export async function upsertGuild(q, g, rulesetId) {
 export async function upsertKnown(q, c, { source, ownerAccountId = null }) {
   await q.query('UPDATE characters SET slug = NULL WHERE slug = $1 AND id <> $2', [c.slug, c.id]);
   return q.one(
-    `INSERT INTO characters (id, slug, name, surname, faction, race, class, gender, level, account_level, profile_state, source, owner_account_id, owned_since)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'not_found', $11, $12, CASE WHEN $12::bigint IS NULL THEN NULL ELSE now() END)
+    `INSERT INTO characters (id, slug, name, surname, faction, race, class, gender, level, account_level, profile_state, source, owner_account_id, owned_since, data_fetched_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'not_found', $11, $12, CASE WHEN $12::bigint IS NULL THEN NULL ELSE now() END, now())
      ON CONFLICT (id) DO UPDATE SET
        slug = EXCLUDED.slug, name = EXCLUDED.name, surname = EXCLUDED.surname,
        faction = coalesce(characters.faction, EXCLUDED.faction), race = coalesce(characters.race, EXCLUDED.race),
@@ -41,7 +42,10 @@ export async function upsertKnown(q, c, { source, ownerAccountId = null }) {
        level = GREATEST(characters.level, EXCLUDED.level),
        account_level = coalesce(EXCLUDED.account_level, characters.account_level),
        owner_account_id = coalesce(EXCLUDED.owner_account_id, characters.owner_account_id),
-       owned_since = CASE WHEN EXCLUDED.owner_account_id IS NOT NULL AND characters.owner_account_id IS DISTINCT FROM EXCLUDED.owner_account_id THEN now() ELSE characters.owned_since END
+       owned_since = CASE WHEN EXCLUDED.owner_account_id IS NOT NULL AND characters.owner_account_id IS DISTINCT FROM EXCLUDED.owner_account_id THEN now() ELSE characters.owned_since END,
+       -- Listed on its owner's Battle.net account: Blizzard returned it (a purged stub comes back as known).
+       data_fetched_at = now(), purged_at = NULL,
+       profile_state = CASE WHEN characters.profile_state = 'purged' THEN 'not_found' ELSE characters.profile_state END
      RETURNING id, profile_state, last_checked_at, stats_fetched_at`,
     [c.id, c.slug, c.name, c.surname ?? '', c.faction ?? null, c.race ?? null, c.class ?? null, c.gender ?? null, c.level ?? null,
       source === 'account' ? c.level ?? null : null, source, ownerAccountId],
@@ -55,13 +59,14 @@ export async function storeProfile(q, p, { source }) {
   const guildId = await upsertGuild(q, p.guild, p.ruleset?.id ?? null);
   if (p.slug) await q.query('UPDATE characters SET slug = NULL WHERE slug = $1 AND id <> $2', [p.slug, p.id]);
   await q.query(
-    `INSERT INTO characters (id, slug, name, surname, ruleset_id, faction, race, class, gender, level, guild_id, last_login_at, profile_state, last_checked_at, source)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'ok', now(), $13)
+    `INSERT INTO characters (id, slug, name, surname, ruleset_id, faction, race, class, gender, level, guild_id, last_login_at, profile_state, last_checked_at, source, data_fetched_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'ok', now(), $13, now())
      ON CONFLICT (id) DO UPDATE SET
        slug = coalesce(EXCLUDED.slug, characters.slug), name = EXCLUDED.name, surname = EXCLUDED.surname,
        ruleset_id = coalesce(EXCLUDED.ruleset_id, characters.ruleset_id), faction = EXCLUDED.faction, race = EXCLUDED.race,
        class = EXCLUDED.class, gender = EXCLUDED.gender, level = EXCLUDED.level, guild_id = EXCLUDED.guild_id,
-       last_login_at = EXCLUDED.last_login_at, profile_state = 'ok', last_checked_at = now()`,
+       last_login_at = EXCLUDED.last_login_at, profile_state = 'ok', last_checked_at = now(),
+       data_fetched_at = now(), missing_since = NULL, purged_at = NULL`,
     [p.id, p.slug, p.name, p.surname, p.ruleset?.id ?? null, p.faction, p.race, p.class, p.gender, p.level, guildId, p.lastLoginAt, source],
   );
   // A ruleset change (a transfer, if Forever ever has them): every ranked copy follows the character.
@@ -73,12 +78,22 @@ export async function storeProfile(q, p, { source }) {
 
 /** The 404 case: a character whose profile Blizzard doesn't serve (yet). */
 export async function markProfileMissing(q, slug) {
-  // A character that has been fetched before keeps its data (Blizzard may be catching up); one that never was is
-  // recorded as not found.
+  // 0.4.2: a character Blizzard returned before and now doesn't (404: private, deleted, or not served for now) is
+  // "missing": its current values come off every board and page at once (never shown as current when Blizzard no
+  // longer returns them), and it is retried on the normal schedule. data_fetched_at keeps the date of the last success;
+  // past the retention window the sweep strips its Blizzard data (retention/registry.js). One never fetched is
+  // simply not found.
+  const row = await q.one('SELECT id, stats_fetched_at FROM characters WHERE slug = $1', [slug]);
+  if (!row) return;
+  if (row.stats_fetched_at) {
+    await q.query('DELETE FROM character_statistics WHERE character_id = $1', [row.id]);
+    await q.query('DELETE FROM stat_gains WHERE character_id = $1', [row.id]);
+  }
   await q.query(
-    `UPDATE characters SET last_checked_at = now(), profile_state = CASE WHEN stats_fetched_at IS NULL THEN 'not_found' ELSE profile_state END
-      WHERE slug = $1`,
-    [slug],
+    `UPDATE characters SET last_checked_at = now(), missing_since = CASE WHEN stats_fetched_at IS NOT NULL THEN coalesce(missing_since, now()) ELSE missing_since END,
+       profile_state = CASE WHEN stats_fetched_at IS NULL AND profile_state <> 'purged' THEN 'not_found' ELSE profile_state END
+      WHERE id = $1`,
+    [row.id],
   );
 }
 
@@ -124,7 +139,8 @@ export async function storeMedia(q, characterId, media) {
 
 /**
  * Today's snapshot (UTC day) from the character's current values, if it has none yet: one per character per day,
- * the first of the day. The first snapshot in a week or month becomes that period's baseline. → true if taken.
+ * the first of the day. The first snapshot in a week becomes that week's baseline (the rolling baseline is chosen in
+ * updateGains: the oldest snapshot still kept). → true if taken.
  */
 export async function takeSnapshot(q, characterId, { now = Date.now } = {}) {
   const ch = await q.one('SELECT ruleset_id, hidden, level, stats_fetched_at FROM characters WHERE id = $1', [characterId]);
@@ -140,21 +156,37 @@ export async function takeSnapshot(q, characterId, { now = Date.now } = {}) {
   );
   if (!taken) return false;
   await q.query("INSERT INTO pipeline_facts (key, at) VALUES ('first_snapshot_at', $1) ON CONFLICT (key) DO NOTHING", [at]);
-  for (const period of PERIODS) {
-    await q.query(
-      `INSERT INTO period_baselines (period, period_start, character_id, ruleset_id, hidden, taken_at, stat_ids, stat_values)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::int[], $8::float8[]) ON CONFLICT DO NOTHING`,
-      [period, periodStart(period, at), characterId, ch.ruleset_id, ch.hidden, at, ids, values],
-    );
-  }
+  await q.query(
+    `INSERT INTO period_baselines (period, period_start, character_id, ruleset_id, hidden, taken_at, stat_ids, stat_values)
+     VALUES ('week', $1, $2, $3, $4, $5, $6::int[], $7::float8[]) ON CONFLICT DO NOTHING`,
+    [periodStart('week', at), characterId, ch.ruleset_id, ch.hidden, at, ids, values],
+  );
   return true;
 }
 
-/** Rebuilds the character's gains in the current week and month: current value minus the period's baseline, > 0 only. */
+/**
+ * Rebuilds the character's gains this week and over the rolling window: current value minus the baseline, > 0 only.
+ * The rolling baseline is the character's OLDEST snapshot still inside the keep window (it moves forward a day each
+ * day as the sweep deletes older ones; this runs on every daily check).
+ */
 export async function updateGains(q, characterId, { now = Date.now } = {}) {
   const ch = await q.one('SELECT ruleset_id, hidden FROM characters WHERE id = $1', [characterId]);
   if (!ch || ch.ruleset_id === null) return;
-  for (const period of PERIODS) {
+  const { cutoff } = await retentionPolicy(q, now());
+  const oldest = await q.one(
+    'SELECT taken_at, stat_ids, stat_values FROM character_snapshots WHERE character_id = $1 AND taken_at >= $2 ORDER BY taken_at LIMIT 1',
+    [characterId, cutoff],
+  );
+  if (oldest) {
+    await q.query(
+      `INSERT INTO period_baselines (period, period_start, character_id, ruleset_id, hidden, taken_at, stat_ids, stat_values)
+       VALUES ('rolling', $1, $2, $3, $4, $5, $6::int[], $7::float8[])
+       ON CONFLICT (period, period_start, character_id) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, hidden = EXCLUDED.hidden,
+         taken_at = EXCLUDED.taken_at, stat_ids = EXCLUDED.stat_ids, stat_values = EXCLUDED.stat_values`,
+      [ROLLING_START, characterId, ch.ruleset_id, ch.hidden, oldest.taken_at, oldest.stat_ids, oldest.stat_values],
+    );
+  }
+  for (const period of ['week', 'rolling']) {
     const start = periodStart(period, now());
     const base = await q.one('SELECT 1 AS x FROM period_baselines WHERE period = $1 AND period_start = $2 AND character_id = $3', [period, start, characterId]);
     if (!base) continue;

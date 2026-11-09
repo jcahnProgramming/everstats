@@ -24,6 +24,7 @@ const STATE_TEXT = {
   fetching: () => 'Fetching from Blizzard now…',
   under_10: (c) => `${c.name} ${c.surname} is level ${c.level ?? '?'}: characters appear at level 10.`,
   not_visible: () => 'Hasn’t logged out since reaching 10, or Blizzard hasn’t caught up yet (it can take 20–40 minutes).',
+  missing: (c) => `Blizzard hasn’t returned this character since ${formatDate(c.since)}. Still checking; its old numbers aren’t shown.`,
 };
 
 export function DashboardPage() {
@@ -165,7 +166,7 @@ function Featured({ data, onPick }) {
       <div className="grid-auto col-sm gap-14">
         {data.pins.map((p) => (
           <Link key={p.id} className="panel statcard" to={`/leaderboards/${f.ruleset.id}/${p.id}`}>
-            <span className="eyebrow ellipsis">{p.name}</span>
+            <span className="eyebrow ellipsis">{p.name ?? 'Statistic no longer available'}</span>
             <span className="big">{p.text ? <span className="small muted">{p.text} · </span> : null}{formatNumber(p.value)}</span>
             <span className="row gap-8 small">
               {p.rank !== null ? <span className="t2"><b className="strong-text">#{formatNumber(p.rank)}</b> of {formatNumber(p.withAny)} with any</span> : <span className="muted">Not ranked</span>}
@@ -196,7 +197,7 @@ function CharacterList({ data, onFeature }) {
             {c.hidden && <span className="tag">Hidden</span>}
             {c.state === 'tracked' && data.featured?.id !== c.id && <button type="button" className="btn sm ghost" onClick={() => onFeature(c.id)}>Feature</button>}
             {c.state === 'tracked' && data.featured?.id === c.id && <span className="tag gold">Featured</span>}
-            {c.state !== 'tracked' && <span className="tag">{c.state === 'fetching' ? 'Fetching' : c.state === 'under_10' ? 'Under 10' : 'Not visible yet'}</span>}
+            {c.state !== 'tracked' && <span className="tag">{{ fetching: 'Fetching', under_10: 'Under 10', missing: 'Not returned' }[c.state] ?? 'Not visible yet'}</span>}
           </div>
         ))}
       </div>

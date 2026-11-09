@@ -1,0 +1,53 @@
+{
+  "note": "Social links on public profiles (server/accounts/socials.js). HANDLE ONLY: the player types a handle, Everstats builds the link from 'url' ({handle} is replaced, URL-encoded), so no free-text URL is ever shown. 'pattern' is the platform's handle format (checked 2026-11-09; sources in the comments); 'help' is said back when a handle doesn't match. Icons: none shipped (text labels); see CLAUDE.md 'Profiles'. Raider.IO and Warcraft Logs are not here: Raider.IO's Forever site links CHARACTERS (forever.raider.io/characters/us/{ruleset}/{name}), not players, and Warcraft Logs' Forever URL pattern couldn't be confirmed.",
+  "platforms": [
+    {
+      "id": "twitch", "label": "Twitch", "url": "https://www.twitch.tv/{handle}",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_]{3,24}$", "lower": true,
+      "help": "A Twitch username: 4–25 letters, digits or underscores, not starting with an underscore.",
+      "source": "No official Twitch page states it; widely documented as 4–25 [A-Za-z0-9_] (discuss.dev.twitch.com)"
+    },
+    {
+      "id": "youtube", "label": "YouTube", "url": "https://www.youtube.com/@{handle}", "stripAt": true,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]{1,28})[A-Za-z0-9]$",
+      "help": "A YouTube @handle: 3–30 letters, digits, dots, hyphens or underscores, not starting or ending with a dot, hyphen or underscore.",
+      "source": "support.google.com/youtube/answer/11585688 (Latin letters only here)"
+    },
+    {
+      "id": "x", "label": "X", "url": "https://x.com/{handle}", "stripAt": true,
+      "pattern": "^[A-Za-z0-9_]{1,15}$",
+      "help": "An X username: up to 15 letters, digits or underscores.",
+      "source": "help.x.com/en/managing-your-account/x-username-rules"
+    },
+    {
+      "id": "bluesky", "label": "Bluesky", "url": "https://bsky.app/profile/{handle}", "stripAt": true, "lower": true,
+      "pattern": "^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$",
+      "help": "A Bluesky handle is a domain name, like name.bsky.social.",
+      "source": "atproto.com/specs/handle"
+    },
+    {
+      "id": "kick", "label": "Kick", "url": "https://kick.com/{handle}", "lower": true,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{2,24}$",
+      "help": "A Kick username: 3–25 letters, digits, hyphens or underscores.",
+      "source": "No official Kick rule found; third-party sources disagree (3–20 vs 4–24), so this accepts the union"
+    },
+    {
+      "id": "tiktok", "label": "TikTok", "url": "https://www.tiktok.com/@{handle}", "stripAt": true, "lower": true,
+      "pattern": "^(?!.*\\.$)[A-Za-z0-9_.]{2,24}$",
+      "help": "A TikTok username: 2–24 letters, digits, underscores or dots, not ending with a dot.",
+      "source": "No official TikTok page found; secondary sources (24 characters, letters digits _ ., no trailing dot)"
+    },
+    {
+      "id": "instagram", "label": "Instagram", "url": "https://www.instagram.com/{handle}", "stripAt": true, "lower": true,
+      "pattern": "^(?!\\.)(?!.*\\.\\.)(?!.*\\.$)[A-Za-z0-9._]{1,30}$",
+      "help": "An Instagram username: up to 30 letters, digits, dots or underscores, without a dot at either end or two in a row.",
+      "source": "No official Instagram page found; secondary sources"
+    },
+    {
+      "id": "discord", "label": "Discord server", "url": "https://discord.gg/{handle}",
+      "pattern": "^[A-Za-z0-9-]{2,32}$",
+      "help": "A Discord invite code: the part after discord.gg/ (letters, digits and hyphens).",
+      "source": "support.discord.com/hc/en-us/articles/115001542132 (vanity codes); exact character set not published"
+    }
+  ]
+}

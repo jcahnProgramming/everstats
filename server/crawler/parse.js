@@ -76,7 +76,7 @@ const pretty = (key) => key.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCas
 
 /**
  * Core attributes, in the order Blizzard lists them, as { key, label, value, percent }. Whatever the API returns:
- * numbers, { effective } stats and { value } ratings. Zeros are left out (a level 15 rogue has no spell haste).
+ * numbers, { effective } stats and { value } ratings, zeros included (0.4.2).
  */
 export function parseAttributes(json) {
   if (!isObj(json)) return [];
@@ -91,10 +91,11 @@ export function parseAttributes(json) {
       value = v.value;
       percent = 'rating_bonus' in v;
     }
-    if (value === null || (value === 0 && key !== 'health')) continue;
+    // 0.4.2: zeros are kept (a resistance of 0 is real); the character page decides what to show.
+    if (value === null) continue;
     const label = key === 'power' && nameOf(json.power_type) ? nameOf(json.power_type) : pretty(key);
     out.push({ key: key.slice(0, 60), label: label.slice(0, 60), value: Math.round(value * 100) / 100, percent });
-    if (out.length >= 80) break;
+    if (out.length >= 120) break;
   }
   return out;
 }

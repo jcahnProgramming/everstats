@@ -186,4 +186,29 @@ export async function recordPinRanks(db, now = Date.now) {
 }
 
 /** Every job, given the worker's crawler (worker/index.js). */
-export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob()]);
+/**
+ * Blizzard's 30-day rule (retention/sweep.js): every hour, delete Blizzard data past the cutoff, and backups past their
+ * 3 days. Runs in the background (a sweep can take a few seconds); the web app runs the same sweep as a fallback.
+ */
+export function retentionJob({ dir = config.backupDir } = {}) {
+  let running = null;
+  return {
+    id: 'retention',
+    label: 'Blizzard data retention sweep',
+    everyMs: 60 * 60 * 1000,
+    async run({ db }) {
+      if (running) return { summary: 'Sweeping' };
+      const { runRetentionSweep } = await import('../retention/sweep.js');
+      const { pruneBackups } = await import('../core/backup.js');
+      const { DAY_MS } = await import('../retention/policy.js');
+      running = runRetentionSweep(db, {
+        processName: 'worker',
+        pruneBackups: dir ? (policy) => pruneBackups(dir, { keepMs: policy.backupKeepDays * DAY_MS }).length : null,
+      }).catch((err) => console.error(`[retention] sweep failed: ${err.code ?? err.name}`)).finally(() => { running = null; });
+      return { summary: 'Sweep started' };
+    },
+    inFlight: () => running,
+  };
+}
+
+export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob()]);

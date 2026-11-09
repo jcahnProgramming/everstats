@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -38,21 +38,14 @@ after(async () => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
 
-test('retention keeps the newest 14 and the earliest backup of every month, forever', async () => {
+test('Blizzard’s 30-day rule: a backup is kept 3 days from when it was taken, measured in hours, then deleted (no monthly copies)', async () => {
   const { planPrune } = await import('../core/backup.js');
-  const backups = [];
-  // Every day from 2026-08-03 to 2026-11-08, newest first.
-  for (let t = Date.parse('2026-11-08'); t >= Date.parse('2026-08-03'); t -= 86_400_000) {
-    const date = new Date(t).toISOString().slice(0, 10);
-    backups.push({ name: `everstats-${date}.dump`, date });
-  }
-  const removed = new Set(planPrune(backups));
-  const kept = backups.filter((b) => !removed.has(b.name)).map((b) => b.date);
-  assert.deepEqual(kept, [
-    '2026-11-08', '2026-11-07', '2026-11-06', '2026-11-05', '2026-11-04', '2026-11-03', '2026-11-02', '2026-11-01',
-    '2026-10-31', '2026-10-30', '2026-10-29', '2026-10-28', '2026-10-27', '2026-10-26', // the 14 newest
-    '2026-10-01', '2026-09-01', '2026-08-03', // the first of each earlier month (August started on the 3rd)
-  ]);
+  const now = Date.parse('2026-11-09T12:00:00Z');
+  const at = (iso) => ({ name: `everstats-${iso.slice(0, 10)}.dump`, date: iso.slice(0, 10), takenAt: Date.parse(iso) });
+  const backups = [at('2026-11-09T04:05:00Z'), at('2026-11-08T04:05:00Z'), at('2026-11-07T04:05:00Z'), at('2026-11-06T04:05:00Z'), at('2026-11-06T13:00:00Z'), at('2026-11-01T04:05:00Z'), at('2026-10-01T04:05:00Z')];
+  const removed = planPrune(backups, { keepMs: 3 * 86_400_000, now });
+  // 11-06 04:05 is 3 days 8 hours old: gone. A dump taken 11-06 13:00 would be 2 days 23 hours old: kept.
+  assert.deepEqual(removed, ['everstats-2026-11-06.dump', 'everstats-2026-11-01.dump', 'everstats-2026-10-01.dump']);
 });
 
 test('a backup is due after 04:00 UTC when today has none, catches up a missed night, and backs off after a failure', async () => {
@@ -71,7 +64,12 @@ test('a backup is dumped, verified, renamed and pruned; the password travels in 
   const { runBackup } = await import('../core/backup.js');
   const dir = tempDir();
   writeFileSync(join(dir, 'notes.txt'), 'not a backup'); // never touched
-  for (let i = 1; i <= 20; i++) writeFileSync(join(dir, `everstats-2026-10-${String(i).padStart(2, '0')}.dump`), 'old');
+  for (let i = 1; i <= 20; i++) {
+    const f = join(dir, `everstats-2026-10-${String(i).padStart(2, '0')}.dump`);
+    writeFileSync(f, 'old');
+    const t = new Date(`2026-10-${String(i).padStart(2, '0')}T04:05:00Z`);
+    utimesSync(f, t, t); // taken that night
+  }
   const calls = [];
   const r = await runBackup({ dir, databaseUrl: URL_, now: day('2026-11-08'), exec: fakeExec({ calls }) });
   assert.equal(r.name, 'everstats-2026-11-08.dump');
@@ -83,8 +81,8 @@ test('a backup is dumped, verified, renamed and pruned; the password travels in 
   assert.equal(calls[0].env.PGHOST, 'everstats-db');
   const files = readdirSync(dir).sort();
   assert.ok(files.includes('notes.txt'));
-  assert.ok(files.includes('everstats-2026-10-01.dump'), "October's first is kept forever");
-  assert.equal(files.filter((f) => f.endsWith('.dump')).length, 14 + 1, '14 newest + the monthly one');
+  // Blizzard's 30-day rule: every October dump is more than 3 days old, so only tonight's is left (no monthly copy).
+  assert.deepEqual(files.filter((f) => f.endsWith('.dump')), ['everstats-2026-11-08.dump']);
   assert.ok(!files.some((f) => f.startsWith('.')), 'no partial or lock file left behind');
 });
 

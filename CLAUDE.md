@@ -28,8 +28,8 @@ request as hostile: CSRF origin check, rate limits, httpOnly cookies, nothing se
   population shows **"Unranked — grading opens at N tracked characters"** (N = admin setting
   `grading.minPopulation`, default 500).
 - **Freshness:** a search refreshes the character immediately; every tracked character re-syncs at least daily
-  (worker); guild rosters seed new characters. **Daily snapshots per character are kept forever** (progress charts,
-  "climbers this week").
+  (worker); guild rosters seed new characters. **Daily snapshots are kept 26 days, never longer** (Blizzard's 30-day
+  rule, see "Retention"): enough for weekly boards, rank movement and the "Last 26 days" boards.
 - **Guild pages** in 1.0: roster with each member's tier, plus guild rankings on leaderboards.
 - **Accounts are optional** (see "Accounts"). Battle.net OAuth, Discord OAuth, passkeys; optional TOTP 2FA.
 - **Three themes**: Forever (default), Alliance, Horde. Logged-out visitors always see Forever.
@@ -119,7 +119,8 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 - `/profile/user/wow` needs a user token. Sign-in drops its token, so the Discovery page has its own Battle.net
   authorization (OAuth intent `discovery`, same `/auth/battlenet/callback`; the flow, not the Strict admin cookie,
   is the proof). Token sealed in `discovery_grants`.
-- `discovery_responses` keeps every raw body forever (evidence). `discovery_statistics` is a per-run catalog;
+- `discovery_responses` keeps every raw body as evidence, but only inside the retention window: runs older than it are
+  deleted with their responses (0.4.2). `discovery_statistics` is a per-run catalog;
   `discovery_catalog` (+ `discovery_combined`, one summary row) combines every finished run, a character in two runs
   counted once with its newest values. `discovery_decisions` is append-only and belongs to the **statistic**, not a
   run, so a decision shows in every view. **These are discovery tables, not production character tables**, and
@@ -153,14 +154,16 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   Statistics Blizzard doesn't list are zero and have no row. Render URLs are kept only from
   `https://render.worldofwarcraft.com` (the CSP's only other image host). `main-raw` is a 1600×1200 landscape image.
 - **Snapshots**: `character_snapshots`, one per character per UTC day (the first), two arrays (ids, values), in the
-  `snapshots` tablespace (~1 KB per character per day measured). The first snapshot in a week/month is that period's
-  baseline (`period_baselines`); `stat_gains` holds gains > 0, rebuilt per character on each fetch.
+  `snapshots` tablespace (~1 KB per character per day measured). The first snapshot in a week is that week's baseline,
+  and the oldest snapshot still kept is the rolling baseline (`period_baselines`, period 'rolling', period_start epoch);
+  `stat_gains` holds gains > 0, rebuilt per character on each fetch.
 - **Boards** (`stats/boards.js`): rank = 1 + visible characters strictly above; ties share; **a zero is never ranked**
   (0.4.1: "Not ranked", and "of N" counts only those above zero: "#1 of 3 with any");
   hidden characters are on no board and in no population. Every count repeats the partial index predicate (`value > 0`,
   `NOT hidden`), or the planner can't use the index. Nothing is cached: a rank and its "of N" are counted together.
-  Weekly = from Tuesday 15:00 UTC (US weekly reset); monthly = calendar month UTC (`stats/periods.js`). A period board
-  is "Collecting data" until snapshots began at or before the period's start. `scripts/measure-boards.js` measures it all
+  Weekly = from Tuesday 15:00 UTC (US weekly reset); "Last N days" (0.4.2, replacing monthly) = since the oldest kept
+  snapshot, N = the retention keep-days from the API, never typed in (`stats/periods.js`). Weekly is "Collecting data"
+  until snapshots began before the week did; "Last N days" until N days of snapshots exist. `scripts/measure-boards.js` measures it all
   on synthetic data in a throwaway in-memory database.
 - **The catalog grows by itself**: a statistic id first seen in a crawl is added to `statistics` and appears on the
   Discovery page's combined catalog; its category / grading / value type are the owner's decisions, else suggestions
@@ -257,8 +260,9 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 - **Postgres 17** (one database, `everstats-db` container). Bulk time-series (daily snapshots) go in the
   **`snapshots` tablespace** on the array disk (`server/core/tablespace.js`): a snapshot table's migration ends its
   `CREATE TABLE` with `await snapshotTablespace(q)`. Production refuses to start without `SNAPSHOT_TABLESPACE_DIR`.
-- **Retention is forever.** Snapshots, statistics history and account history are never deleted. Any exception must
-  be named here, with its reason. The exceptions:
+- **Retention: Blizzard data 30 days at most; our own data is kept.** See "Retention" below for Blizzard data. For
+  Everstats' own data (accounts, settings, decisions, history of what WE did), any deletion must be named here, with its
+  reason. The exceptions:
   - **Expired sessions, auth flows, admin sessions and old admin invites** are deleted hourly (`sweepExpired` in
     `server/app.js`). Reason: they are credentials, not history; keeping dead ones only adds risk.
   - **A merged account's row is deleted** after its data moves (`server/account/merge.js`). Reason: the person asked
@@ -274,9 +278,9 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
     counting. Not a deletion, listed here because a held name becomes claimable again by design.
   - **Discovery Battle.net tokens** (`discovery_grants`) are deleted when they expire (hourly sweep), when the admin
     forgets one, or when a new authorization replaces it. Reason: a credential, not history.
-  - **Old nightly backup files are pruned**: the 14 newest dumps and the first dump of every month are kept, the rest
-    deleted after a good backup (`server/core/backup.js`). Reason: they are copies of the database, not history; the
-    monthly ones keep a long-range restore point forever. The `backup_runs` log itself is kept forever.
+  - **Nightly backup files are deleted 3 days after they're taken** (`server/core/backup.js`, the hourly sweep and every
+    good backup). Reason: they hold Blizzard data (30-day rule). No monthly copies. The `backup_runs` log is kept.
+  - **Every Blizzard-sourced row past the retention window** (next section).
 - Every time-series table has a composite index on `(parent_id, timestamp)`.
 - **Every query takes limit/cursor. No unbounded selects, ever** (`pageLimit()` in `server/core/db.js`).
 - Migrations: `server/core/schema.js` (`{ id, up(q) }`, run under an advisory lock by both processes). Never edit or
@@ -291,6 +295,32 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   `docker exec everstats-worker node server/tools/backup.js now | list | verify <file>`. The image carries
   `postgresql-client-17` (from apt.postgresql.org; it must match the server's major). Production workers refuse to
   start without `BACKUP_DIR`. A dump does not contain the root key: a restore needs the same `.env`.
+
+## Retention: Blizzard's 30-day rule (0.4.2: `server/retention/`)
+
+- Blizzard Developer API Terms of Use, section 2: "a maximum 30-day TTL (time-to-live) policy for all Data". Blizzard's
+  forum FAQ: stay close to 30 days; anonymising is not an accepted alternative. **Everstats complies.**
+- ONE setting, `retention.window` (default 30). Above 30 only with a note recording Blizzard's written permission
+  (logged). `policy.js`: keep = window − 3 (backup keep days) − 1 (slack) = **26 days** in the database; dumps 3 days;
+  worst case ≈ 29 days 2 hours anywhere. "Last N days" boards and the privacy page follow keep-days.
+- `registry.js` classifies EVERY table: Blizzard data (with its fetched-at column and a sweep) or ours (with a reason).
+  `server/test/retention.test.js` fails on a table in neither list: **a new table must be classified there.**
+- The sweep (`sweep.js`) runs hourly in the web app AND the worker (advisory lock: one at a time); the worker also
+  prunes backups. A character Blizzard hasn't returned for the window is stripped to a stub of our data (id, owner,
+  hidden, tracked since: `profile_state 'purged'`) and leaves lists until a sign-in finds it again. A character that
+  404s after being fetched is "missing": off every board at once, its page says "Blizzard hasn't returned this character
+  since {date}", never its old values. Statistic names age out too (name NULL → "no longer available", never invented).
+- Characters are fully refetched at least every 7 days (`FULL_REFRESH_DAYS`) even when unchanged, so live data never
+  ages out; icons are refetched past 30 days on the next fetch that needs them.
+- Logs hold no Blizzard values (ids and HTTP statuses only). Discovery exports downloaded by the owner are copies of
+  Blizzard data: delete them within 30 days (the Discovery page says so).
+
+## Profiles (0.4.2 additions)
+
+- Bio (280, plain text, profanity-checked, never linkified), social HANDLES (`server/accounts/socials.json`: platform
+  list, handle patterns, URL templates; links are built by us, opened with rel="noopener noreferrer nofollow"; nothing
+  marked verified), "Show my pinned stats" (default on). Icons: text labels only; no brand assets are shipped.
+- Sections sent only when non-empty: about, pins, featured, characters, guilds (from non-hidden characters only).
 
 ## Hosting and networking
 

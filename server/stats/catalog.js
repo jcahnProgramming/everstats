@@ -105,6 +105,9 @@ export async function loadCatalog(db, { now = Date.now } = {}) {
 
   const byCat = new Map();
   for (const s of statistics.values()) {
+    // A statistic whose name aged out of the 30-day window (no character returned it lately) has no values either:
+    // it stays in the map (pins and decisions still point at its id) but isn't listed anywhere.
+    if (s.name === null) continue;
     if (!byCat.has(s.category)) byCat.set(s.category, []);
     byCat.get(s.category).push(s);
   }

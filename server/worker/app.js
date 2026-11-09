@@ -1,5 +1,6 @@
 import express from 'express';
 import { backupStatus } from '../core/backup.js';
+import { BACKUP_KEEP_DAYS } from '../retention/policy.js';
 import { config } from '../core/config.js';
 import { createErrorHandler } from '../core/errors.js';
 import { securityHeaders } from '../core/headers.js';
@@ -29,6 +30,8 @@ export function createWorkerApp({ loop, db, backupDir = config.backupDir }) {
         lastFailureAt: s.lastFailureAt,
         failing: s.failing,
         running: s.running,
+        // 0.4.2, Blizzard's 30-day rule: each dump is deleted this many days after it was taken (no monthly copies).
+        keepDays: BACKUP_KEEP_DAYS,
       };
     } catch {
       database = 'unreachable';

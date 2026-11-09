@@ -212,7 +212,7 @@ function ProfileSection({ account, onChange }) {
         <span className="eyebrow">Display name</span>
         {account.usernameClaimed ? (
           <>
-            <div className="row gap-8 align-end">
+            <div className="row gap-8 align-end wrap-field-row">
               <Field label="What people see on your profile" className="grow" value={display} maxLength={32} placeholder={account.username} onChange={(e) => setDisplay(e.target.value)} error={problem} />
               <Button type="submit" className="gold" loading={busy} disabled={!display.trim()}>Save</Button>
               {account.displayNameSet && <button type="button" className="btn ghost" disabled={busy} onClick={() => saveDisplay(null)}>Use my username</button>}
@@ -222,8 +222,76 @@ function ProfileSection({ account, onChange }) {
         ) : <span className="muted small">Your display name starts as your username, once you've claimed one.</span>}
       </form>
       <span className="hr" />
-      <p className="muted xsmall">Your profile shows your display name, @username, beta membership and your characters that aren't hidden. Profiles can't be hidden yet: hide individual characters below instead.</p>
+      <ProfileDetails account={account} onChange={onChange} />
+      <span className="hr" />
+      <p className="muted xsmall">Your profile shows your display name, @username, when you joined, beta membership, your main ruleset and faction, your characters that aren't hidden and their guilds, plus anything you fill in here. Empty fields simply don't show. Profiles can't be hidden yet: hide individual characters below instead.</p>
     </section>
+  );
+}
+
+/**
+ * Bio, social handles and "Show my pinned stats". Handles only: Everstats builds each link itself, so there's no box
+ * for a URL anywhere. Saved together; a field that isn't valid is named in the error and nothing is saved.
+ */
+function ProfileDetails({ account, onChange }) {
+  const toast = useToasts();
+  const prof = account.profile;
+  const [bio, setBio] = useState(prof.bio ?? '');
+  const [links, setLinks] = useState(prof.links);
+  const [showPins, setShowPins] = useState(prof.showPins);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState(null);
+  const save = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setProblem(null);
+    try {
+      const r = await api('/api/account/profile', { method: 'PUT', body: { bio, links, showPins } });
+      onChange(r.account);
+      setLinks(r.account.profile.links);
+      setBio(r.account.profile.bio ?? '');
+      toast.ok('Profile saved', account.usernameClaimed ? `It's live at /u/${account.username}.` : 'It goes live when you claim a username.');
+    } catch (err) {
+      setProblem(err.message);
+    }
+    setBusy(false);
+  };
+  const bioId = 'profile-bio';
+  return (
+    <form className="stack gap-14" onSubmit={save}>
+      <div className="field">
+        <label htmlFor={bioId}>Bio</label>
+        <textarea id={bioId} className="inp profile-bio-input" rows={4} maxLength={280} value={bio} onChange={(e) => setBio(e.target.value)} placeholder="A few words about you and your characters." />
+        <span className="help">{[...bio].length} / 280 · plain text: line breaks are kept, links aren't made clickable.</span>
+      </div>
+      <fieldset className="plain-fieldset stack gap-8">
+        <legend className="eyebrow">Elsewhere</legend>
+        <span className="muted xsmall">Type just your handle; Everstats builds the link. Links show as yours and aren't verified.</span>
+        <div className="grid-auto col-md gap-10">
+          {prof.platforms.map((pl) => (
+            <Field
+              key={pl.id}
+              label={pl.label}
+              inputClassName="mono"
+              value={links[pl.id] ?? ''}
+              placeholder={pl.id === 'discord' ? 'invite code' : pl.id === 'bluesky' ? 'name.bsky.social' : 'handle'}
+              autoComplete="off"
+              spellCheck="false"
+              autoCapitalize="none"
+              maxLength={253}
+              help={pl.help}
+              onChange={(e) => setLinks((l) => ({ ...l, [pl.id]: e.target.value }))}
+            />
+          ))}
+        </div>
+      </fieldset>
+      <Toggle checked={showPins} onChange={setShowPins}>Show my pinned stats on my profile</Toggle>
+      {problem && <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>}
+      <div className="row gap-10">
+        <Button type="submit" className="gold" loading={busy}>Save profile</Button>
+        {account.usernameClaimed && <Link className="btn ghost" to={`/u/${account.username}`}>View my profile</Link>}
+      </div>
+    </form>
   );
 }
 
@@ -535,6 +603,7 @@ const CHAR_STATE = {
   fetching: 'Fetching now',
   under_10: 'Under level 10: characters appear at 10',
   not_visible: 'Not visible at Blizzard yet (not logged out since 10, or Blizzard is catching up)',
+  missing: 'Blizzard hasn’t returned it lately',
 };
 
 /** The account's characters (from its Battle.net character list), each with "Hide this character". */
@@ -570,7 +639,7 @@ function CharactersSection({ account, providers, onChange }) {
             <div key={c.id} className="listrow">
               <span className="stack grow-col">
                 <b>{c.state === 'tracked' ? <Link to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link> : <>{c.name} <span className="surname">{c.surname}</span></>}</b>
-                <span className="muted xsmall">{[c.level ? `Level ${c.level}` : null, c.class, c.ruleset?.name].filter(Boolean).join(' · ')} · {CHAR_STATE[c.state]}</span>
+                <span className="muted xsmall">{[c.level ? `Level ${c.level}` : null, c.class, c.ruleset?.name].filter(Boolean).join(' · ')} · {c.state === 'missing' ? `Blizzard hasn’t returned this character since ${formatDate(c.since)}` : CHAR_STATE[c.state]}</span>
               </span>
               <Toggle checked={c.hidden} disabled={busy === c.id} onChange={(v) => hide(c, v)}>Hide this character</Toggle>
             </div>

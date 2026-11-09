@@ -42,6 +42,12 @@ export function normalForms(text) {
 const isProfane = (forms, words = []) => forms.some((f) => profanity.contains.some((w) => f.includes(w)) || profanity.exact.includes(f))
   || words.some((w) => normalForms(w).some((f) => profanity.exact.includes(f)));
 
+/** True when free text (a bio) has a refused word: each word on its own, and the text with separators removed. */
+export const isProfaneText = (text) => {
+  const words = String(text ?? '').split(/[\s\-_.,!?;:()"']+/u).filter(Boolean);
+  return words.some((w) => isProfane(normalForms(w), [w]));
+};
+
 /**
  * Checks a username against every rule except "is it taken". `reserved` is a Set of NORMALIZED reserved names.
  *   → { ok: true, name } | { ok: false, reason, message }

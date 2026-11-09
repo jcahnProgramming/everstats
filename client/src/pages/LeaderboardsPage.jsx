@@ -43,7 +43,7 @@ export function LeaderboardsPage() {
     <div className="wrap page-pad stack gap-32">
       <div className="stack gap-18">
         <div className="row gap-12"><h1 className="h1">Leaderboards</h1><span className="tag gold">Beta</span></div>
-        <p className="lead">Every statistic gets its own leaderboard on each ruleset: overall, this week and this month.</p>
+        <p className="lead">Every statistic gets its own leaderboard on each ruleset: overall, this week{data?.periods?.rolling?.days ? ` and the last ${data.periods.rolling.days} days` : ' and over recent days'}.</p>
         {error && <ServiceUnavailable inline title="Couldn't load the leaderboards">{error}</ServiceUnavailable>}
         {data && data.rulesets.length > 0 && (
           <div className="row gap-16">

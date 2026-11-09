@@ -30,6 +30,13 @@ const httpServer = app.listen(config.port, config.listenHost, () => {
 const sweep = () => sweepExpired(db).catch((err) => console.error(`[web] sweeping expired sessions failed: ${err.code ?? err.name}`));
 sweep();
 const sweeper = setInterval(sweep, 60 * 60 * 1000);
+// Blizzard's 30-day rule: the web app sweeps too (hourly), so a stopped worker doesn't stop it. Only one process
+// sweeps at a time (an advisory lock); backups are pruned by the worker, which holds the folder.
+const retain = () => import('./retention/sweep.js').then(({ runRetentionSweep }) => runRetentionSweep(db, { processName: 'web' }))
+  .catch((err) => console.error(`[retention] sweep failed: ${err.code ?? err.name}`));
+setTimeout(retain, 5 * 60 * 1000).unref();
+const retainer = setInterval(retain, 60 * 60 * 1000);
+retainer.unref();
 sweeper.unref();
 
 function shutdown() {

@@ -87,6 +87,7 @@ export function DiscoveryPage() {
         Every answer is kept as it came, 404s included, and turned into a statistics catalog with suggestions for you to
         approve or reject. Approving doesn’t build anything yet: leaderboards and tiers are built later, from approved rows.
       </p>
+      <div className="note small"><Icon name="info" /><span>Blizzard’s API terms allow keeping its data for at most 30 days, so runs, their raw responses and the catalog built from them are deleted once they’re older than the retention window (Admin → Data retention). Your decisions stay; the Blizzard text quoted in their reasoning goes with the run. Exports you download are copies of Blizzard data too: delete them within 30 days.</span></div>
       {notice && <div className={`note ${notice.ok ? 'ok' : 'err'} small`} role="status"><Icon name={notice.ok ? 'check' : 'error'} /><span>{notice.text}</span></div>}
       {!state.configured && (
         <div className="note warn small" role="alert"><Icon name="warning" /><span>The Blizzard API keys aren’t set. Enter them in the <Link to="/admin">admin key manager</Link> first.</span></div>

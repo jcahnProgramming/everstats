@@ -12,6 +12,7 @@ import { crawlerStatus } from './crawler.js';
 import { backupStatus } from '../core/backup.js';
 import { betaState, setBetaOpen } from '../beta.js';
 import { createPlayersRouter } from './players.js';
+import { retentionStatus } from '../retention/sweep.js';
 
 /**
  * The admin area, under /api/admin. The admin is NOT an account: one person, passkeys only (admin_passkeys),
@@ -102,6 +103,8 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
       // Nightly database backups, from backup_runs (the worker writes them; core/backup.js).
       backups: await backupStatus(db, { recent: 10 }),
       beta: await betaState(db),
+      // Blizzard's 30-day rule: the window, the last sweep and the oldest Blizzard data still stored (retention/).
+      retention: await retentionStatus(db),
     });
   }));
 

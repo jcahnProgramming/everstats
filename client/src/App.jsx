@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AdminEnrollPage, AdminPage, AdminSignInPage } from './admin/AdminPages.jsx';
 import { DiscoveryPage } from './admin/DiscoveryPage.jsx';
 import { AppShell } from './chrome/AppShell.jsx';
@@ -27,6 +27,8 @@ export function App() {
         <Routes>
           <Route element={<AppShell />}>
             <Route index element={<HomePage />} />
+            {/* The signed-in dashboard IS the home page; /dashboard is a natural guess, so it goes there. */}
+            <Route path="dashboard" element={<Navigate to="/" replace />} />
             <Route path="c/:slug" element={<CharacterPage />} />
             <Route path="leaderboards" element={<LeaderboardsPage />} />
             <Route path="leaderboards/:ruleset/:statistic" element={<StatLeaderboardPage />} />

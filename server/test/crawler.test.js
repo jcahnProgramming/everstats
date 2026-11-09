@@ -201,7 +201,7 @@ test('boards page with a cursor and never return more than asked', async () => {
   assert.equal(p2.next, null);
 });
 
-test('weekly and monthly boards say "collecting" until a whole period of snapshots exists, then rank gains', async () => {
+test('weekly boards say "collecting" until a whole period of snapshots exists, then rank gains', async () => {
   const w = (await t.client().get('/api/leaderboards/2/107?period=week')).json;
   assert.equal(w.collecting, true);
   assert.ok(w.periods.week.opensAt);
@@ -218,16 +218,18 @@ test('weekly and monthly boards say "collecting" until a whole period of snapsho
   assert.deepEqual(open.rows.map((r) => [r.name, r.value]), [['Beta', 75], ['Alpha', 50]]);
 });
 
-test('period boundaries: the US weekly reset (Tuesday 15:00 UTC) and the UTC calendar month', async () => {
-  const { periodStart, periodOpen } = await import('../stats/periods.js');
+test('period boundaries: the US weekly reset (Tuesday 15:00 UTC) and the rolling "last N days" window', async () => {
+  const { periodStart, periodOpen, rollingOpen } = await import('../stats/periods.js');
   assert.equal(periodStart('week', Date.parse('2026-11-10T14:59:59Z')).toISOString(), '2026-11-03T15:00:00.000Z');
   assert.equal(periodStart('week', Date.parse('2026-11-10T15:00:00Z')).toISOString(), '2026-11-10T15:00:00.000Z');
   assert.equal(periodStart('week', Date.parse('2026-11-15T03:00:00Z')).toISOString(), '2026-11-10T15:00:00.000Z');
-  assert.equal(periodStart('month', Date.parse('2026-11-30T23:59:59Z')).toISOString(), '2026-11-01T00:00:00.000Z');
   // Snapshots from Wednesday: that week is partial, so the board opens at the next reset.
   assert.deepEqual(periodOpen('week', '2026-11-11T09:00:00Z', Date.parse('2026-11-14T00:00:00Z')), { open: false, opensAt: '2026-11-17T15:00:00.000Z' });
   assert.equal(periodOpen('week', '2026-11-11T09:00:00Z', Date.parse('2026-11-17T15:00:00Z')).open, true);
-  assert.equal(periodOpen('month', null).open, false);
+  // Last 26 days (a 30-day window): opens once 26 whole days of snapshots exist, never earlier.
+  assert.deepEqual(rollingOpen('2026-11-07T10:00:00Z', 26, Date.parse('2026-12-03T09:59:00Z')), { open: false, opensAt: '2026-12-03T10:00:00.000Z', days: 26 });
+  assert.equal(rollingOpen('2026-11-07T10:00:00Z', 26, Date.parse('2026-12-03T10:00:00Z')).open, true);
+  assert.equal(rollingOpen(null, 26).open, false);
 });
 
 async function bnetSignIn(c, who, intent = 'sign_in') {

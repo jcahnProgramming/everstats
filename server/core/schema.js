@@ -754,4 +754,69 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.4.2: Blizzard's 30-day rule (Developer API Terms of Use, section 2: "a maximum 30-day TTL ... for all Data").
+    // Every Blizzard-sourced row now has a "last fetched from Blizzard" time the retention sweep reads
+    // (server/retention/registry.js); "Monthly" boards become a rolling window; public profile fields.
+    id: '012_retention_profiles',
+    async up(q) {
+      await q.query(`
+        -- Characters: when Blizzard last returned this character (a 200 profile, or a listing on its owner's account),
+        -- when it stopped returning it, and when its Blizzard data was purged (the row stays as a stub holding only
+        -- Everstats' own data: id, owner, hidden flag, tracked since).
+        ALTER TABLE characters
+          ALTER COLUMN name DROP NOT NULL,
+          ADD COLUMN data_fetched_at timestamptz,
+          ADD COLUMN missing_since timestamptz,
+          ADD COLUMN purged_at timestamptz;
+        UPDATE characters SET data_fetched_at = coalesce(last_fetched_at, owned_since, tracked_since);
+        ALTER TABLE characters DROP CONSTRAINT characters_profile_state_check;
+        ALTER TABLE characters ADD CONSTRAINT characters_profile_state_check CHECK (profile_state IN ('ok', 'not_found', 'purged'));
+        CREATE INDEX characters_data_fetched ON characters (data_fetched_at) WHERE profile_state <> 'purged';
+
+        -- A statistic's name ages out like any Blizzard data; its id (ours to keep) and the owner's decisions stay.
+        ALTER TABLE statistics ALTER COLUMN name DROP NOT NULL;
+
+        -- Indexes the sweep deletes by.
+        CREATE INDEX character_statistics_fetched ON character_statistics (fetched_at);
+        CREATE INDEX character_snapshots_taken ON character_snapshots (taken_at);
+        CREATE INDEX pin_rank_history_day ON pin_rank_history (day);
+        CREATE INDEX discovery_runs_requested ON discovery_runs (requested_at);
+
+        -- "Monthly" becomes "rolling": the gain since the character's oldest snapshot still inside the retention window.
+        DELETE FROM stat_gains WHERE period = 'month';
+        DELETE FROM period_baselines WHERE period = 'month';
+        ALTER TABLE period_baselines DROP CONSTRAINT period_baselines_period_check;
+        ALTER TABLE period_baselines ADD CONSTRAINT period_baselines_period_check CHECK (period IN ('week', 'rolling'));
+
+        -- Each retention sweep: what it deleted per category and the oldest Blizzard data left. Counts and times only
+        -- (no Blizzard values), so kept.
+        CREATE TABLE retention_sweeps (
+          id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          started_at   timestamptz NOT NULL DEFAULT now(),
+          finished_at  timestamptz,
+          process      text NOT NULL,
+          window_days  integer NOT NULL,
+          cutoff       timestamptz NOT NULL,
+          deleted      jsonb NOT NULL DEFAULT '{}',
+          oldest       jsonb NOT NULL DEFAULT '{}',
+          problem      text CHECK (length(problem) <= 300)
+        );
+        CREATE INDEX retention_sweeps_time ON retention_sweeps (started_at);
+
+        -- Public profile fields the player writes (Everstats' own data, not Blizzard's).
+        ALTER TABLE accounts
+          ADD COLUMN profile_bio text CHECK (char_length(profile_bio) <= 280),
+          ADD COLUMN profile_show_pins boolean NOT NULL DEFAULT true;
+        -- Social links: a platform id from server/accounts/socials.json and a HANDLE (never a URL: the link is built).
+        CREATE TABLE account_social_links (
+          account_id  bigint NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+          platform    text NOT NULL CHECK (platform ~ '^[a-z][a-z0-9_]{1,30}$'),
+          handle      text NOT NULL CHECK (char_length(handle) BETWEEN 1 AND 253),
+          set_at      timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (account_id, platform)
+        );
+      `);
+    },
+  },
 ];

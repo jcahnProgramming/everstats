@@ -6,7 +6,8 @@ import { periodStart } from './periods.js';
  *
  *   overall  the statistic's value (character_statistics)
  *   week     what was GAINED since the character's first snapshot this week (stat_gains)
- *   month    the same for the calendar month
+ *   rolling  0.4.2 (was "month"): gained since the character's oldest snapshot still kept: "Last N days", N being the
+ *            retention keep-days (Blizzard's 30-day rule, retention/policy.js)
  *
  * A character Blizzard lists no value for has zero. 0.4.1: ZERO IS NEVER RANKED, anywhere ("#2 of 116" for zero
  * kills read like an achievement). A board lists the characters above zero, and "of N" counts only them: "#1 of 3
@@ -22,7 +23,7 @@ import { periodStart } from './periods.js';
 const SOURCES = {
   overall: { table: 'character_statistics', col: 'value', where: '' },
   week: { table: 'stat_gains', col: 'gain', where: "AND period = 'week' AND period_start = $3" },
-  month: { table: 'stat_gains', col: 'gain', where: "AND period = 'month' AND period_start = $3" },
+  rolling: { table: 'stat_gains', col: 'gain', where: "AND period = 'rolling' AND period_start = $3" },
 };
 export const BOARD_PERIODS = Object.keys(SOURCES);
 

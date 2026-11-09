@@ -1,22 +1,22 @@
 /**
- * Leaderboard periods (shared with the client, which imports this file). Weekly and monthly boards rank what a
- * character GAINED during the period, from its first snapshot in the period to its current value.
+ * Leaderboard periods (shared with the client, which imports this file). The period boards rank what a character
+ * GAINED, from a baseline snapshot to its current value.
  *
- *   week   from Blizzard's US weekly reset: Tuesday 15:00 UTC. Checked 2026-11-08 (siliconera / wowvendor reset guides,
- *          updated 2026: "US, Latin and Oceanic realms: Tuesday at 15:00 UTC"; it is 08:00 Pacific in summer and
- *          07:00 in winter, because the reset is pinned to UTC, not to Pacific time). Blizzard publishes no
- *          Forever-specific reset, so Forever is assumed to share the US one. If it ever differs, change these two
- *          constants: nothing else knows the time.
- *   month  the calendar month in UTC, the same time zone as the weekly reset: from 00:00 UTC on the 1st.
+ *   week     from Blizzard's US weekly reset: Tuesday 15:00 UTC (checked 2026-11-08; pinned to UTC, so 08:00 Pacific in
+ *            summer, 07:00 in winter). Baseline: the character's first snapshot this week.
+ *   rolling  0.4.2: replaces "monthly". Blizzard's API terms allow keeping data at most 30 days, so a calendar month
+ *            can't be kept whole. "Last N days": the gain since the character's OLDEST snapshot still kept, where N
+ *            is the retention keep-days (retention/policy.js: 26 for a 30-day window). Its baselines and gains carry
+ *            the fixed period_start ROLLING_START.
  */
 export const WEEKLY_RESET = Object.freeze({ weekday: 2, hourUtc: 15 }); // 0 = Sunday … 2 = Tuesday
-export const PERIODS = Object.freeze(['week', 'month']);
+export const ROLLING_START = new Date(0); // the period_start every rolling row carries
 
-/** The start of the period containing `at` (a Date or ms). */
+/** The start of the week containing `at` (a Date or ms). */
 export function periodStart(period, at = Date.now()) {
-  const t = new Date(at);
-  if (period === 'month') return new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), 1));
+  if (period === 'rolling') return ROLLING_START;
   if (period !== 'week') throw new Error(`unknown period ${period}`);
+  const t = new Date(at);
   const reset = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate(), WEEKLY_RESET.hourUtc));
   let back = (t.getUTCDay() - WEEKLY_RESET.weekday + 7) % 7;
   if (back === 0 && t < reset) back = 7;
@@ -24,24 +24,31 @@ export function periodStart(period, at = Date.now()) {
   return reset;
 }
 
-/** The start of the period after the one containing `at`. */
+/** The start of the week after the one containing `at`. */
 export function nextPeriodStart(period, at = Date.now()) {
-  const s = periodStart(period, at);
-  if (period === 'month') return new Date(Date.UTC(s.getUTCFullYear(), s.getUTCMonth() + 1, 1));
-  return new Date(s.getTime() + 7 * 24 * 60 * 60 * 1000);
+  return new Date(periodStart(period, at).getTime() + 7 * 24 * 60 * 60 * 1000);
 }
 
 /**
- * Whether a period's board is open: only when snapshots were already being taken when the period began, so every
- * gain on it is measured from inside the period. Before that it is "Collecting data". `firstSnapshotAt` null (no
- * snapshot yet) → closed.
- *   → { open, opensAt }   opensAt: when the first full period starts (the board opens then)
+ * Whether the weekly board is open: only when snapshots were already being taken when the week began, so every gain on
+ * it is measured from inside the week. `firstSnapshotAt` null (no snapshot yet) → closed.
+ *   → { open, opensAt }
  */
 export function periodOpen(period, firstSnapshotAt, at = Date.now()) {
   if (!firstSnapshotAt) return { open: false, opensAt: null };
   const first = new Date(firstSnapshotAt);
   const firstFull = periodStart(period, first).getTime() === first.getTime() ? first : nextPeriodStart(period, first);
   return { open: periodStart(period, at) >= firstFull, opensAt: firstFull.toISOString() };
+}
+
+/**
+ * Whether the "last N days" board is open: once snapshots have been taken for N whole days, so it never ranks a
+ * shorter stretch as if it were N days. → { open, opensAt, days }
+ */
+export function rollingOpen(firstSnapshotAt, keepDays, at = Date.now()) {
+  if (!firstSnapshotAt) return { open: false, opensAt: null, days: keepDays };
+  const opens = new Date(new Date(firstSnapshotAt).getTime() + keepDays * 24 * 60 * 60 * 1000);
+  return { open: at >= opens.getTime(), opensAt: opens.toISOString(), days: keepDays };
 }
 
 /** The UTC calendar day of a moment, 'YYYY-MM-DD': one snapshot per character per day. */

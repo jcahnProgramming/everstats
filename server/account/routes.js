@@ -13,10 +13,9 @@ import { clearCookie, COOKIE } from '../auth/cookies.js';
 import { MIN_TRACKED_LEVEL } from '../crawler/fetch.js';
 import { setHidden } from '../crawler/store.js';
 import { SOURCES } from '../sources/registry.js';
-import { rankOn } from '../stats/boards.js';
 import { loadCatalog } from '../stats/catalog.js';
-import { utcDay } from '../stats/periods.js';
-import { MAX_PINS, pinsOf, setPins } from '../stats/pins.js';
+import { MAX_PINS, pinCards, pinsOf, setPins } from '../stats/pins.js';
+import { PLATFORMS, checkBio, checkHandle, linkFor } from '../accounts/socials.js';
 import { checkDisplayName, reservedSet } from '../accounts/names.js';
 import { availability, changeUsername, holdName } from '../accounts/usernames.js';
 
@@ -26,7 +25,8 @@ export const THEMES = ['forever', 'alliance', 'horde'];
 const MAX_PASSKEYS = 20;
 
 async function accountView(db, accountId) {
-  const account = await db.one('SELECT id, created_at, theme, beta_member, beta_since, username, username_claimed, display_name, rename_allowance FROM accounts WHERE id = $1', [accountId]);
+  const account = await db.one('SELECT id, created_at, theme, beta_member, beta_since, username, username_claimed, display_name, rename_allowance, profile_bio, profile_show_pins FROM accounts WHERE id = $1', [accountId]);
+  const links = await db.query('SELECT platform, handle FROM account_social_links WHERE account_id = $1 ORDER BY platform LIMIT 50', [accountId]);
   if (!account) throw new HttpError(401, 'Sign in first.', 'signed_out');
   const identities = await db.query(
     'SELECT id, provider, display_name, linked_at, last_used_at FROM account_identities WHERE account_id = $1 ORDER BY linked_at LIMIT 20',
@@ -47,6 +47,13 @@ async function accountView(db, accountId) {
     displayName: account.display_name ?? (account.username_claimed ? account.username : null),
     displayNameSet: account.display_name !== null,
     renamesLeft: account.rename_allowance,
+    // The public profile's own fields (0.4.2): Everstats' data, written by the player.
+    profile: {
+      bio: account.profile_bio,
+      showPins: account.profile_show_pins,
+      links: Object.fromEntries(links.map((l) => [l.platform, l.handle])),
+      platforms: PLATFORMS.map((p) => ({ id: p.id, label: p.label, help: p.help, example: linkFor(p.id, 'yourname') })),
+    },
     identities: identities.map((i) => ({
       id: i.id,
       provider: i.provider,
@@ -75,7 +82,7 @@ async function ownedCharacters(db, accountId) {
     `SELECT c.*, r.name AS ruleset_name,
             EXISTS (SELECT 1 FROM crawl_queue q WHERE q.kind = 'character' AND q.key = c.slug AND q.state IN ('queued', 'running')) AS queued
        FROM characters c LEFT JOIN rulesets r ON r.id = c.ruleset_id
-      WHERE c.owner_account_id = $1 ORDER BY c.level DESC NULLS LAST, c.id LIMIT 50`,
+      WHERE c.owner_account_id = $1 AND c.profile_state <> 'purged' ORDER BY c.level DESC NULLS LAST, c.id LIMIT 50`,
     [accountId],
   );
 }
@@ -87,18 +94,21 @@ async function ownedCharacters(db, accountId) {
  *   under_10     the account list says it's below level 10: Blizzard lists characters from level 10
  *   not_visible  level 10+, but the profile answers 404: not logged out since reaching 10, or Blizzard hasn't caught
  *                up yet (the account list can run 20–40 minutes ahead of the profile)
+ *   missing      0.4.2: Blizzard returned it before and doesn't now. Still retried; "since" is the last success. Past the
+ *                retention window its Blizzard data is purged and it leaves the list until a sign-in finds it again.
  */
 function characterState(c) {
   const level = c.level ?? c.account_level;
   let state;
-  if (c.profile_state === 'ok' && c.stats_fetched_at) state = 'tracked';
+  if (c.profile_state === 'ok' && c.missing_since) state = 'missing';
+  else if (c.profile_state === 'ok' && c.stats_fetched_at) state = 'tracked';
   else if (c.queued) state = 'fetching';
   else if (Number.isInteger(level) && level < MIN_TRACKED_LEVEL) state = 'under_10';
   else state = 'not_visible';
   return {
     id: c.id, slug: c.slug, name: c.name, surname: c.surname, level, class: c.class, race: c.race, faction: c.faction,
     ruleset: c.ruleset_id !== null ? { id: c.ruleset_id, name: c.ruleset_name } : null,
-    hidden: c.hidden, state, checkedAt: c.last_checked_at, fetchedAt: c.last_fetched_at,
+    hidden: c.hidden, state, checkedAt: c.last_checked_at, fetchedAt: c.last_fetched_at, since: state === 'missing' ? c.data_fetched_at : null,
   };
 }
 
@@ -199,6 +209,29 @@ export function createAccountRouter({ db, limits, networkOf }) {
     res.json({ account: await accountView(db, req.session.accountId) });
   }));
 
+  // The public profile's fields: bio, social handles (never URLs), whether pinned stats show. Each field is checked and
+  // refused with a plain reason; nothing is saved unless all of it is valid.
+  r.put('/account/profile', writes, route(async (req, res) => {
+    const accountId = req.session.accountId;
+    const body = req.body ?? {};
+    const bio = checkBio(body.bio);
+    if (!bio.ok) throw new HttpError(400, bio.message, 'invalid');
+    const links = [];
+    for (const [platform, raw] of Object.entries(body.links ?? {}).slice(0, 20)) {
+      if (raw === null || String(raw).trim() === '') continue;
+      const h = checkHandle(platform, raw);
+      if (!h.ok) throw new HttpError(400, h.message, 'invalid');
+      links.push([platform, h.handle]);
+    }
+    await db.tx(async (q) => {
+      await q.query('UPDATE accounts SET profile_bio = $2, profile_show_pins = $3 WHERE id = $1', [accountId, bio.value, body.showPins !== false]);
+      await q.query('DELETE FROM account_social_links WHERE account_id = $1', [accountId]);
+      for (const [platform, handle] of links) await q.query('INSERT INTO account_social_links (account_id, platform, handle) VALUES ($1, $2, $3)', [accountId, platform, handle]);
+      await logAccountEvent(q, accountId, 'profile.changed', {});
+    });
+    res.json({ account: await accountView(db, accountId) });
+  }));
+
   r.post('/account/username/prompt-dismiss', route(async (req, res) => {
     await db.query('UPDATE sessions SET username_prompt_dismissed = true WHERE id_hash = $1', [req.session.idHash]);
     res.json({ ok: true });
@@ -210,32 +243,13 @@ export function createAccountRouter({ db, limits, networkOf }) {
     const acct = await db.one('SELECT featured_character_id FROM accounts WHERE id = $1', [accountId]);
     const owned = await ownedCharacters(db, accountId);
     const characters = owned.map(characterState);
-    const tracked = owned.filter((c) => c.profile_state === 'ok' && c.stats_fetched_at && c.ruleset_id !== null);
+    const tracked = owned.filter((c) => c.profile_state === 'ok' && c.stats_fetched_at && c.ruleset_id !== null && !c.missing_since);
     const featuredRow = tracked.find((c) => c.id === acct.featured_character_id)
       ?? [...tracked].sort((a, b) => (b.level ?? 0) - (a.level ?? 0) || a.id - b.id)[0] ?? null;
     const identities = await db.query('SELECT provider FROM account_identities WHERE account_id = $1 LIMIT 20', [accountId]);
     const check = await db.one('SELECT provider, checked_at, outcome, characters FROM account_character_checks WHERE account_id = $1 ORDER BY checked_at DESC LIMIT 1', [accountId]);
     const { ids, isDefault } = await pinsOf(db, accountId);
-    const { statistics } = await loadCatalog(db);
-    const pins = [];
-    if (featuredRow) {
-      const weekAgo = utcDay(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      for (const id of ids) {
-        const s = statistics.get(id);
-        if (!s) continue;
-        const cs = await db.one('SELECT value, text FROM character_statistics WHERE character_id = $1 AND statistic_id = $2', [featuredRow.id, id]);
-        const rk = featuredRow.hidden ? null : await rankOn(db, { characterId: featuredRow.id, statisticId: id, rulesetId: featuredRow.ruleset_id });
-        const then = rk
-          ? await db.one('SELECT rank, day FROM pin_rank_history WHERE character_id = $1 AND statistic_id = $2 AND day <= $3 ORDER BY day DESC LIMIT 1', [featuredRow.id, id, weekAgo])
-          : null;
-        pins.push({
-          id, name: s.name, category: s.category, grading: s.grading, value: cs?.value ?? 0, text: cs?.text ?? null,
-          rank: rk?.rank ?? null, withAny: rk?.withAny ?? null,
-          // Positive = moved up the board. null until a week of rank history exists (shown as "—").
-          move: then && rk ? then.rank - rk.rank : null, since: then?.day ?? null,
-        });
-      }
-    }
+    const pins = featuredRow ? await pinCards(db, ids, featuredRow) : [];
     res.json({
       characters,
       featured: featuredRow ? { ...characters.find((c) => c.id === featuredRow.id), fetchedAt: featuredRow.last_fetched_at } : null,

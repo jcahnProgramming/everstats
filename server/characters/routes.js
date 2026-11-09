@@ -8,10 +8,13 @@ import { PRIORITY, enqueue, waitFor } from '../crawler/queue.js';
 import { getSource } from '../sources/registry.js';
 import { BOARD_PERIODS, boardCounts, boardPage, everyoneTied, populationOf, rankOn, statCounts } from '../stats/boards.js';
 import { categoryKey, loadCatalog } from '../stats/catalog.js';
-import { nextPeriodStart, periodOpen, periodStart } from '../stats/periods.js';
+import { nextPeriodStart, periodOpen, periodStart, rollingOpen } from '../stats/periods.js';
+import { retentionPolicy } from '../retention/policy.js';
 import { parseSlug } from '../stats/slug.js';
 import { characterStatistics, characterView } from './view.js';
 import { resolveProfileName } from '../accounts/usernames.js';
+import { PLATFORMS, getPlatform, linkFor } from '../accounts/socials.js';
+import { pinCards, pinsOf } from '../stats/pins.js';
 
 /**
  * The public, read-mostly API: character lookups, leaderboards, the statistics catalog, coverage and the beta.
@@ -40,10 +43,12 @@ async function rulesetList(db) {
 async function periodsInfo(db, now = Date.now) {
   const fact = await db.one("SELECT at FROM pipeline_facts WHERE key = 'first_snapshot_at'");
   const out = {};
-  for (const p of ['week', 'month']) {
-    const o = periodOpen(p, fact?.at ?? null, now());
-    out[p] = { open: o.open, opensAt: o.opensAt, start: periodStart(p, now()).toISOString(), endsAt: nextPeriodStart(p, now()).toISOString() };
-  }
+  const w = periodOpen('week', fact?.at ?? null, now());
+  out.week = { open: w.open, opensAt: w.opensAt, start: periodStart('week', now()).toISOString(), endsAt: nextPeriodStart('week', now()).toISOString() };
+  // The rolling window: "Last N days", N from the retention policy (26 for Blizzard's 30-day rule), never hardcoded.
+  const { keepDays, windowDays } = await retentionPolicy(db, now());
+  const r = rollingOpen(fact?.at ?? null, keepDays, now());
+  out.rolling = { open: r.open, opensAt: r.opensAt, days: keepDays, windowDays };
   return { firstSnapshotAt: fact?.at ?? null, ...out };
 }
 
@@ -109,11 +114,15 @@ export function createPublicRouter({ db, limits, networkOf }) {
     if (!who?.account) {
       return res.status(404).json({ error: 'No such player.', code: who?.placeholder ? 'placeholder' : 'no_user' });
     }
-    const a = await db.one('SELECT id, username, display_name, beta_member, beta_since, featured_character_id FROM accounts WHERE id = $1', [who.account]);
+    const a = await db.one(
+      'SELECT id, created_at, username, display_name, beta_member, beta_since, featured_character_id, profile_bio, profile_show_pins FROM accounts WHERE id = $1',
+      [who.account],
+    );
     const chars = await db.query(
-      `SELECT c.id, c.slug, c.name, c.surname, c.level, c.race, c.class, c.faction, c.media, c.media_state, c.last_fetched_at, r.id AS ruleset_id, r.name AS ruleset_name
-         FROM characters c LEFT JOIN rulesets r ON r.id = c.ruleset_id
-        WHERE c.owner_account_id = $1 AND NOT c.hidden AND c.profile_state = 'ok' AND c.stats_fetched_at IS NOT NULL
+      `SELECT c.id, c.slug, c.name, c.surname, c.level, c.race, c.class, c.faction, c.media, c.media_state, c.last_fetched_at, c.hidden,
+              r.id AS ruleset_id, r.name AS ruleset_name, g.name AS guild_name, g.slug AS guild_slug
+         FROM characters c LEFT JOIN rulesets r ON r.id = c.ruleset_id LEFT JOIN guilds g ON g.id = c.guild_id
+        WHERE c.owner_account_id = $1 AND NOT c.hidden AND c.profile_state = 'ok' AND c.stats_fetched_at IS NOT NULL AND c.missing_since IS NULL
         ORDER BY c.level DESC NULLS LAST, c.id LIMIT 50`,
       [a.id],
     );
@@ -123,17 +132,44 @@ export function createPublicRouter({ db, limits, networkOf }) {
       render: c.media_state === 'ok' ? c.media?.['main-raw'] ?? null : null, fetchedAt: c.last_fetched_at,
     });
     const featured = chars.find((c) => c.id === a.featured_character_id) ?? chars[0] ?? null;
+    const links = await db.query('SELECT platform, handle FROM account_social_links WHERE account_id = $1 ORDER BY platform LIMIT 20', [a.id]);
+    // Guilds of the characters shown here (hidden characters are already left out, so their guilds never appear).
+    const guilds = new Map();
+    for (const c of chars) {
+      if (!c.guild_slug) continue;
+      if (!guilds.has(c.guild_slug)) guilds.set(c.guild_slug, { name: c.guild_name, slug: c.guild_slug, ruleset: c.ruleset_name, characters: [] });
+      guilds.get(c.guild_slug).characters.push(`${c.name} ${c.surname}`);
+    }
+    const order = PLATFORMS.map((x) => x.id);
+    // Sections, each drawn by its own view (client/src/pages/ProfilePage.jsx). An empty one is left out entirely.
+    const sections = [];
+    const about = {
+      id: 'about',
+      bio: a.profile_bio,
+      links: links.filter((l) => getPlatform(l.platform)).sort((x, y) => order.indexOf(x.platform) - order.indexOf(y.platform))
+        .map((l) => ({ platform: l.platform, label: getPlatform(l.platform).label, handle: l.handle, url: linkFor(l.platform, l.handle) })),
+    };
+    if (about.bio || about.links.length) sections.push(about);
+    if (featured && a.profile_show_pins) {
+      const { ids } = await pinsOf(db, a.id);
+      const cards = await pinCards(db, ids, featured);
+      if (cards.length) sections.push({ id: 'pins', character: { name: featured.name, surname: featured.surname, slug: featured.slug, ruleset: featured.ruleset_name, rulesetId: featured.ruleset_id }, cards, fetchedAt: featured.last_fetched_at });
+    }
+    if (featured) sections.push({ id: 'featured', character: view(featured) });
+    const others = chars.filter((c) => c.id !== featured?.id).map(view);
+    if (others.length) sections.push({ id: 'characters', characters: others });
+    if (guilds.size) sections.push({ id: 'guilds', guilds: [...guilds.values()] });
     res.json({
       status: 'ok',
       profile: {
         username: a.username,
         displayName: a.display_name ?? a.username,
         beta: a.beta_member ? { since: a.beta_since } : null,
+        joinedAt: a.created_at,
+        // From the featured character: Blizzard data, so it follows the retention rules with it.
+        main: featured ? { ruleset: featured.ruleset_name, faction: featured.faction } : null,
       },
-      sections: [
-        { id: 'featured', character: featured ? view(featured) : null },
-        { id: 'characters', characters: chars.filter((c) => c.id !== featured?.id).map(view) },
-      ],
+      sections,
     });
   }));
 
@@ -167,6 +203,10 @@ export function createPublicRouter({ db, limits, networkOf }) {
         row = await db.one('SELECT * FROM characters WHERE slug = $1', [parsed.slug]);
         if (row?.hidden && !mine()) return res.json({ status: 'hidden', slug: parsed.slug });
       }
+    }
+    // Blizzard stopped returning it: say so, with the date, and show none of its old values as current.
+    if (row?.profile_state === 'ok' && row.missing_since) {
+      return res.json({ status: 'missing', slug: parsed.slug, name: row.name, surname: row.surname, since: row.data_fetched_at, mine: mine() });
     }
     if (!row || row.profile_state !== 'ok') {
       if (notice === 'slow' || notice === 'unavailable') return res.json({ status: 'unavailable', reason: notice, slug: parsed.slug });
@@ -230,7 +270,9 @@ export function createPublicRouter({ db, limits, networkOf }) {
   r.get('/leaderboards/:ruleset/:statistic', route(async (req, res) => {
     const rulesetId = intParam(req.params.ruleset);
     const statisticId = intParam(req.params.statistic);
-    const period = BOARD_PERIODS.includes(req.query.period) ? req.query.period : 'overall';
+    // 'month' was the 0.4.0–0.4.1 name of the rolling window: old links still land on it.
+    const asked = req.query.period === 'month' ? 'rolling' : req.query.period;
+    const period = BOARD_PERIODS.includes(asked) ? asked : 'overall';
     const { statistics } = await loadCatalog(db);
     const stat = statistics.get(statisticId);
     const rulesets = await rulesetList(db);

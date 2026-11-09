@@ -12,24 +12,27 @@ import { formatDateTime, formatNumber, timeAgo } from '../format.js';
  * One statistic's leaderboard on one ruleset (design/v1/pages/leaderboard-single), in three periods:
  *   Overall   the value
  *   Weekly    what each character GAINED since its first snapshot this week (US weekly reset, Tuesday 15:00 UTC)
- *   Monthly   the same for the calendar month (UTC)
- * Weekly and monthly say "Collecting data" until snapshots cover a whole period: never a partial ranking.
+ *   Last N days  0.4.2, replacing "Monthly": gained since the character's oldest snapshot still kept. Blizzard's API terms
+ *             allow keeping data for at most 30 days, and Everstats keeps N of them (N comes from the server: 26).
+ * Both say "Collecting data" until snapshots cover the whole period: never a partial ranking.
  *
  * Different from the mockup: no tier or 7-day columns (tiers are the next build, movement needs a week of history),
  * no faction filter or jump-to search yet, no "Climbers this week" card (the Weekly tab is that board), and guild
  * rankings say "Coming soon" (guild pages are the next build).
  */
-const PERIODS = [
+const periodsFor = (days) => [
   { id: 'overall', label: 'Overall' },
   { id: 'week', label: 'This week' },
-  { id: 'month', label: 'This month' },
+  { id: 'rolling', label: days ? `Last ${days} days` : 'Recent days' },
 ];
+const KNOWN = ['overall', 'week', 'rolling'];
 
 export function StatLeaderboardPage() {
   const { ruleset, statistic } = useParams();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
-  const period = PERIODS.some((p) => p.id === params.get('period')) ? params.get('period') : 'overall';
+  const askedPeriod = params.get('period') === 'month' ? 'rolling' : params.get('period'); // an old "monthly" link
+  const period = KNOWN.includes(askedPeriod) ? askedPeriod : 'overall';
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [more, setMore] = useState({ rows: [], next: null, busy: false });
@@ -77,9 +80,10 @@ export function StatLeaderboardPage() {
 
   const s = data.statistic;
   const rows = [...data.rows, ...more.rows];
-  const valueLabel = period === 'overall' ? s.name : 'Gained';
+  const valueLabel = period === 'overall' ? (s.name ?? 'Value') : 'Gained';
   const grading = s.grading === 'none' ? 'Leaderboard only: never counts toward a tier' : s.farmable || s.grading === 'category' ? `Counts toward its own ${s.category} tier, not the overall tier` : 'Counts toward the overall tier';
   const p = period === 'overall' ? null : data.periods[period];
+  const rollingDays = data.periods.rolling?.days;
 
   return (
     <div className="wrap page-pad stack gap-24">
@@ -89,15 +93,16 @@ export function StatLeaderboardPage() {
             <Link to={`/leaderboards?ruleset=${data.ruleset.id}`}>Leaderboards</Link><span aria-hidden="true">/</span>
             <Link to={`/leaderboards?ruleset=${data.ruleset.id}#${s.categoryKey}`}>{s.category}</Link>
           </nav>
-          <h1 className="h1">{s.name}</h1>
+          <h1 className="h1">{s.name ?? 'Statistic no longer available'}</h1>
           <span className="t2 small">{grading}.{s.named ? ' Ranked by the number; the name beside it is what this character did most.' : ''}</span>
         </div>
         <RulesetSwitcher rulesets={data.rulesets} value={data.ruleset.id} onChange={(id) => navigate(`/leaderboards/${id}/${s.id}${period === 'overall' ? '' : `?period=${period}`}`)} />
       </div>
 
       <div className="row gap-12">
-        <Segmented label="Period" options={PERIODS} value={period} onChange={(id) => setParams(id === 'overall' ? {} : { period: id })} />
-        {p && <span className="muted xsmall">{period === 'week' ? 'Resets Tuesday 15:00 UTC (the US weekly reset)' : 'Calendar month, UTC'} · since {formatDateTime(p.start)}</span>}
+        <Segmented label="Period" options={periodsFor(data.periods.rolling?.days)} value={period} onChange={(id) => setParams(id === 'overall' ? {} : { period: id })} />
+        {period === 'week' && <span className="muted xsmall">Resets Tuesday 15:00 UTC (the US weekly reset) · since {formatDateTime(p.start)}</span>}
+        {period === 'rolling' && <span className="muted xsmall">Gains over the last {p.days} days: each character’s oldest kept snapshot to now.</span>}
       </div>
 
       <div className="split">
@@ -107,17 +112,17 @@ export function StatLeaderboardPage() {
             <span className="tag">{data.ruleset.name}</span>
           </div>
           <div className="pad-16 stack gap-14">
-            <p className="muted xsmall">Beta: boards are filling up as players join.{period !== 'overall' ? ' A character’s gain counts only from its first snapshot in the period: someone tracked since Thursday shows what they gained since Thursday.' : ''}</p>
+            <p className="muted xsmall">Beta: boards are filling up as players join.{period === 'week' ? ' A character’s gain counts only from its first snapshot this week: someone tracked since Thursday shows what they gained since Thursday.' : ''}{period === 'rolling' ? ` Blizzard’s rules let Everstats keep game data for at most 30 days; it keeps ${rollingDays}, so this is the longest stretch it can rank.` : ''}</p>
             {data.collecting ? (
-              <EmptyState kind="collecting" title={`Opens after the first full ${period === 'week' ? 'week' : 'month'}`}>
-                <span>{period === 'week' ? 'Weekly' : 'Monthly'} boards rank what characters gained, so they need daily snapshots from the very start of a {period === 'week' ? 'week' : 'month'}. Snapshots began {data.periods.firstSnapshotAt ? formatDateTime(data.periods.firstSnapshotAt) : 'with the first tracked character (none yet)'}; this board opens {data.periods[period].opensAt ? formatDateTime(data.periods[period].opensAt) : 'once snapshots start'}.</span>
+              <EmptyState kind="collecting" title={period === 'week' ? 'Opens after the first full week' : `Opens once there are ${p.days} days of snapshots`}>
+                <span>{period === 'week' ? 'Weekly boards rank what characters gained, so they need daily snapshots from the very start of a week.' : `This board ranks what characters gained over the last ${p.days} days, so it waits until snapshots go back that far.`} Snapshots began {data.periods.firstSnapshotAt ? formatDateTime(data.periods.firstSnapshotAt) : 'with the first tracked character (none yet)'}; this board opens {p.opensAt ? formatDateTime(p.opensAt) : 'once snapshots start'}.</span>
               </EmptyState>
             ) : data.population === 0 ? (
               <EmptyState kind="nodata" title="Nobody tracked on this ruleset yet">
                 <span>The board fills in as characters on {data.ruleset.name} are looked up or sign in.</span>
               </EmptyState>
             ) : data.nonzero === 0 ? (
-              <EmptyState kind="nodata" title={period === 'overall' ? 'Nobody tracked has any yet' : `Nobody has gained any this ${period}`}>
+              <EmptyState kind="nodata" title={period === 'overall' ? 'Nobody tracked has any yet' : period === 'week' ? 'Nobody has gained any this week' : `Nobody has gained any in the last ${rollingDays} days`}>
                 <span>All {formatNumber(data.population)} tracked characters on {data.ruleset.name} are at 0, and a zero isn't ranked. The board fills in as soon as someone {period === 'overall' ? 'has one' : 'gains one'}.</span>
               </EmptyState>
             ) : data.tied ? (

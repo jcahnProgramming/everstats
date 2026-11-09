@@ -20,7 +20,10 @@ export const route = (fn) => (req, res, next) => Promise.resolve(fn(req, res, ne
  * back to the client. Unexpected ones log only their name, code and stack locations, and the path without its query
  * (OAuth callbacks carry codes in the query).
  */
-export const loggablePath = (url) => String(url ?? '').split('?')[0].slice(0, 200);
+export const loggablePath = (url) => String(url ?? '').split('?')[0].slice(0, 200)
+  // 0.4.2, Blizzard's 30-day rule: a character's or guild's name is Blizzard data, and Docker keeps logs as long as
+  // the container lives. Names in a path are replaced, so no log line carries one.
+  .replace(/\/(api\/characters|c|api\/guilds|g)\/[^/]+/, '/$1/:name');
 
 export function createErrorHandler(processName) {
   // eslint-disable-next-line no-unused-vars

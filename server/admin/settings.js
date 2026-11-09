@@ -68,6 +68,15 @@ export const SETTINGS = [
     default: true,
   },
   {
+    // Blizzard's 30-day rule (retention/policy.js). Above 30 only with a written-permission note, which is logged.
+    key: 'retention.window',
+    section: 'retention',
+    label: 'Blizzard data retention window (days)',
+    help: 'Blizzard’s API terms require a maximum 30-day lifespan for all data from the API. Raise this only if Blizzard has given written permission, and record that permission here.',
+    type: 'retention',
+    default: { days: 30, note: null },
+  },
+  {
     key: 'beta.perks',
     section: 'beta',
     label: 'What beta members get',
@@ -100,6 +109,15 @@ function check(def, value) {
       if (description.length > 300) throw new HttpError(400, 'A perk description is up to 300 characters', 'invalid');
       return { title, description };
     });
+  }
+  if (def.type === 'retention') {
+    const days = value?.days;
+    const note = typeof value?.note === 'string' ? value.note.trim().slice(0, 1000) : '';
+    if (!Number.isInteger(days) || days < 12 || days > 400) throw new HttpError(400, 'The window is a whole number of days, from 12 to 400.', 'invalid');
+    if (days > 30 && note.length < 20) {
+      throw new HttpError(400, 'Blizzard’s terms allow at most 30 days. Going above that needs Blizzard’s written permission: describe it in the note (who, when, what was granted).', 'needs_permission');
+    }
+    return { days, note: days > 30 ? note : null };
   }
   throw new Error(`setting ${def.key} has an unknown type`);
 }

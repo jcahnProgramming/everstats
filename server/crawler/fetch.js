@@ -25,6 +25,8 @@ export class RetryableError extends Error {
 }
 
 export const MIN_TRACKED_LEVEL = 10;
+/** The longest a tracked character goes without a full fetch (statistics, gear, attributes, render). */
+export const FULL_REFRESH_DAYS = 7;
 const ROSTER_EVERY_MS = 24 * 60 * 60 * 1000;
 const PROFILE_NS = BLIZZARD_API.namespaces.profile;
 
@@ -50,11 +52,16 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
   if (!p) throw new RetryableError('profile: an answer without a character in it', 'blizzard');
   if (!p.slug) p.slug = slug;
 
-  const existing = await db.one('SELECT login_at_full, last_fetched_at, media_state, equipment_version FROM characters WHERE id = $1', [p.id]);
+  const existing = await db.one('SELECT login_at_full, last_fetched_at, media_state, equipment_version, missing_since FROM characters WHERE id = $1', [p.id]);
   // Equipment stored before 0.4.1 has no tooltip fields: one full fetch brings them in, logged in or not.
   const unchanged = item.mode === 'check' && existing?.last_fetched_at && p.lastLoginAt && existing.login_at_full
     && new Date(existing.login_at_full).getTime() === new Date(p.lastLoginAt).getTime()
-    && existing.equipment_version >= EQUIPMENT_VERSION;
+    && existing.equipment_version >= EQUIPMENT_VERSION
+    // Blizzard's 30-day rule (0.4.2): statistics, gear and attributes are refetched at least every FULL_REFRESH_DAYS
+    // even for a character who hasn't logged in, so they never age out of the retention window while it's active.
+    && Date.now() - new Date(existing.last_fetched_at).getTime() < FULL_REFRESH_DAYS * 24 * 60 * 60 * 1000
+    // Back after being missing: its values were taken off the boards, so fetch them again.
+    && !existing.missing_since;
 
   if (unchanged) {
     let media = null;

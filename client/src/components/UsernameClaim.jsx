@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { useSession } from '../session.jsx';
@@ -82,7 +82,7 @@ export function UsernameClaim({ renaming = false, renamesLeft = 0, onDone, autoF
   const bad = Boolean(problem || local || (check && check.ok === false));
   return (
     <form className="stack gap-10" onSubmit={submit} noValidate>
-      <div className="row gap-8 align-end">
+      <div className="row gap-8 align-end wrap-field-row">
         <Field
           label={renaming ? 'New username' : 'Username'}
           className="grow"
@@ -116,8 +116,11 @@ export function UsernameClaim({ renaming = false, renamesLeft = 0, onDone, autoF
  */
 export function UsernamePrompt() {
   const session = useSession();
+  const { pathname } = useLocation();
   const [open, setOpen] = useState(true);
-  if (!session.signedIn || !session.user?.promptUsername || !open) return null;
+  // Never over the admin area: the admin isn't a player, even when the same browser also has a player session.
+  const inAdmin = pathname === '/admin' || pathname.startsWith('/admin/');
+  if (inAdmin || !session.signedIn || !session.user?.promptUsername || !open) return null;
   const later = async () => {
     setOpen(false);
     await api('/api/account/username/prompt-dismiss', { method: 'POST', body: {} }).catch(() => {});

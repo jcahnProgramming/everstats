@@ -16,7 +16,7 @@ export function PrivacyPage() {
         <ul className="t2 stack gap-6">
           <li>Which sign-ins you've linked: the Battle.net or Discord account id, and the name it shows (your BattleTag or Discord name). Everstats never asks for your email.</li>
           <li>Your passkeys' public keys (never anything secret from your device), and, if you turn it on, your two-factor secret, encrypted, plus one-way fingerprints of your recovery codes.</li>
-          <li>Your theme, your pinned statistics and featured character, which characters are yours and whether you've hidden them.</li>
+          <li>Your username, display name, bio and social handles (just the handles: Everstats builds the links), your theme, your pinned statistics and featured character, which characters are yours and whether you've hidden them.</li>
           <li>When the account was made, and whether that was during the beta.</li>
           <li>A log of what happened to the account (signed in, linked, 2FA turned on…). Never a password, a code or a token.</li>
           <li>A sign-in cookie. There are no tracking or advertising cookies, and no third-party scripts. The one thing your browser loads from elsewhere is a character's render picture, straight from Blizzard's render server.</li>
@@ -26,6 +26,8 @@ export function PrivacyPage() {
       <section className="panel pad-24 stack gap-10" aria-labelledby="chars-h">
         <h2 className="h2 h2-panel" id="chars-h">Where character data comes from</h2>
         <p className="t2">Every character, statistic, piece of gear and render comes from Blizzard's public API, which shows any character of level 10 or more to anyone who asks. Everstats looks characters up when someone searches, refreshes them daily, and keeps a daily snapshot of their statistics.</p>
+        <p className="t2"><b className="strong-text">Everstats keeps Blizzard's data for at most 30 days</b>, because Blizzard's API terms require it. In practice the site keeps 26 days and its backups 3 more, so nothing from Blizzard is ever older than 30 days anywhere, backups included. That means history only goes back about four weeks: progress, rank movement and the “Last 26 days” boards cover that stretch and no further. A character Blizzard stops returning (deleted, renamed or private) disappears from Everstats once 30 days pass without Blizzard returning it.</p>
+        <p className="t2">What you write yourself (your username, display name, bio, social handles, pins, hidden characters) is Everstats' own data and stays until you change it or delete your account.</p>
         <p className="t2">When you sign in with Battle.net, Everstats uses that sign-in once to read the list of Forever characters on your Battle.net account, so it can add them and mark them as yours. The permission is then thrown away: it isn't stored, and it can't be used again.</p>
       </section>
 

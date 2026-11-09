@@ -37,7 +37,7 @@ export function AppShell() {
         </main>
         <footer className="foot">
           <div className="wrap in">
-            <span>Everstats · Not affiliated with or endorsed by Blizzard Entertainment · <Link to="/privacy">Privacy</Link></span>
+            <span>Everstats · Character data comes from Blizzard Entertainment’s game data API · Not affiliated with or endorsed by Blizzard Entertainment · <Link to="/privacy">Privacy</Link></span>
             <Link to="/changelog" className="ver" aria-label={`Everstats version ${APP_VERSION}: what's new`}>
               <span>v{APP_VERSION}</span>
               <span className="ver-sep" aria-hidden="true">·</span>
@@ -178,7 +178,7 @@ function AccountButton({ className = '', block = false }) {
         <Icon name="user" size="sm" />
         {u?.claimed ? (
           <span className="who-names"><span className="who-display ellipsis">{u.displayName}</span><span className="who-handle ellipsis">@{u.username}</span></span>
-        ) : <span>Choose a username</span>}
+        ) : <span className="who-claim-label">Choose a username</span>}
       </NavLink>
     );
   }
