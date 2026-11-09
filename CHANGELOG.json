@@ -2,7 +2,7 @@
   "releases": [
     {
       "version": "0.5.0",
-      "date": "2026-11-12",
+      "date": "2026-11-09",
       "title": "Guild pages and guild leaderboards",
       "sections": {
         "New": [
@@ -27,7 +27,7 @@
     },
     {
       "version": "0.4.2",
-      "date": "2026-11-11",
+      "date": "2026-11-09",
       "title": "30 days of history, fuller profiles, a proper character sheet",
       "sections": {
         "New": [
@@ -51,7 +51,7 @@
     },
     {
       "version": "0.4.1",
-      "date": "2026-11-10",
+      "date": "2026-11-08",
       "title": "Usernames, profiles, and gear that looks like the game",
       "sections": {
         "New": [
@@ -74,7 +74,7 @@
     },
     {
       "version": "0.4.0",
-      "date": "2026-11-09",
+      "date": "2026-11-08",
       "title": "The beta: real characters, real leaderboards",
       "sections": {
         "New": [
@@ -96,7 +96,7 @@
     },
     {
       "version": "0.3.2",
-      "date": "2026-11-09",
+      "date": "2026-11-08",
       "title": "Discovery: one catalog to approve from",
       "sections": {
         "New": [
@@ -112,7 +112,7 @@
     },
     {
       "version": "0.3.1",
-      "date": "2026-11-09",
+      "date": "2026-11-08",
       "title": "Discovery: what the first run taught us",
       "sections": {
         "Improved": [

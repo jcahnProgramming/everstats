@@ -7,6 +7,14 @@
  *
  * A malformed entry fails the build, and with it the deploy. That is the
  * whole point: a changelog you can forget is a changelog that rots.
+ *
+ * Dates are the day a release was made, never a day still to come: a date
+ * later than today is refused. "Today" is the latest calendar date anywhere
+ * on Earth (UTC+14), so a release dated today in the author's time zone, or in
+ * UTC on the build server, is never refused by mistake.
+ *
+ * For tests: CHANGELOG_FILE reads another file; CHANGELOG_NOW (an ISO moment)
+ * stands in for the current time.
  */
 
 import { readFileSync } from 'node:fs';
@@ -14,7 +22,10 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const FILE = resolve(ROOT, 'CHANGELOG.json');
+const FILE = process.env.CHANGELOG_FILE ? resolve(process.env.CHANGELOG_FILE) : resolve(ROOT, 'CHANGELOG.json');
+const NOW = process.env.CHANGELOG_NOW ? Date.parse(process.env.CHANGELOG_NOW) : Date.now();
+// The calendar date in the time zone furthest ahead (UTC+14): no place on Earth is past it yet.
+const LATEST_TODAY = new Date(NOW + 14 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
 const ALLOWED_SECTIONS = ['New', 'Improved', 'Fixed', 'Removed'];
 const SEMVER = /^\d+\.\d+\.\d+$/;
@@ -63,8 +74,11 @@ doc.releases.forEach((entry, index) => {
   if (typeof entry.date !== 'string' || !ISO_DATE.test(entry.date)) {
     fail(`${where}.date must be YYYY-MM-DD — got ${JSON.stringify(entry.date)}`);
   }
-  if (Number.isNaN(Date.parse(entry.date))) {
+  if (Number.isNaN(Date.parse(entry.date)) || new Date(`${entry.date}T00:00:00Z`).toISOString().slice(0, 10) !== entry.date) {
     fail(`${where}.date is not a real date — got ${entry.date}`);
+  }
+  if (entry.date > LATEST_TODAY) {
+    fail(`${where}.date (${entry.date}) is in the future — date a release the day it is made`);
   }
   if (typeof entry.title !== 'string' || entry.title.trim() === '') {
     fail(`${where}.title must be a non-empty string`);

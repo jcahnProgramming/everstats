@@ -466,7 +466,8 @@ runs before the build, so a malformed entry fails the build and the deploy.
   "sections": { "New": […], "Improved": […], "Fixed": […], "Removed": […] } }
 ```
 
-Newest first; omit sections that don't apply.
+Newest first; omit sections that don't apply. **`date` is the day the release is committed, never ahead:** `check-changelog.js` refuses a date later than
+today (today = the latest calendar date anywhere, UTC+14, so a same-day release never fails in any time zone).
 
 - **PATCH** (0.x.1) for fixes, small additions, refinements. The default.
 - **MINOR** (0.x.0) for a genuinely new feature or major capability.
