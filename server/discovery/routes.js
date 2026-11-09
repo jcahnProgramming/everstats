@@ -9,6 +9,8 @@ import { forgetGrant, grantStatus, startGrant } from './grant.js';
 import { VALUE_TYPES } from './analyze.js';
 import { SUGGESTION_KINDS, present } from './suggest.js';
 import { analyseCombined, analyseStored } from './run.js';
+import { clearCatalogCache, currentDecisions } from '../stats/catalog.js';
+import { guessValueType } from './analyze.js';
 
 /**
  * /api/admin/discovery/*: mounted INSIDE the admin router, after its gate, so without an admin session every one of
@@ -46,24 +48,6 @@ const runView = (r, { skeletons = false } = {}) => {
   };
 };
 
-/** The newest decision per statistic and kind, for these statistics: Map(statId → Map(kind → decision)). */
-async function currentDecisions(db, statisticIds) {
-  const rows = statisticIds.length
-    ? await db.query(
-      `SELECT DISTINCT ON (statistic_id, kind) statistic_id, kind, value, decision, decided_at
-         FROM discovery_decisions WHERE statistic_id = ANY($1::bigint[])
-        ORDER BY statistic_id, kind, decided_at DESC, id DESC LIMIT $2`,
-      [statisticIds, MAX_CATALOG_ROWS * DECISION_KINDS.length],
-    )
-    : [];
-  const out = new Map();
-  for (const r of rows) {
-    if (!out.has(r.statistic_id)) out.set(r.statistic_id, new Map());
-    out.get(r.statistic_id).set(r.kind, { value: r.value, decision: r.decision, decidedAt: r.decided_at });
-  }
-  return out;
-}
-
 /**
  * A catalog with suggestions computed against the admin's current decisions (suggest.js present()). `runId` null is
  * the combined catalog of every finished run; a number is that run's own catalog. Only the decision-free stored
@@ -71,7 +55,7 @@ async function currentDecisions(db, statisticIds) {
  */
 async function loadCatalog(db, runId) {
   const rows = runId === null
-    ? await db.query('SELECT * FROM discovery_catalog ORDER BY statistic_id LIMIT $1', [MAX_CATALOG_ROWS])
+    ? [...await db.query('SELECT * FROM discovery_catalog ORDER BY statistic_id LIMIT $1', [MAX_CATALOG_ROWS]), ...await productionOnly(db)]
     : await db.query('SELECT * FROM discovery_statistics WHERE run_id = $1 ORDER BY statistic_id LIMIT $2', [runId, MAX_CATALOG_ROWS]);
   const decisions = await currentDecisions(db, rows.map((r) => r.statistic_id));
   return rows.map((r) => present({
@@ -92,7 +76,37 @@ async function loadCatalog(db, runId) {
     namedExample: r.named_example ?? null,
     duplicate: r.duplicate ?? null,
     runs: (r.runs ?? (runId === null ? [] : [runId])).map(Number), // pg returns bigint[] elements as strings
+    fromProduction: Boolean(r.from_production),
   }, decisions.get(r.statistic_id) ?? new Map()));
+}
+
+/**
+ * Statistics the production crawler has seen that no discovery run has (0.4.0: the catalog grows from production
+ * crawls). Shaped like discovery_catalog rows, with counts measured from the production tables, so the combined
+ * catalog shows them for approval like any other. Their value type is the same name-based guess discovery makes.
+ */
+async function productionOnly(db) {
+  const sampled = (await db.one('SELECT count(*)::int AS n FROM characters WHERE stats_fetched_at IS NOT NULL')).n;
+  const rows = await db.query(
+    `SELECT s.id, s.name, s.category_path, s.has_text, s.named_example,
+            (SELECT count(*)::int FROM character_statistics cs WHERE cs.statistic_id = s.id) AS present,
+            (SELECT count(*)::int FROM character_statistics cs WHERE cs.statistic_id = s.id AND cs.value <> 0) AS nonzero,
+            (SELECT min(value) FROM character_statistics cs WHERE cs.statistic_id = s.id) AS min_value,
+            (SELECT max(value) FROM character_statistics cs WHERE cs.statistic_id = s.id) AS max_value
+       FROM statistics s WHERE NOT EXISTS (SELECT 1 FROM discovery_catalog d WHERE d.statistic_id = s.id)
+      ORDER BY s.id LIMIT $1`,
+    [MAX_CATALOG_ROWS],
+  );
+  return rows.map((r) => {
+    const g = guessValueType(r.name, { namedExample: r.named_example });
+    return {
+      statistic_id: r.id, name: r.name, endpoint: 'character.achievement-statistics', category_path: r.category_path,
+      value_type: g.type, value_type_basis: g.basis, value_type_guessed: g.guessed,
+      characters_sampled: sampled, characters_present: r.present, characters_nonzero: r.nonzero,
+      min_value: r.min_value, max_value: r.max_value, median_value: null, has_text: r.has_text, named_example: r.named_example,
+      duplicate: null, runs: [], from_production: true,
+    };
+  });
 }
 
 const combinedView = async (db) => {
@@ -293,6 +307,7 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy }) {
       );
       await q.query("INSERT INTO admin_events (type, detail) VALUES ('discovery.decided', $1::jsonb)", [JSON.stringify({ statisticId, kind, decision })]);
     });
+    clearCatalogCache(); // character pages and boards follow the decision at once
     const [after] = (await loadCatalog(db, runId)).filter((s) => s.statisticId === statisticId);
     res.json({ statistic: after });
   }));

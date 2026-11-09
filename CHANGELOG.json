@@ -1,6 +1,28 @@
 {
   "releases": [
     {
+      "version": "0.4.0",
+      "date": "2026-11-09",
+      "title": "The beta: real characters, real leaderboards",
+      "sections": {
+        "New": [
+          "The beta is open, to everyone. A \"Beta\" badge sits beside the logo and a slim banner under the top bar (you can dismiss it) leads to a new Beta page: what the beta is, and what beta members get. Every account made while the beta is open is a beta member for good, and Settings shows yours (\"Beta member since …\"). The Beta Tester badge itself arrives with 1.0.",
+          "Character pages are real. Search a name and surname and Everstats fetches the character from Blizzard on the spot: the full-body render, level, race, class, faction, ruleset and guild, when they were last seen in game, their gear and core stats, and every in-game statistic grouped by category. Each statistic shows its value, its rank on that ruleset (\"#12 of 340\"), and how fresh it is. Statistics that come with a name (\"Creature type killed the most: Undead\") show the name beside the number. Tiers are the next build, and the page says so instead of showing a grade.",
+          "A leaderboard for every statistic on every ruleset, browsable by category, each with its top three at a glance. Ties share a rank, characters at zero share the last one, and a board where everyone has the same value says so instead of inventing an order. Each board shows how many characters are tracked on that ruleset.",
+          "Weekly and monthly boards rank what characters gained: the week runs from the US weekly reset (Tuesday 15:00 UTC), the month is the calendar month in UTC. A character's gain counts from its first daily snapshot in that week or month. Until snapshots cover a whole week or month, those boards say \"Collecting data\" and when they open, rather than show a partial ranking.",
+          "Signing in with Battle.net brings in every Forever character on your account at once, marked as yours. Characters under level 10, or not yet visible at Blizzard, are listed with the reason. \"No Forever characters\" and \"we couldn't check\" are different answers, and \"Refresh my characters\" reads the list again. Signed in with Discord only? Link Battle.net in Settings to bring your characters in.",
+          "Signed in, the home page is your dashboard: a featured character (your highest level unless you pick one), pinned statistics with their rank and its movement since last week (\"—\" until a week of history exists), and all your characters. Pin statistics from any character page or with \"Choose pins\". New accounts start with Times camped, Total deaths, Quests completed and Creatures killed.",
+          "Hide any of your characters in Settings: a hidden character has no public page and is on no leaderboard, and you still see it.",
+          "Every tracked character is refreshed daily, and keeps a snapshot of its statistics every day, forever. Guild rosters bring their level 10+ members in too.",
+          "A Privacy page: what an account stores, where character data comes from, how hiding works, and how to delete your account. Accounts can now be deleted from Settings; characters stay tracked as public data, and hidden ones stay hidden.",
+          "For the site owner: the crawler on the admin page shows the queue by priority, requests in the last hour and each UTC hour, characters checked and fetched today, the last error and any back-off, with a request budget, a pause for the background crawl and a switch for roster seeding. The beta opens and closes from the admin page, and its perks list is editable there. New statistics the crawler sees appear on the Discovery page for approval by themselves."
+        ],
+        "Improved": [
+          "Visiting /admin without an admin session now goes to the admin sign-in page."
+        ]
+      }
+    },
+    {
       "version": "0.3.2",
       "date": "2026-11-09",
       "title": "Discovery: one catalog to approve from",

@@ -1,19 +1,20 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { characterSlug } from '../../../server/stats/slug.js';
 import { Emblem } from '../chrome/BrandMark.jsx';
 import { Icon } from '../chrome/Icon.jsx';
 import { Field } from '../components/Controls.jsx';
-import { EmptyState } from '../components/EmptyState.jsx';
 import { TierBadge } from '../components/Tier.jsx';
+import { useSession } from '../session.jsx';
+import { DashboardPage } from './DashboardPage.jsx';
 
 /**
  * Home (design/v1/pages/home): hero with the two-field search, three pillars, featured leaderboards.
  *
  * Different from the mockup, on purpose:
- *   - Featured leaderboards: the mockup shows top-5 lists of four "curated statistics" for a chosen ruleset. There
- *     are no boards yet, and picking four statistics here would hardcode statistics (CLAUDE.md), so the section says
- *     it's coming. When it's built, which boards are featured is data, not a list in this file.
+ *   - Signed in, home is the player's dashboard (DashboardPage.jsx); this page is for visitors.
+ *   - Featured leaderboards: the mockup shows top-5 lists of four "curated statistics". Picking four statistics here
+ *     would hardcode statistics (CLAUDE.md), so the section links to the leaderboards instead.
  *   - Pillar II named the four rulesets and "Hardcore joins later": rulesets come from Blizzard's list, never typed in.
  *   - No "Placeholdername" in the inputs.
  *   - The emblem's "Overall tier" card shows a letter with no one's name on it: it explains the idea, it isn't a grade.
@@ -25,6 +26,12 @@ const PILLARS = [
 ];
 
 export function HomePage() {
+  const session = useSession();
+  if (session.signedIn) return <DashboardPage />;
+  return <VisitorHome />;
+}
+
+function VisitorHome() {
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [surname, setSurname] = useState('');
@@ -60,9 +67,7 @@ export function HomePage() {
               <span className="muted xsmall">Characters appear from level 10, after their first log-out.</span>
             </div>
           </form>
-          <EmptyState kind="soon" compact title="Look-ups aren't switched on yet">
-            <span>A search opens the character's page, which says plainly that there's nothing to show yet. When look-ups are on, a search fetches the character from Blizzard straight away.</span>
-          </EmptyState>
+          <p className="t2 small">A search fetches the character from Blizzard straight away. <Link to="/sign-in">Sign in with Battle.net</Link> and every Forever character on your account joins the boards at once.</p>
         </div>
         <div className="hide-phone home-emblem">
           <Emblem />
@@ -87,9 +92,10 @@ export function HomePage() {
 
       <section className="wrap stack gap-20 home-featured" aria-labelledby="featured-h">
         <div className="orn"><span className="gem" /><h2 className="h2" id="featured-h">Featured leaderboards</h2><span className="rule" /></div>
-        <EmptyState kind="soon" title="Featured leaderboards appear once Everstats tracks characters">
-          <span>Each board will show its top five for the ruleset you pick, with a link to the full board.</span>
-        </EmptyState>
+        <div className="panel pad-20 row gap-14">
+          <span className="t2 grow">A board for every statistic on every ruleset, overall, this week and this month. Beta: they fill up as players join.</span>
+          <Link className="btn gold" to="/leaderboards">Browse the leaderboards</Link>
+        </div>
       </section>
     </>
   );

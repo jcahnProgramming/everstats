@@ -96,7 +96,7 @@ export async function startApp({ fetch: outbound, now, onHeader, trustedProxies 
       get: (p, h) => request('GET', p, undefined, h),
       post: (p, b = {}, h) => request('POST', p, b, h),
       put: (p, b = {}, h) => request('PUT', p, b, h),
-      del: (p, h) => request('DELETE', p, undefined, h),
+      del: (p, h, b) => request('DELETE', p, b, h),
     };
   }
 

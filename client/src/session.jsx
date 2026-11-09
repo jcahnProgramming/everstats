@@ -11,7 +11,7 @@ import { api } from './api.js';
 const SessionContext = createContext(null);
 
 export function SessionProvider({ children }) {
-  const [state, setState] = useState({ loading: true, signedIn: false, stage: null, theme: 'forever', providers: [], error: null });
+  const [state, setState] = useState({ loading: true, signedIn: false, stage: null, theme: 'forever', providers: [], beta: null, error: null });
 
   const refresh = useCallback(async () => {
     try {

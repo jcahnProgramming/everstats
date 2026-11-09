@@ -10,8 +10,8 @@ import { BACKUP_HOUR_UTC, isDue, listBackups, recordedBackup } from '../core/bac
  * A job's run() must return quickly: the loop's heartbeat waits for it, and a heartbeat older than 3 minutes shows
  * the worker as "Not responding". Long work (a backup) is started in the background and reported on.
  *
- * Coming (each after the discovery pass): the daily re-sync of every tracked character, guild-roster seeding, the
- * on-search refresh queue, daily snapshots, tier recomputation per ruleset.
+ * The crawler itself (crawler/service.js) runs continuously beside the loop, not as a job: the jobs below only queue
+ * work for it (the daily refresh) or use its client (rulesets). Coming: tier recomputation per ruleset.
  */
 
 /**
@@ -87,4 +87,102 @@ export function discoveryJob({ fetch = globalThis.fetch, sleep } = {}) {
   };
 }
 
-export const JOBS = Object.freeze([backupJob(), discoveryJob()]);
+/**
+ * The daily refresh: every 5 minutes, queue a 'check' of every tracked character not checked in the last day
+ * (oldest first, up to REFRESH_BATCH at a time). A check is one request when the character hasn't logged in since its
+ * last full fetch. Paused with the background crawl.
+ */
+export const REFRESH_EVERY_MS = 24 * 60 * 60 * 1000;
+export const REFRESH_BATCH = 2000;
+
+export function refreshJob() {
+  return {
+    id: 'refresh',
+    label: 'Daily refresh of tracked characters',
+    everyMs: 5 * 60 * 1000,
+    async run({ db }) {
+      const { getSetting } = await import('../admin/settings.js');
+      if (await getSetting(db, 'crawler.paused')) return { summary: 'Paused' };
+      const { PRIORITY, enqueueMany } = await import('../crawler/queue.js');
+      const due = await db.query(
+        `SELECT slug FROM characters WHERE slug IS NOT NULL AND (last_checked_at IS NULL OR last_checked_at < now() - ($1 || ' milliseconds')::interval)
+          ORDER BY last_checked_at NULLS FIRST, id LIMIT $2`,
+        [String(REFRESH_EVERY_MS), REFRESH_BATCH],
+      );
+      const n = await enqueueMany(db, due.map((c) => ({ key: c.slug, mode: 'check', priority: PRIORITY.daily })));
+      return { summary: n ? `Queued ${n} for their daily check` : 'Every tracked character checked in the last day' };
+    },
+  };
+}
+
+/** Rulesets from Blizzard's index, every 6 hours (a new ruleset, like Hardcore, just appears). */
+export function rulesetsJob({ crawler }) {
+  return {
+    id: 'rulesets',
+    label: 'Rulesets from Blizzard',
+    everyMs: 6 * 60 * 60 * 1000,
+    async run({ db }) {
+      const { fetchRulesets } = await import('../crawler/fetch.js');
+      try {
+        const n = await fetchRulesets({ db, client: crawler.client });
+        return { summary: `${n} ruleset(s) listed` };
+      } catch (err) {
+        return { summary: `Not read: ${err.message ?? err.name}` };
+      }
+    },
+  };
+}
+
+/**
+ * Once a day, each owned character's rank on each of its owner's pinned boards (pin_rank_history), so the dashboard
+ * can show rank movement since last week. Runs in the background (bounded batches); one row per character, statistic
+ * and day.
+ */
+export function pinRanksJob() {
+  let running = null;
+  return {
+    id: 'pin-ranks',
+    label: 'Pinned statistics: daily ranks',
+    everyMs: 30 * 60 * 1000,
+    async run({ db, now = Date.now }) {
+      if (running) return { summary: 'Recording ranks' };
+      running = recordPinRanks(db, now).finally(() => { running = null; });
+      return { summary: 'Started' };
+    },
+    inFlight: () => running,
+  };
+}
+
+export async function recordPinRanks(db, now = Date.now) {
+  const { pinsOf } = await import('../stats/pins.js');
+  const { rankOn } = await import('../stats/boards.js');
+  const { utcDay } = await import('../stats/periods.js');
+  const day = utcDay(now());
+  let written = 0;
+  for (let after = 0; ;) {
+    const accounts = await db.query(
+      'SELECT DISTINCT owner_account_id AS id FROM characters WHERE owner_account_id > $1 AND stats_fetched_at IS NOT NULL ORDER BY 1 LIMIT 200',
+      [after],
+    );
+    if (!accounts.length) break;
+    for (const a of accounts) {
+      after = a.id;
+      const { ids } = await pinsOf(db, a.id);
+      const chars = await db.query('SELECT id, ruleset_id FROM characters WHERE owner_account_id = $1 AND stats_fetched_at IS NOT NULL AND ruleset_id IS NOT NULL LIMIT 50', [a.id]);
+      for (const c of chars) {
+        for (const statId of ids) {
+          const r = await rankOn(db, { characterId: c.id, statisticId: statId, rulesetId: c.ruleset_id, now });
+          const ins = await db.query(
+            'INSERT INTO pin_rank_history (character_id, statistic_id, day, rank, population) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING RETURNING 1',
+            [c.id, statId, day, r.rank, r.population],
+          );
+          written += ins.length;
+        }
+      }
+    }
+  }
+  return written;
+}
+
+/** Every job, given the worker's crawler (worker/index.js). */
+export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob()]);

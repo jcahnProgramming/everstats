@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { authError } from '../authMessages.js';
 import { Icon } from '../chrome/Icon.jsx';
-import { Button, Field, Modal } from '../components/Controls.jsx';
+import { Button, Field, Modal, Toggle } from '../components/Controls.jsx';
 import { EmptyState } from '../components/EmptyState.jsx';
 import { TierBadge } from '../components/Tier.jsx';
 import { useToasts } from '../components/Toasts.jsx';
@@ -21,7 +21,7 @@ import { useSession } from '../session.jsx';
  *     "Merge") merges the signed-in account INTO the one you prove, and deletes this one. The layout follows the app.
  *   - No "Reduce motion" toggle: the site already follows the system's reduce-motion setting, and an account setting
  *     for it would be new account data this pass doesn't add.
- *   - Provider rows don't say "imports your US characters": that isn't built.
+ *   - Added for 0.4.0: the beta membership line, the characters list with "Hide this character", and Delete account.
  */
 export const THEMES = [
   { id: 'forever', name: 'Forever', blurb: 'Twilight blue, gold and white' },
@@ -35,6 +35,7 @@ const SECTIONS = [
   ['twofa', 'Two-factor'],
   ['characters', 'Characters'],
   ['merge', 'Merge accounts'],
+  ['delete', 'Delete account'],
 ];
 
 export function SettingsPage() {
@@ -75,6 +76,7 @@ export function SettingsPage() {
       <nav aria-label="Settings" className="stack gap-2 settings-nav">
         <h1 className="h1 settings-title">Account</h1>
         {account && <span className="muted xsmall settings-since">Account #{account.id} · since {formatDate(account.createdAt)}</span>}
+        {account?.beta.member && <span className="tag gold self-start settings-beta">Beta member since {formatDate(account.beta.since)}</span>}
         {SECTIONS.map(([id, label]) => <a key={id} className="btn ghost left" href={`#${id}`}>{label}</a>)}
         <span className="hr settings-hr" />
         <SignOut />
@@ -93,8 +95,9 @@ export function SettingsPage() {
           <>
             <MethodsSection account={account} providers={session.providers} onChange={setAccount} />
             <TwoFactorSection account={account} onChange={setAccount} />
-            <CharactersSection account={account} />
+            <CharactersSection account={account} providers={session.providers} onChange={setAccount} />
             <MergeSection account={account} providers={session.providers} />
+            <DeleteSection account={account} />
           </>
         )}
       </div>
@@ -405,14 +408,97 @@ function RecoveryCodes({ codes, onDone }) {
   );
 }
 
-function CharactersSection({ account }) {
-  const hasBnet = account.identities.some((i) => i.provider === 'battlenet');
+const CHAR_STATE = {
+  tracked: 'Tracked',
+  fetching: 'Fetching now',
+  under_10: 'Under level 10: characters appear at 10',
+  not_visible: 'Not visible at Blizzard yet (not logged out since 10, or Blizzard is catching up)',
+};
+
+/** The account's characters (from its Battle.net character list), each with "Hide this character". */
+function CharactersSection({ account, providers, onChange }) {
+  const toast = useToasts();
+  const [busy, setBusy] = useState(null);
+  const readers = providers.filter((p) => account.characterProviders.includes(p.id));
+  const linkedReader = readers.find((p) => account.identities.some((i) => i.provider === p.id));
+  const hide = async (c, hidden) => {
+    setBusy(c.id);
+    try {
+      onChange((await api(`/api/account/characters/${c.id}/hidden`, { method: 'PUT', body: { hidden } })).account);
+      toast.ok(hidden ? `${c.name} ${c.surname} is hidden` : `${c.name} ${c.surname} is public again`, hidden ? 'No public page, on no leaderboard. You still see it.' : 'Back on the boards.');
+    } catch (err) {
+      toast.err("Couldn't change that", err.message);
+    }
+    setBusy(null);
+  };
   return (
     <section id="characters" className="panel pad-24 stack gap-16" aria-labelledby="chars-h">
-      <h2 className="h2 h2-panel" id="chars-h">Your characters</h2>
-      <EmptyState kind="soon" compact title="Add all your Forever characters at once">
-        <span>{hasBnet ? 'Your Battle.net login will be able to list every Forever character on your account.' : 'Link Battle.net above, and it will be able to list every Forever character on your account.'}</span>
-      </EmptyState>
+      <div className="row gap-10">
+        <h2 className="h2 h2-panel grow" id="chars-h">Your characters</h2>
+        {linkedReader && <button type="button" className="btn sm" onClick={() => startProvider(linkedReader.id, 'characters', '/').catch((err) => toast.err("Couldn't start", err.message))}><Icon name="refresh" size="sm" />Refresh my characters</button>}
+      </div>
+      {!linkedReader && (
+        <EmptyState kind="nodata" compact title={`Link ${readers[0]?.label ?? 'Battle.net'} to bring your characters in`}>
+          <span>Linking it (under Sign-in methods above) reads the Forever characters on that account, once, and adds them here.</span>
+        </EmptyState>
+      )}
+      {account.characters.length > 0 && (
+        <div className="listbox">
+          {account.characters.map((c) => (
+            <div key={c.id} className="listrow">
+              <span className="stack grow-col">
+                <b>{c.state === 'tracked' ? <Link to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link> : <>{c.name} <span className="surname">{c.surname}</span></>}</b>
+                <span className="muted xsmall">{[c.level ? `Level ${c.level}` : null, c.class, c.ruleset?.name].filter(Boolean).join(' · ')} · {CHAR_STATE[c.state]}</span>
+              </span>
+              <Toggle checked={c.hidden} disabled={busy === c.id} onChange={(v) => hide(c, v)}>Hide this character</Toggle>
+            </div>
+          ))}
+        </div>
+      )}
+      {linkedReader && account.characters.length === 0 && <span className="t2 small">No characters yet. Your dashboard says what Battle.net answered last time.</span>}
+      <span className="muted xsmall">A hidden character has no public page and is on no leaderboard; you still see it. <Link to="/privacy">More about privacy</Link>.</span>
+    </section>
+  );
+}
+
+/** Delete the account (2FA code too, when it's on). Characters stay tracked as public data; hidden ones stay hidden. */
+function DeleteSection({ account }) {
+  const session = useSession();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState(null);
+  const twoFactor = account.twoFactor.state === 'on';
+  const go = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await api('/api/account', { method: 'DELETE', body: { confirm: 'delete', code: twoFactor ? code : undefined } });
+      await session.refresh();
+      navigate('/');
+    } catch (err) {
+      setProblem(err.message);
+      setBusy(false);
+    }
+  };
+  return (
+    <section id="delete" className="panel pad-24 stack gap-14" aria-labelledby="delete-h">
+      <h2 className="h2 h2-panel" id="delete-h">Delete account</h2>
+      <p className="t2 small">Removes this account, its sign-in links, passkeys, two-factor settings, pins and its claim on your characters. Your characters stay on Everstats as the public data they are; any you've hidden stay hidden. It can't be undone.</p>
+      <button type="button" className="btn danger self-start" onClick={() => setOpen(true)}>Delete this account</button>
+      {open && (
+        <Modal
+          title="Delete this account?"
+          busy={busy}
+          onClose={() => setOpen(false)}
+          actions={<><button type="button" className="btn ghost" onClick={() => setOpen(false)} disabled={busy}>Cancel</button><Button className="danger" loading={busy} onClick={go} disabled={twoFactor && code.trim().length < 6}>Delete for good</Button></>}
+        >
+          <p className="t2 small">Account #{account.id} is deleted and you're signed out.{account.beta.member ? ' Its beta membership goes with it: a new account made later is a beta member only if the beta is still open then.' : ''}</p>
+          {twoFactor && <Field label="Two-factor code (or a recovery code)" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" maxLength={20} />}
+          {problem && <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>}
+        </Modal>
+      )}
     </section>
   );
 }
@@ -462,7 +548,7 @@ function MergeSection({ account, providers }) {
           </div>
         </div>
       </div>
-      <div className="note small"><Icon name="info" /><span>This account's logins and passkeys move to the other account; its theme and 2FA settings are dropped and the other account keeps its own. You'll see exactly what happens and confirm before anything changes. It can't be undone.</span></div>
+      <div className="note small"><Icon name="info" /><span>This account's logins, passkeys and characters move to the other account; its theme and 2FA settings are dropped and the other account keeps its own. Beta membership is kept if either account has it. You'll see exactly what happens and confirm before anything changes. It can't be undone.</span></div>
       {problem && <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>}
     </section>
   );

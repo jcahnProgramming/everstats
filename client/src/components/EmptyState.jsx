@@ -11,6 +11,12 @@ import { TierBadge } from './Tier.jsx';
  *   nocoverage  No coverage here  outside what Everstats tracks          HATCHED panel, crossed circle (design: no-coverage-here)
  *   unranked    Unranked          ruleset below the grading population   the "–" shield + a progress line (design: unranked)
  *
+ * 0.4.0 adds four more, each again with its own label, icon and border (none shares one with another):
+ *   collecting  Collecting data   a weekly/monthly board before a whole period of snapshots exists   DOTTED frame, trend icon
+ *   hidden      Hidden            a character its owner has hidden                   DOUBLE frame, lock icon
+ *   couldnt     Couldn't check    Blizzard or a sign-in token failed: unknown, not "none"   danger bar on the left, warning icon
+ *   tied        Everyone's tied   every tracked character has the same value         solid frame, accent rule on top, sort icon
+ *
  * The design (design/v1/states) has no "Coming soon" state: the mockups show every feature as built. This one is
  * made from the design's own parts (panel, gem, tag, clock icon) so it fits, but its solid frame is shared with none
  * of the other three.
@@ -22,6 +28,10 @@ const KINDS = {
   soon: { label: 'Coming soon', icon: 'clock' },
   nodata: { label: 'No data yet', icon: 'chart' },
   nocoverage: { label: 'No coverage here', icon: 'no-coverage' },
+  collecting: { label: 'Collecting data', icon: 'trend-up' },
+  hidden: { label: 'Hidden', icon: 'lock' },
+  couldnt: { label: 'Couldn’t check', icon: 'warning' },
+  tied: { label: 'Everyone’s tied', icon: 'sort' },
 };
 
 export function EmptyState({ kind, title, children, compact = false, action = null }) {
@@ -88,11 +98,12 @@ export function Fresh({ at = null, staleAfterMs = 36 * 60 * 60 * 1000, prefix = 
  * Where a section's data came from and how fresh it is. Every section keeps one (CLAUDE.md "Provenance"); until
  * lookups exist, the source is "none yet" and the time is "never fetched".
  */
-export function Provenance({ source = null, fetchedAt = null }) {
+export function Provenance({ source = null, fetchedAt = null, children = null }) {
   return (
     <div className="provenance">
       <span><b>Source</b> {source ?? 'none yet'}</span>
       <Fresh at={fetchedAt} prefix="Fetched " />
+      {children}
     </div>
   );
 }

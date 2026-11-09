@@ -4,6 +4,7 @@ import { APP_VERSION } from '../release.js';
 import { parseCharacterSearch } from '../search.js';
 import { useSession } from '../session.jsx';
 import { ToastProvider } from '../components/Toasts.jsx';
+import { BetaBanner, BetaBadge } from './BetaBanner.jsx';
 import { BrandMark } from './BrandMark.jsx';
 import { Icon } from './Icon.jsx';
 import { createScrollMemory, focusMainHeading, restoreScroll, scrollDecision } from './scrollMemory.js';
@@ -13,7 +14,9 @@ import { createScrollMemory, focusMainHeading, restoreScroll, scrollDecision } f
  *
  *   top bar     emblem + wordmark · Leaderboards · Guilds · character search · Sign in / Account
  *               phone (≤ 719px): two icon buttons, search and menu, each opening a sheet under the bar
- *   footer      disclaimer · the version chip, which is the ONLY link to /changelog
+ *   beta        while the beta window is open: a "Beta" badge beside the wordmark and a slim banner under the bar,
+ *               both linking to /beta (BetaBanner.jsx). Gone the moment the owner closes the beta.
+ *   footer      disclaimer · Privacy · the version chip, which is the ONLY link to /changelog
  *
  * No admin link anywhere, ever (CLAUDE.md "Admin"): the design's "Admin for the owner" nav item is left out on
  * purpose. The admin is not an account, so there is no "owner" signed in on the public site to show it to.
@@ -26,12 +29,13 @@ export function AppShell() {
         <a className="skip-link" href="#main">Skip to content</a>
         <ScrollManager />
         <TopBar />
+        <BetaBanner />
         <main id="main" className="app-main" key={pathname}>
           <Outlet />
         </main>
         <footer className="foot">
           <div className="wrap in">
-            <span>Everstats · Not affiliated with or endorsed by Blizzard Entertainment</span>
+            <span>Everstats · Not affiliated with or endorsed by Blizzard Entertainment · <Link to="/privacy">Privacy</Link></span>
             <Link to="/changelog" className="ver" aria-label={`Everstats version ${APP_VERSION}: what's new`}>
               <span>v{APP_VERSION}</span>
               <span className="ver-sep" aria-hidden="true">·</span>
@@ -74,6 +78,7 @@ function TopBar() {
           <BrandMark />
           <span>Everstats</span>
         </Link>
+        <BetaBadge />
         <nav className="navlinks" aria-label="Primary">
           <NavLinks />
         </nav>

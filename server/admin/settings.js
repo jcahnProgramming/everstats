@@ -4,8 +4,12 @@ import { HttpError } from '../core/errors.js';
  * The admin settings registry. Every setting declares itself here; the admin page renders whatever is declared and
  * the store refuses anything undeclared. A missing row in `settings` means the declared default.
  *
- *   key, section ('grading' | 'discovery': which admin panel shows it), label, help, type ('integer'), min, max, default
+ *   key, section ('grading' | 'discovery' | 'crawler' | 'beta': which admin panel shows it), label, help, type, default
+ *   type 'integer'  (min, max)
+ *        'boolean'
+ *        'perks'    a short list of { title, description } (the beta page's perks), at most PERKS_MAX items
  */
+export const PERKS_MAX = 12;
 export const SETTINGS = [
   {
     key: 'grading.minPopulation',
@@ -37,6 +41,42 @@ export const SETTINGS = [
     max: 100,
     default: 10,
   },
+  {
+    key: 'crawler.requestsPerSecond',
+    section: 'crawler',
+    label: 'Blizzard requests per second (everything shares this)',
+    help: 'One budget for every request the crawler makes: lookups and sign-ins first, then auto-fetch, the daily refresh, and guild rosters last. Blizzard documents 36,000 an hour per client; 8 a second is 28,800.',
+    type: 'integer',
+    min: 1,
+    max: 50,
+    default: 8,
+  },
+  {
+    key: 'crawler.paused',
+    section: 'crawler',
+    label: 'Pause the background crawl',
+    help: 'Stops the daily refresh and roster expansion. Lookups, sign-ins and their auto-fetch still run, because a person is waiting on them.',
+    type: 'boolean',
+    default: false,
+  },
+  {
+    key: 'crawler.rosterExpansion',
+    section: 'crawler',
+    label: 'Seed characters from guild rosters',
+    help: 'When a tracked character is in a guild, read the roster at most once a day and start tracking its members of level 10 and up.',
+    type: 'boolean',
+    default: true,
+  },
+  {
+    key: 'beta.perks',
+    section: 'beta',
+    label: 'What beta members get',
+    help: 'Shown on the /beta page, while the beta is open and after it has closed.',
+    type: 'perks',
+    default: [
+      { title: 'Beta Tester badge', description: 'Every account created while the beta is open will receive the Beta Tester badge when badges launch.' },
+    ],
+  },
 ];
 
 const byKey = new Map(SETTINGS.map((s) => [s.key, s]));
@@ -45,8 +85,23 @@ function check(def, value) {
   if (def.type === 'integer') {
     if (!Number.isInteger(value)) throw new HttpError(400, `${def.label} must be a whole number`, 'invalid');
     if (value < def.min || value > def.max) throw new HttpError(400, `${def.label} must be between ${def.min} and ${def.max}`, 'invalid');
+    return value;
   }
-  return value;
+  if (def.type === 'boolean') {
+    if (typeof value !== 'boolean') throw new HttpError(400, `${def.label} must be on or off`, 'invalid');
+    return value;
+  }
+  if (def.type === 'perks') {
+    if (!Array.isArray(value) || value.length > PERKS_MAX) throw new HttpError(400, `Up to ${PERKS_MAX} perks`, 'invalid');
+    return value.map((p) => {
+      const title = typeof p?.title === 'string' ? p.title.trim() : '';
+      const description = typeof p?.description === 'string' ? p.description.trim() : '';
+      if (!title || title.length > 60) throw new HttpError(400, 'Each perk needs a title of up to 60 characters', 'invalid');
+      if (description.length > 300) throw new HttpError(400, 'A perk description is up to 300 characters', 'invalid');
+      return { title, description };
+    });
+  }
+  throw new Error(`setting ${def.key} has an unknown type`);
 }
 
 export async function getSetting(db, key) {
@@ -76,13 +131,14 @@ export async function listSettings(db) {
 export async function setSetting(db, key, value) {
   const def = byKey.get(key);
   if (!def) throw new HttpError(404, 'Unknown setting');
-  check(def, value);
+  const clean = check(def, value);
   await db.tx(async (q) => {
     await q.query(
       `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2::jsonb, now())
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-      [key, JSON.stringify(value)],
+      [key, JSON.stringify(clean)],
     );
-    await q.query("INSERT INTO admin_events (type, detail) VALUES ('setting.changed', $1)", [JSON.stringify({ key, value })]);
+    const logged = def.type === 'perks' ? `${clean.length} perk(s)` : clean;
+    await q.query("INSERT INTO admin_events (type, detail) VALUES ('setting.changed', $1)", [JSON.stringify({ key, value: logged })]);
   });
 }

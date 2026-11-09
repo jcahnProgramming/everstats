@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
-import { Button, Field } from '../components/Controls.jsx';
+import { Button, Field, Toggle } from '../components/Controls.jsx';
 import { EmptyState, Fresh } from '../components/EmptyState.jsx';
 import { useToasts } from '../components/Toasts.jsx';
 import { formatBytes, formatDateTime, formatNumber, timeAgo } from '../format.js';
@@ -12,14 +12,15 @@ import { passkeyRegister, passkeySignIn, wasCancelled } from '../passkeyClient.j
 import { useCoverage } from '../useCoverage.js';
 
 /**
- * The admin area (design/v1/pages/admin). Not linked from anywhere; without an admin session /admin is the ordinary
- * "Nothing here" page, because the API answers 404 exactly as for a path that doesn't exist.
+ * The admin area (design/v1/pages/admin). Not linked from anywhere. Without an admin session, /admin sends the browser
+ * to /admin/sign-in (owner's decision, 0.4.0); the admin API itself still answers a plain 404 to anyone without one.
  *
  * Different from the mockup, on purpose (CLAUDE.md rules win):
  *   - Keys show state, source and "set on" only: no masked value and no last four. Nothing about a key is sent here.
  *   - No admin link in the public top bar (the mockup has one "for the owner"): the admin isn't an account.
- *   - The crawler shows only what is measured: each worker's heartbeat and each job's last run. The mockup's
- *     Pause / Run now buttons and its run, queue, API-budget and error tiles describe a crawler that isn't built.
+ *   - The crawler shows only what is measured: the queue by priority, requests in the last hour (the crawler's own
+ *     count) and per UTC hour, characters checked and fetched today, the last error, back-offs, and Pause. No
+ *     "Run now": the crawl never stops, and a person's lookup always goes first.
  *   - Per-ruleset grading progress needs rulesets, which come from Blizzard (not loaded yet), so it says so.
  * Added: Backups (nightly pg_dump), Proxy addresses (where CF-Connecting-IP arrives from, for TRUSTED_PROXIES) and a
  * link to Discovery (DiscoveryPage.jsx), the Blizzard API discovery pass.
@@ -40,7 +41,10 @@ export function AdminPage() {
     load();
   }, [load]);
 
-  if (state === null) return <NotFoundPage />;
+  useEffect(() => {
+    if (state === null) navigate('/admin/sign-in', { replace: true });
+  }, [state, navigate]);
+  if (state === null) return null;
   if (state === undefined) {
     return <div className="wrap page-pad">{problem && <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>}</div>;
   }
@@ -58,7 +62,8 @@ export function AdminPage() {
       <KeysSection credentials={state.credentials} onSaved={load} />
       <div className="grid-auto col-xl gap-24 align-start-grid">
         <GradingSection settings={state.settings} onSaved={(settings) => setState((s) => ({ ...s, settings }))} />
-        <CrawlerSection crawler={state.crawler} />
+        <CrawlerSection crawler={state.crawler} settings={state.settings} onSaved={(settings) => setState((st) => ({ ...st, settings }))} onRefresh={load} />
+        <BetaSection beta={state.beta} settings={state.settings} onBeta={(beta) => setState((st) => ({ ...st, beta }))} onSaved={(settings) => setState((st) => ({ ...st, settings }))} />
         <BackupsSection backups={state.backups} />
         <ProxiesSection proxies={state.proxies} />
       </div>
@@ -201,6 +206,32 @@ function GradingSection({ settings, onSaved }) {
 }
 
 export function SettingRow({ setting: s, onSaved }) {
+  if (s.type === 'boolean') return <BooleanSetting setting={s} onSaved={onSaved} />;
+  return <IntegerSetting setting={s} onSaved={onSaved} />;
+}
+
+function BooleanSetting({ setting: s, onSaved }) {
+  const toast = useToasts();
+  const [busy, setBusy] = useState(false);
+  const flip = async (value) => {
+    setBusy(true);
+    try {
+      onSaved((await api(`/api/admin/settings/${s.key}`, { method: 'PUT', body: { value } })).settings);
+      toast.ok('Saved', `${s.label}: ${value ? 'on' : 'off'}`);
+    } catch (err) {
+      toast.err("Couldn't save", err.message);
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="stack gap-6">
+      <Toggle checked={s.value} disabled={busy} onChange={flip}>{s.label}</Toggle>
+      <span className="muted xsmall">{s.help}{s.updatedAt ? ` Changed ${formatDateTime(s.updatedAt)}.` : ''}</span>
+    </div>
+  );
+}
+
+function IntegerSetting({ setting: s, onSaved }) {
   const toast = useToasts();
   const [value, setValue] = useState(String(s.value));
   const [problem, setProblem] = useState(null);
@@ -228,28 +259,64 @@ export function SettingRow({ setting: s, onSaved }) {
   );
 }
 
-function CrawlerSection({ crawler }) {
+const PRIORITY_NAMES = { 1: 'Someone waiting (lookups, sign-ins)', 2: 'Auto-fetch after sign-in', 3: 'Daily refresh', 4: 'Guild rosters' };
+
+function CrawlerSection({ crawler, settings, onSaved, onRefresh }) {
   const worker = crawler.workers[0];
+  const c = crawler.crawler;
+  const tag = !c ? { cls: '', text: 'Not started' }
+    : c.state === 'not_responding' ? { cls: 'err', text: 'Not responding' }
+      : c.state === 'not_configured' ? { cls: 'warn', text: 'No Blizzard keys' }
+        : c.state === 'paused' ? { cls: 'warn', text: 'Background paused' }
+          : c.state === 'running' ? { cls: 'ok', text: 'Running' } : { cls: 'ok', text: 'Idle' };
+  const lastHour = crawler.hours.at(-1);
   return (
     <section className="panel pad-20 stack gap-16" aria-labelledby="crawler-h">
       <div className="row gap-10">
         <h2 className="h2 h2-panel" id="crawler-h">Crawler</h2>
-        {worker
-          ? <span className={`tag ${worker.state === 'not_responding' ? 'err' : 'ok'}`}>{worker.state === 'not_responding' ? 'Not responding' : worker.state === 'running' ? 'Running' : 'Idle'}</span>
-          : <span className="tag">No worker yet</span>}
+        <span className={`tag ${tag.cls}`}>{tag.text}</span>
+        <span className="spacer" />
+        <button type="button" className="btn ghost sm" onClick={onRefresh}><Icon name="refresh" size="sm" />Refresh</button>
       </div>
-      {crawler.workers.length === 0 ? (
-        <EmptyState kind="nodata" compact title="No worker has reported yet">
-          <span>The worker writes a heartbeat every 30 seconds. If this stays empty, the worker container isn't running.</span>
+      {!c ? (
+        <EmptyState kind="nodata" compact title="The crawler hasn't reported yet">
+          <span>It writes its status every few seconds from the worker container. If this stays empty, the worker isn't running.</span>
         </EmptyState>
-      ) : crawler.workers.map((w) => (
-        <div key={w.id} className="stack gap-10">
-          <span className="muted xsmall">{w.id} · v{w.version} · started {formatDateTime(w.startedAt)} · last heartbeat <Fresh at={w.lastTickAt} staleAfterMs={3 * 60 * 1000} /></span>
+      ) : (
+        <>
+          <div className="grid-auto col-xs gap-10">
+            <div className="raised pad-12 stack gap-2"><span className="eyebrow">Requests, last hour</span><b className="big-num">{formatNumber(c.requestsLastHour)}</b><span className="muted xsmall">{formatNumber(c.errorsLastHour)} failed · {c.perSecond}/s budget</span></div>
+            <div className="raised pad-12 stack gap-2"><span className="eyebrow">Checked today</span><b className="big-num">{formatNumber(crawler.today.checked)}</b><span className="muted xsmall">{formatNumber(crawler.today.fetched)} fully fetched (UTC day)</span></div>
+            <div className="raised pad-12 stack gap-2"><span className="eyebrow">Tracked</span><b className="big-num">{formatNumber(crawler.today.tracked)}</b><span className="muted xsmall">{formatNumber(crawler.today.known)} known in all</span></div>
+            <div className="raised pad-12 stack gap-2"><span className="eyebrow">This UTC hour</span><b className="big-num">{formatNumber(lastHour?.requests ?? 0)}</b><span className="muted xsmall">{formatNumber(lastHour?.throttled ?? 0)} throttled (429)</span></div>
+          </div>
+          <div className="tblbox listbox">
+            <table className="tbl">
+              <thead><tr><th scope="col">Queue</th><th scope="col" className="r">Waiting</th><th scope="col" className="r">Running</th></tr></thead>
+              <tbody>
+                {[1, 2, 3, 4].map((p) => (
+                  <tr key={p}><td>{p} · {PRIORITY_NAMES[p]}</td><td className="r">{formatNumber(crawler.queue[p].queued)}</td><td className="r">{formatNumber(crawler.queue[p].running)}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <span className="muted xsmall">Status written {timeAgo(c.updatedAt)}.</span>
+          {c.lastError ? (
+            <div className="note warn small"><Icon name="warning" /><span>Last error {timeAgo(c.lastError.at)}: {c.lastError.endpoint} {c.lastError.status !== null ? `HTTP ${c.lastError.status}` : (c.lastError.error ?? '')}</span></div>
+          ) : <span className="muted xsmall">No Blizzard error since the worker started.</span>}
+          {c.backoffs?.length > 0 && <span className="small t2">Backing off: {c.backoffs.map((b) => `${b.endpoint} until ${formatDateTime(b.until)}`).join(', ')}</span>}
+        </>
+      )}
+      {settings.filter((st) => st.section === 'crawler').map((st) => <SettingRow key={st.key} setting={st} onSaved={onSaved} />)}
+      {worker && (
+        <details className="stack gap-10">
+          <summary className="small">Worker jobs</summary>
+          <span className="muted xsmall">{worker.id} · v{worker.version} · started {formatDateTime(worker.startedAt)} · last heartbeat <Fresh at={worker.lastTickAt} staleAfterMs={3 * 60 * 1000} /></span>
           <div className="tblbox listbox">
             <table className="tbl">
               <thead><tr><th scope="col">Job</th><th scope="col">Last run</th><th scope="col">Result</th></tr></thead>
               <tbody>
-                {w.jobs.map((j) => (
+                {worker.jobs.map((j) => (
                   <tr key={j.id}>
                     <td><b>{j.label}</b></td>
                     <td className="t2">{j.lastStartedAt ? timeAgo(j.lastStartedAt) : 'not yet'}</td>
@@ -259,12 +326,76 @@ function CrawlerSection({ crawler }) {
               </tbody>
             </table>
           </div>
+        </details>
+      )}
+    </section>
+  );
+}
+
+/** The beta window (open / close, with its dates) and the perks the /beta page lists. */
+function BetaSection({ beta, settings, onBeta, onSaved }) {
+  const toast = useToasts();
+  const [busy, setBusy] = useState(false);
+  const perks = settings.find((st) => st.key === 'beta.perks');
+  const flip = async () => {
+    setBusy(true);
+    try {
+      const r = await api('/api/admin/beta', { method: 'POST', body: { open: !beta.open } });
+      onBeta(r.beta);
+      toast.ok(r.beta.open ? 'Beta opened' : 'Beta closed', r.beta.open ? 'Accounts created from now on are beta members.' : 'Accounts created from now on are not beta members. Existing members keep it.');
+    } catch (err) {
+      toast.err("Couldn't change the beta", err.message);
+    }
+    setBusy(false);
+  };
+  return (
+    <section className="panel pad-20 stack gap-16" aria-labelledby="beta-h">
+      <div className="row gap-10">
+        <h2 className="h2 h2-panel" id="beta-h">Beta</h2>
+        <span className={`tag ${beta.open ? 'ok' : ''}`}>{beta.open ? 'Open' : 'Closed'}</span>
+      </div>
+      <div className="kv"><span className="t2">Opened</span><span>{beta.openedAt ? formatDateTime(beta.openedAt) : 'never'}</span></div>
+      {!beta.open && <div className="kv"><span className="t2">Closed</span><span>{beta.closedAt ? formatDateTime(beta.closedAt) : '—'}</span></div>}
+      <p className="t2 small">While it's open: the banner and the header badge show, and every account created is a beta member, permanently. Closing hides both and switches /beta to its "thanks" version. Reopening later never makes accounts created while it was closed into members.</p>
+      <Button className={beta.open ? 'danger self-start' : 'gold self-start'} loading={busy} onClick={flip}>{beta.open ? 'Close the beta' : 'Open the beta'}</Button>
+      {perks && <PerksEditor setting={perks} onSaved={onSaved} />}
+    </section>
+  );
+}
+
+function PerksEditor({ setting, onSaved }) {
+  const toast = useToasts();
+  const [items, setItems] = useState(setting.value);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState(null);
+  const set = (i, k, v) => setItems((list) => list.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  const save = async () => {
+    setBusy(true);
+    try {
+      onSaved((await api('/api/admin/settings/beta.perks', { method: 'PUT', body: { value: items } })).settings);
+      setProblem(null);
+      toast.ok('Perks saved', 'The /beta page shows them now.');
+    } catch (err) {
+      setProblem(err.message);
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="stack gap-10">
+      <span className="eyebrow">{setting.label}</span>
+      {items.map((p, i) => (
+        <div key={i} className="raised pad-12 stack gap-8">
+          <Field label="Title" value={p.title} maxLength={60} onChange={(e) => set(i, 'title', e.target.value)} />
+          <Field label="Description" value={p.description} maxLength={300} onChange={(e) => set(i, 'description', e.target.value)} />
+          <button type="button" className="btn ghost sm self-start" onClick={() => setItems((list) => list.filter((_, j) => j !== i))}>Remove</button>
         </div>
       ))}
-      <EmptyState kind="soon" compact title="Crawl runs, the look-up queue and the API budget">
-        <span>They appear here once the crawler that tracks characters exists.</span>
-      </EmptyState>
-    </section>
+      <div className="row gap-8">
+        <button type="button" className="btn sm" disabled={items.length >= 12} onClick={() => setItems((list) => [...list, { title: '', description: '' }])}><Icon name="plus" size="sm" />Add a perk</button>
+        <Button className="gold sm" loading={busy} onClick={save}>Save perks</Button>
+      </div>
+      {problem && <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>}
+    </div>
   );
 }
 
@@ -322,6 +453,7 @@ function ProxiesSection({ proxies }) {
         the address of the connection, never the visitor's. The one cloudflared uses goes in TRUSTED_PROXIES in .env,
         so nobody on the LAN can fake the header to dodge a rate limit.
       </p>
+      {!trustedProxies && <div className="note warn small"><Icon name="warning" /><span>Set this before announcing the beta: character lookups spend the Blizzard budget, and their per-network limit only holds when the visitor's network is read from a trusted proxy.</span></div>}
       {trustedProxies && <div className="kv"><span className="t2">TRUSTED_PROXIES</span><span className="mono small">{trustedProxies.join(', ')}</span></div>}
       {sources.length === 0 ? (
         <EmptyState kind="nodata" compact title="None seen since this container started">

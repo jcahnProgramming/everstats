@@ -40,8 +40,8 @@ if (config.region !== 'us') {
 }
 
 /**
- * Blizzard WoW Forever API placeholders. UNDOCUMENTED and UNVERIFIED (community probing, Nov 2026): nothing calls
- * these yet. The discovery pass with real credentials confirms or corrects every value before anything is built on it.
+ * Blizzard WoW Forever API. Undocumented by Blizzard; every value here was confirmed by discovery runs 1 and 2
+ * (2026-11-09, discovery_responses). The static namespace is versioned and read from the API's own links.
  */
 export const BLIZZARD_API = Object.freeze({
   apiHost: `https://${config.region}.api.blizzard.com`,

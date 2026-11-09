@@ -10,6 +10,7 @@ import { authenticationOptions, claimedCredentialId, registrationOptions, verify
 import { listSettings, setSetting } from './settings.js';
 import { crawlerStatus } from './crawler.js';
 import { backupStatus } from '../core/backup.js';
+import { betaState, setBetaOpen } from '../beta.js';
 
 /**
  * The admin area, under /api/admin. The admin is NOT an account: one person, passkeys only (admin_passkeys),
@@ -99,6 +100,7 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
       proxies: proxies(),
       // Nightly database backups, from backup_runs (the worker writes them; core/backup.js).
       backups: await backupStatus(db, { recent: 10 }),
+      beta: await betaState(db),
     });
   }));
 
@@ -108,6 +110,12 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
   r.put('/credentials/:id', writes, route(async (req, res) => res.json({ credential: await saveCredential(db, req.params.id, req.body) })));
   r.delete('/credentials/:id', writes, route(async (req, res) => res.json({ credential: await removeCredential(db, req.params.id) })));
   r.post('/credentials/:id/test', writes, route(async (req, res) => res.json({ result: await testCredential(db, req.params.id, { fetch }) })));
+
+  // The beta window: open or close it. Membership is decided by the window at account creation (beta.js).
+  r.post('/beta', writes, route(async (req, res) => {
+    if (typeof req.body?.open !== 'boolean') throw new HttpError(400, 'Open or close?', 'invalid');
+    res.json({ beta: await setBetaOpen(db, req.body.open) });
+  }));
 
   r.put('/settings/:key', writes, route(async (req, res) => {
     await setSetting(db, req.params.key, req.body?.value);

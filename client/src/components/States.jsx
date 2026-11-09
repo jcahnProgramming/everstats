@@ -37,7 +37,7 @@ export function CharacterLoading({ name, surname }) {
 }
 
 /** Honest about why a character can be missing; a search box prefilled with the query lives on the page. */
-export function CharacterNotFound({ name, surname, children }) {
+export function CharacterNotFound({ name, surname, known = null, children }) {
   return (
     <section className="panel pad-28 stack gap-16 narrow-panel">
       <svg viewBox="0 0 64 64" aria-hidden="true" className="state-glyph">
@@ -45,7 +45,13 @@ export function CharacterNotFound({ name, surname, children }) {
         <text x="32" y="42" textAnchor="middle" fontSize="28" className="glyph-q">?</text>
       </svg>
       <h1 className="h2">No “{name} {surname}” in the US region — yet</h1>
-      <p className="t2">Blizzard only lists a character once it has reached level 10 and logged out. Brand-new or low-level characters won’t show up here.</p>
+      <p className="t2">Blizzard only lists a character once it has reached level 10 and logged out at least once, and new characters can take a little while to show.</p>
+      {known && (
+        <p className="t2 small">
+          Everstats knows of {known.name} {known.surname} from a Battle.net account list{Number.isInteger(known.level) ? `, at level ${known.level}` : ''}, but Blizzard
+          doesn’t serve their profile yet.{Number.isInteger(known.level) && known.level < 10 ? ' Characters appear at level 10.' : ' The account list can run 20–40 minutes ahead of the profile.'}
+        </p>
+      )}
       <ul className="t2 small stack gap-4 tips">
         <li>Just hit 10? Log out fully, wait a few minutes, then try again.</li>
         <li>Check the spelling of both the first name and the surname.</li>

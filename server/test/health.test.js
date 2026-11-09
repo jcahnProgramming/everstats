@@ -31,9 +31,9 @@ test('logged-out visitors always get the Forever theme', async () => {
   assert.match(res.text, /'forever'/);
 });
 
-test('coverage is honest: nothing measured is reported as unknown, not zero', async () => {
+test('coverage is honest: no keys means no lookups, no rulesets loaded is null, and zero tracked is a measured zero', async () => {
   const res = await t.client().get('/api/coverage');
-  assert.deepEqual(res.json, { region: 'us', lookups: 'not_built', rulesets: null, trackedCharacters: null, minPopulation: 500 });
+  assert.deepEqual(res.json, { region: 'us', lookups: 'not_configured', rulesets: null, trackedCharacters: 0, minPopulation: 500 });
 });
 
 test('state-changing requests from another origin, or with none, are refused', async () => {
@@ -45,14 +45,8 @@ test('state-changing requests from another origin, or with none, are refused', a
   assert.equal(ok.status, 200);
 });
 
-test('character lookups are rate limited per network and say they are not built', async () => {
-  const c = t.client({ ip: '198.51.100.20' });
-  const first = await c.get('/api/characters/thrall-durotan');
-  assert.deepEqual(first.json, { slug: 'thrall-durotan', status: 'not_built' });
-  let last;
-  for (let i = 0; i < 30; i++) last = await c.get('/api/characters/thrall-durotan');
-  assert.equal(last.status, 429);
-  assert.ok(Number(last.headers.get('retry-after')) > 0);
-  // Another network is unaffected.
-  assert.equal((await t.client({ ip: '198.51.100.21' }).get('/api/characters/thrall-durotan')).status, 200);
+test('without Blizzard keys a lookup says so, instead of pretending nobody exists', async () => {
+  const first = await t.client({ ip: '198.51.100.20' }).get('/api/characters/thrall-durotan');
+  assert.deepEqual(first.json, { status: 'unavailable', reason: 'not_configured', slug: 'thrall-durotan' });
+  // (Per-network lookup limits with keys set: crawler.test.js.)
 });

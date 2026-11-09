@@ -9,6 +9,8 @@ import { getProvider, PROVIDERS } from './providers.js';
 import { endSession, logAccountEvent, startSession } from './sessions.js';
 import { checkSecondFactor, totpState } from './totp.js';
 import { finishGrant } from '../discovery/grant.js';
+import { importAccountCharacters } from '../crawler/account.js';
+import { SOURCES } from '../sources/registry.js';
 
 /**
  * Sign-in, under /api/auth, plus the OAuth callbacks under /auth (createCallbackRouter).
@@ -20,8 +22,14 @@ import { finishGrant } from '../discovery/grant.js';
  *   - Passkeys sign in to an existing account; they never create one. A passkey sign-in skips the 2FA code.
  *   - With 2FA on, a provider sign-in gives a half session ('second_factor') until the code is given.
  *   - intent 'merge' proves ownership of a second account so the signed-in one can be merged into it.
+ *   - intent 'characters' ("Refresh my characters"): re-authorizes a provider ALREADY linked to the signed-in account,
+ *     only to read its character list again. It never signs in, links or creates anything.
+ *   - 0.4.0: a sign-in, link or 'characters' round trip with a provider that a data source reads characters with
+ *     (sources/registry.js userProvider) reads the account's character list with the token, once, then drops the token
+ *     (crawler/account.js). A failure there never fails the sign-in: the dashboard says "couldn't check".
  */
-const INTENTS = ['sign_in', 'link', 'merge'];
+const INTENTS = ['sign_in', 'link', 'merge', 'characters'];
+const readsCharacters = (providerId) => SOURCES.some((x) => x.userProvider === providerId);
 
 /** A same-site path to go back to after signing in, or '/'. Never another origin, never a protocol-relative URL. */
 const safeReturn = (value) => (typeof value === 'string' && /^\/(?![/\\])[\w\-./?=&%~]*$/.test(value) && value.length <= 300 ? value : '/');
@@ -61,6 +69,7 @@ export function createAuthRouter({ db, limits, networkOf, fetch = globalThis.fet
     if (!provider) throw new HttpError(404, 'Unknown sign-in provider');
     const intent = INTENTS.includes(req.body?.intent) ? req.body.intent : 'sign_in';
     if (intent !== 'sign_in' && req.session?.stage !== 'full') throw new HttpError(401, 'Sign in first.', 'signed_out');
+    if (intent === 'characters' && !readsCharacters(provider.id)) throw new HttpError(400, `${provider.label} can't list characters.`, 'invalid');
     const cred = await resolveCredential(db, provider.credential);
     if (cred.state !== 'configured') throw new HttpError(409, `${provider.label} sign-in isn't configured yet.`, 'not_configured');
     const { state, verifier } = newOAuthState(provider);
@@ -153,8 +162,9 @@ export function createCallbackRouter({ db, fetch = globalThis.fetch }) {
     const cred = await resolveCredential(db, provider.credential);
     if (cred.state !== 'configured') return back(intent, 'not_configured');
     let identity;
+    let token;
     try {
-      const token = await exchange(provider, cred.values, req.query.code, flow.data.verifier, { fetch });
+      token = await exchange(provider, cred.values, req.query.code, flow.data.verifier, { fetch });
       identity = await provider.identity(token, { fetch });
     } catch (err) {
       console.warn(`[auth] ${provider.id} sign-in failed: ${err.code ?? err.name}`);
@@ -162,6 +172,23 @@ export function createCallbackRouter({ db, fetch = globalThis.fetch }) {
     }
 
     const existing = await db.one('SELECT id, account_id FROM account_identities WHERE provider = $1 AND subject = $2', [provider.id, identity.subject]);
+    // Reads the account's characters with this token (once), if this provider can; then the token goes out of scope.
+    const bringCharacters = async (accountId) => {
+      if (!readsCharacters(provider.id)) return null;
+      try {
+        return await importAccountCharacters({ db, accountId, providerId: provider.id, userToken: token, fetch });
+      } catch (err) {
+        console.warn(`[auth] reading characters after ${provider.id} failed: ${err.code ?? err.name}`);
+        return null;
+      }
+    };
+
+    if (intent === 'characters') {
+      if (req.session?.stage !== 'full' || req.session.accountId !== flow.accountId) return back('sign_in', 'expired');
+      if (!existing || existing.account_id !== flow.accountId) return res.redirect(303, '/?error=characters_other_account');
+      await bringCharacters(flow.accountId);
+      return res.redirect(303, '/?characters=refreshed');
+    }
 
     if (intent === 'link') {
       if (req.session?.stage !== 'full' || req.session.accountId !== flow.accountId) return back('sign_in', 'expired');
@@ -171,6 +198,7 @@ export function createCallbackRouter({ db, fetch = globalThis.fetch }) {
         await q.query('INSERT INTO account_identities (account_id, provider, subject, display_name, last_used_at) VALUES ($1, $2, $3, $4, now())', [flow.accountId, provider.id, identity.subject, identity.displayName]);
         await logAccountEvent(q, flow.accountId, 'identity.linked', { provider: provider.id });
       });
+      await bringCharacters(flow.accountId);
       return res.redirect(303, `/settings?linked=${provider.id}`);
     }
 
@@ -198,6 +226,7 @@ export function createCallbackRouter({ db, fetch = globalThis.fetch }) {
       await logAccountEvent(q, id, twoFactor ? 'signed_in_awaiting_code' : 'signed_in', { method: provider.id });
       return { id, twoFactor };
     });
+    await bringCharacters(accountId.id);
     const next = flow.data.returnTo ?? '/';
     if (accountId.twoFactor) return res.redirect(303, `/sign-in/2fa?next=${encodeURIComponent(next)}`);
     return res.redirect(303, next);

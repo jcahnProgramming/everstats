@@ -77,7 +77,8 @@ export function CategoryHeader({ title, summary, letter = null, boardsTo = null,
 
 /**
  * Ranked table (ranked-table-row.md): a dense table on desktop, the stacked .ranklist on phones. `rows` are real
- * board rows: { rank, slug, name, surname, detail, letter, guild, move, value, me }. `columns` is the header labels
+ * board rows: { rank, slug, name, surname, detail, letter, guild, move, value, valueText, mine }. valueText: the name a
+ * name + number statistic shows beside its number. `columns` is the header labels
  * (the last one names the statistic). With no rows it renders the header alone, for the caller to put an empty state
  * under, as design/v1/states/no-data-yet does.
  */
@@ -98,12 +99,12 @@ export function RankedTable({ valueLabel = 'Value', rows = [], showTier = true, 
         {rows.length > 0 && (
           <tbody>
             {rows.map((r) => (
-              <tr key={r.slug} className={r.me ? 'me' : undefined}>
+              <tr key={r.slug} className={r.mine ? 'me' : undefined}>
                 <td className={`rk${r.rank <= 3 ? ` r${r.rank}` : ''}`}>{formatNumber(r.rank)}</td>
                 <td>
                   <div className="who">
                     <span className="stack">
-                      <span className="row gap-6"><Link to={`/c/${r.slug}`}>{r.name} <span className="surname">{r.surname}</span></Link>{r.me && <span className="tag you">You</span>}</span>
+                      <span className="row gap-6"><Link to={`/c/${encodeURIComponent(r.slug)}`}>{r.name} <span className="surname">{r.surname}</span></Link>{r.mine && <span className="tag you">You</span>}</span>
                       {r.detail && <span className="muted xsmall">{r.detail}</span>}
                     </span>
                   </div>
@@ -111,7 +112,7 @@ export function RankedTable({ valueLabel = 'Value', rows = [], showTier = true, 
                 {showTier && <td><TierBadge letter={r.letter ?? null} size="sm" /></td>}
                 {showGuild && <td className="t2">{r.guild ?? ''}</td>}
                 {showMove && <td className={`r ${r.move > 0 ? 'up' : r.move < 0 ? 'down' : 'muted'}`}>{r.move > 0 ? `▲ ${r.move}` : r.move < 0 ? `▼ ${-r.move}` : '–'}</td>}
-                <td className="r strong">{formatNumber(r.value)}</td>
+                <td className="r strong">{r.valueText && <span className="muted xsmall named">{r.valueText} · </span>}{formatNumber(r.value)}</td>
               </tr>
             ))}
           </tbody>
@@ -120,11 +121,11 @@ export function RankedTable({ valueLabel = 'Value', rows = [], showTier = true, 
       {rows.length > 0 && (
         <ol className="ranklist only-phone">
           {rows.map((r) => (
-            <li key={r.slug} className={r.me ? 'me' : undefined}>
-              <Link to={`/c/${r.slug}`}>
+            <li key={r.slug} className={r.mine ? 'me' : undefined}>
+              <Link to={`/c/${encodeURIComponent(r.slug)}`}>
                 <span className={`rk${r.rank <= 3 ? ` r${r.rank}` : ''}`}>{formatNumber(r.rank)}</span>
                 <span className="strong ellipsis">{r.name} {r.surname}</span>
-                <span className="strong">{formatNumber(r.value)}</span>
+                <span className="strong">{r.valueText && <span className="muted xsmall">{r.valueText} · </span>}{formatNumber(r.value)}</span>
                 <span className="muted xsmall ellipsis">{r.detail}</span>
                 {showTier && <TierBadge letter={r.letter ?? null} size="sm" />}
               </Link>

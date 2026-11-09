@@ -8,6 +8,15 @@ import { providerStatus, secondFactorAttempt } from '../auth/routes.js';
 import { logAccountEvent, requireAccount, startSession } from '../auth/sessions.js';
 import { beginSetup, checkCode, issueRecoveryCodes, recoveryCodesLeft, totpState } from '../auth/totp.js';
 import { MERGE_STEPS, mergeAccounts } from './merge.js';
+import { betaState } from '../beta.js';
+import { clearCookie, COOKIE } from '../auth/cookies.js';
+import { MIN_TRACKED_LEVEL } from '../crawler/fetch.js';
+import { setHidden } from '../crawler/store.js';
+import { SOURCES } from '../sources/registry.js';
+import { rankOn } from '../stats/boards.js';
+import { loadCatalog } from '../stats/catalog.js';
+import { utcDay } from '../stats/periods.js';
+import { MAX_PINS, pinsOf, setPins } from '../stats/pins.js';
 
 /** The three themes. Logged-out visitors always get Forever; a signed-in account's choice is stored on it. */
 export const THEMES = ['forever', 'alliance', 'horde'];
@@ -15,7 +24,7 @@ export const THEMES = ['forever', 'alliance', 'horde'];
 const MAX_PASSKEYS = 20;
 
 async function accountView(db, accountId) {
-  const account = await db.one('SELECT id, created_at, theme FROM accounts WHERE id = $1', [accountId]);
+  const account = await db.one('SELECT id, created_at, theme, beta_member, beta_since FROM accounts WHERE id = $1', [accountId]);
   if (!account) throw new HttpError(401, 'Sign in first.', 'signed_out');
   const identities = await db.query(
     'SELECT id, provider, display_name, linked_at, last_used_at FROM account_identities WHERE account_id = $1 ORDER BY linked_at LIMIT 20',
@@ -44,6 +53,44 @@ async function accountView(db, accountId) {
       enabledAt: totp.enabledAt,
       recoveryCodesLeft: totp.state === 'enabled' ? await recoveryCodesLeft(db, accountId) : 0,
     },
+    // Recorded once, at creation, by the beta window (schema.js 009_beta). Read-only everywhere.
+    beta: { member: account.beta_member, since: account.beta_since },
+    characters: (await ownedCharacters(db, accountId)).map(characterState),
+    // Providers whose sign-in can bring characters in (a data source names them as its userProvider).
+    characterProviders: SOURCES.map((x) => x.userProvider).filter(Boolean),
+  };
+}
+
+/** The characters an account owns (brought in from its Battle.net account list), highest level first. */
+async function ownedCharacters(db, accountId) {
+  return db.query(
+    `SELECT c.*, r.name AS ruleset_name,
+            EXISTS (SELECT 1 FROM crawl_queue q WHERE q.kind = 'character' AND q.key = c.slug AND q.state IN ('queued', 'running')) AS queued
+       FROM characters c LEFT JOIN rulesets r ON r.id = c.ruleset_id
+      WHERE c.owner_account_id = $1 ORDER BY c.level DESC NULLS LAST, c.id LIMIT 50`,
+    [accountId],
+  );
+}
+
+/**
+ * The honest state of an owned character:
+ *   tracked      fetched: on the boards (unless hidden)
+ *   fetching     queued for a fetch right now
+ *   under_10     the account list says it's below level 10: Blizzard lists characters from level 10
+ *   not_visible  level 10+, but the profile answers 404: not logged out since reaching 10, or Blizzard hasn't caught
+ *                up yet (the account list can run 20–40 minutes ahead of the profile)
+ */
+function characterState(c) {
+  const level = c.level ?? c.account_level;
+  let state;
+  if (c.profile_state === 'ok' && c.stats_fetched_at) state = 'tracked';
+  else if (c.queued) state = 'fetching';
+  else if (Number.isInteger(level) && level < MIN_TRACKED_LEVEL) state = 'under_10';
+  else state = 'not_visible';
+  return {
+    id: c.id, slug: c.slug, name: c.name, surname: c.surname, level, class: c.class, race: c.race, faction: c.faction,
+    ruleset: c.ruleset_id !== null ? { id: c.ruleset_id, name: c.ruleset_name } : null,
+    hidden: c.hidden, state, checkedAt: c.last_checked_at, fetchedAt: c.last_fetched_at,
   };
 }
 
@@ -65,10 +112,11 @@ export function createAccountRouter({ db, limits, networkOf }) {
   // Public: who this browser is signed in as (if anyone), its theme, and which providers can sign in.
   r.get('/session', route(async (req, res) => {
     const providers = await providerStatus(db);
-    if (!req.session) return res.json({ signedIn: false, stage: null, theme: 'forever', providers });
-    if (req.session.stage !== 'full') return res.json({ signedIn: false, stage: req.session.stage, theme: 'forever', providers });
+    const beta = await betaState(db);
+    if (!req.session) return res.json({ signedIn: false, stage: null, theme: 'forever', providers, beta });
+    if (req.session.stage !== 'full') return res.json({ signedIn: false, stage: req.session.stage, theme: 'forever', providers, beta });
     const account = await db.one('SELECT theme FROM accounts WHERE id = $1', [req.session.accountId]);
-    return res.json({ signedIn: true, stage: 'full', theme: account?.theme ?? 'forever', providers });
+    return res.json({ signedIn: true, stage: 'full', theme: account?.theme ?? 'forever', providers, beta });
   }));
 
   r.use('/account', requireAccount);
@@ -95,6 +143,105 @@ export function createAccountRouter({ db, limits, networkOf }) {
       await logAccountEvent(q, req.session.accountId, 'identity.unlinked', { provider: row.provider });
     });
     res.json({ account: await accountView(db, req.session.accountId) });
+  }));
+
+  // ---- The signed-in dashboard: featured character, pinned statistics, every owned character's state ----
+  r.get('/dashboard', requireAccount, route(async (req, res) => {
+    const accountId = req.session.accountId;
+    const acct = await db.one('SELECT featured_character_id FROM accounts WHERE id = $1', [accountId]);
+    const owned = await ownedCharacters(db, accountId);
+    const characters = owned.map(characterState);
+    const tracked = owned.filter((c) => c.profile_state === 'ok' && c.stats_fetched_at && c.ruleset_id !== null);
+    const featuredRow = tracked.find((c) => c.id === acct.featured_character_id)
+      ?? [...tracked].sort((a, b) => (b.level ?? 0) - (a.level ?? 0) || a.id - b.id)[0] ?? null;
+    const identities = await db.query('SELECT provider FROM account_identities WHERE account_id = $1 LIMIT 20', [accountId]);
+    const check = await db.one('SELECT provider, checked_at, outcome, characters FROM account_character_checks WHERE account_id = $1 ORDER BY checked_at DESC LIMIT 1', [accountId]);
+    const { ids, isDefault } = await pinsOf(db, accountId);
+    const { statistics } = await loadCatalog(db);
+    const pins = [];
+    if (featuredRow) {
+      const weekAgo = utcDay(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      for (const id of ids) {
+        const s = statistics.get(id);
+        if (!s) continue;
+        const cs = await db.one('SELECT value, text FROM character_statistics WHERE character_id = $1 AND statistic_id = $2', [featuredRow.id, id]);
+        const rk = featuredRow.hidden ? null : await rankOn(db, { characterId: featuredRow.id, statisticId: id, rulesetId: featuredRow.ruleset_id });
+        const then = rk
+          ? await db.one('SELECT rank, day FROM pin_rank_history WHERE character_id = $1 AND statistic_id = $2 AND day <= $3 ORDER BY day DESC LIMIT 1', [featuredRow.id, id, weekAgo])
+          : null;
+        pins.push({
+          id, name: s.name, category: s.category, grading: s.grading, value: cs?.value ?? 0, text: cs?.text ?? null,
+          rank: rk?.rank ?? null, population: rk?.population ?? null,
+          // Positive = moved up the board. null until a week of rank history exists (shown as "—").
+          move: then && rk ? then.rank - rk.rank : null, since: then?.day ?? null,
+        });
+      }
+    }
+    res.json({
+      characters,
+      featured: featuredRow ? { ...characters.find((c) => c.id === featuredRow.id), fetchedAt: featuredRow.last_fetched_at } : null,
+      featuredChosen: Boolean(featuredRow && featuredRow.id === acct.featured_character_id),
+      pins,
+      pinIds: ids,
+      pinsAreDefault: isDefault,
+      characterProviders: SOURCES.map((x) => x.userProvider).filter(Boolean),
+      linked: identities.map((i) => i.provider),
+      lastCheck: check ? { provider: check.provider, at: check.checked_at, outcome: check.outcome, characters: check.characters } : null,
+    });
+  }));
+
+  r.put('/account/featured', writes, route(async (req, res) => {
+    const id = req.body?.characterId;
+    if (!Number.isSafeInteger(id)) throw new HttpError(400, 'Choose one of your characters.', 'invalid');
+    const own = await db.one("SELECT 1 AS x FROM characters WHERE id = $1 AND owner_account_id = $2 AND profile_state = 'ok'", [id, req.session.accountId]);
+    if (!own) throw new HttpError(404, 'That isn’t one of your tracked characters.');
+    await db.query('UPDATE accounts SET featured_character_id = $2 WHERE id = $1', [req.session.accountId, id]);
+    res.json({ ok: true });
+  }));
+
+  r.get('/account/pins', route(async (req, res) => {
+    const { ids, isDefault } = await pinsOf(db, req.session.accountId);
+    res.json({ pinIds: ids, isDefault });
+  }));
+
+  r.put('/account/pins', writes, route(async (req, res) => {
+    const ids = req.body?.statisticIds;
+    if (!Array.isArray(ids) || ids.length > MAX_PINS || !ids.every(Number.isSafeInteger)) throw new HttpError(400, `Pin up to ${MAX_PINS} statistics.`, 'invalid');
+    const { statistics } = await loadCatalog(db);
+    const clean = [...new Set(ids)].filter((id) => statistics.has(id));
+    await db.tx((q) => setPins(q, req.session.accountId, clean));
+    res.json({ pinIds: clean });
+  }));
+
+  r.put('/account/characters/:id/hidden', writes, route(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || typeof req.body?.hidden !== 'boolean') throw new HttpError(400, 'Say whether to hide it.', 'invalid');
+    await db.tx(async (q) => {
+      const own = await q.one('SELECT id FROM characters WHERE id = $1 AND owner_account_id = $2 FOR UPDATE', [id, req.session.accountId]);
+      if (!own) throw new HttpError(404, 'That isn’t one of your characters.');
+      await setHidden(q, id, req.body.hidden);
+      await logAccountEvent(q, req.session.accountId, req.body.hidden ? 'character.hidden' : 'character.shown', { character: id });
+    });
+    res.json({ account: await accountView(db, req.session.accountId) });
+  }));
+
+  // Deleting the account (a named deletion exception in CLAUDE.md). With 2FA on, a current code is needed too.
+  // Its characters stay tracked as public data; a hidden one stays hidden.
+  r.delete('/account', writes, route(async (req, res) => {
+    const accountId = req.session.accountId;
+    if (req.body?.confirm !== 'delete') throw new HttpError(400, 'Confirm that you want to delete the account.', 'invalid');
+    if ((await totpState(db, accountId)).state === 'enabled') {
+      if (!(await secondFactorAttempt({ db, limits, networkOf, req, accountId, code: req.body?.code }))) {
+        throw new HttpError(401, "That code isn't right.", 'wrong_code');
+      }
+    }
+    await db.tx(async (q) => {
+      await q.query('UPDATE characters SET owner_account_id = NULL, owned_since = NULL WHERE owner_account_id = $1', [accountId]);
+      await q.query('DELETE FROM accounts WHERE id = $1', [accountId]);
+      await q.query("INSERT INTO admin_events (type, detail) VALUES ('account.deleted', $1::jsonb)", [JSON.stringify({ account: accountId })]);
+    });
+    clearCookie(res, COOKIE.session);
+    res.json({ ok: true });
   }));
 
   // ---- Passkeys (added only here, while signed in) ----

@@ -151,3 +151,56 @@ ol.codes { margin: 0; list-style: none; }
 .release-version { font-size: var(--es-fs-22); font-weight: var(--es-weight-medium); margin: 0; }
 .release-title { text-wrap: balance; }
 .timeline li:last-child .rail .line { display: none; }
+
+/* ---------------------------------------------------------------- 0.4.0: the beta in the frame (chrome/BetaBanner.jsx) */
+.beta-badge { margin-left: calc(var(--es-space-4) * -1); }
+/* One line, always: on a phone the text truncates rather than wrapping, so the banner never pushes the page about.
+   It has its own ground, so it sets its own text colour (CLAUDE.md "Bugs that cost us"). */
+.beta-banner { background: var(--es-raised); color: var(--es-text); border-bottom: var(--es-border-1) solid color-mix(in oklab, var(--es-accent) 45%, var(--es-line)); }
+.beta-banner-in { display: flex; align-items: center; gap: var(--es-space-10); min-height: var(--es-size-control-sm); }
+.beta-banner-link { flex: 1 1 auto; min-width: 0; display: flex; gap: var(--es-space-10); align-items: baseline; color: var(--es-text); text-decoration: none; font-size: var(--es-fs-13); white-space: nowrap; overflow: hidden; }
+.beta-banner-link b { color: var(--es-accent-2); font-weight: var(--es-weight-semibold); flex: none; }
+.beta-banner-text { color: var(--es-text-2); overflow: hidden; text-overflow: ellipsis; }
+.beta-banner-link:hover .beta-banner-text { color: var(--es-text); text-decoration: underline; }
+.beta-banner-close { flex: none; }
+.beta-list { padding-left: var(--es-space-18); margin: 0; }
+.settings-beta { margin: var(--es-space-4) 0 var(--es-space-8); }
+
+/* ---------------------------------------------------------------- 0.4.0: character page */
+.grid-auto.col-base { --col: var(--es-size-col-min); }
+.right-text { text-align: right; }
+.guild-inline { color: var(--es-accent-2); }
+.core-stats { padding: var(--es-space-16) var(--es-space-18); }
+.core-stats .eyebrow { padding-bottom: var(--es-space-8); }
+.statrow .named { font-size: var(--es-fs-12); font-weight: var(--es-weight-regular); }
+.statrow .nm { display: flex; align-items: center; gap: var(--es-space-6); min-width: 0; }
+/* The pin button sits in the name cell, after the name: a real button, never under a card's click target. */
+.pin-btn { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: var(--es-size-icon-lg); height: var(--es-size-icon-lg); border-radius: var(--es-radius-sm); color: var(--es-muted); border: var(--es-border-1) solid transparent; flex: none; }
+.pin-btn:hover { color: var(--es-text); border-color: var(--es-line-strong); }
+.pin-btn.is-pinned { color: var(--es-accent-2); border-color: color-mix(in oklab, var(--es-accent) 50%, var(--es-line)); }
+.pin-btn:focus-visible { outline: var(--es-border-2) solid var(--es-focus); outline-offset: var(--es-space-2); }
+.showall-btn { width: 100%; background: none; border-left: 0; border-right: 0; border-bottom: 0; color: var(--es-accent-2); cursor: pointer; font-family: inherit; text-align: left; }
+.showall-btn:hover { color: var(--es-text); }
+.showall-btn:focus-visible { outline: var(--es-border-2) solid var(--es-focus); outline-offset: calc(var(--es-border-2) * -1); }
+
+/* ---------------------------------------------------------------- 0.4.0: leaderboards */
+.mini .mini-note { grid-template-columns: var(--es-space-28) minmax(0, 1fr) auto; }
+.board-title { align-items: flex-end; }
+.listbox.flush { border: 0; border-radius: 0; }
+.big-num { font-size: var(--es-fs-22); font-weight: var(--es-weight-semibold); }
+
+/* ---------------------------------------------------------------- 0.4.0: dashboard */
+.pin-picker { max-height: 55vh; overflow: auto; padding-right: var(--es-space-6); }
+.plain-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.plain-fieldset legend { padding: 0 0 var(--es-space-4); }
+.privacy ul { margin: 0; padding-left: var(--es-space-18); }
+
+@media (max-width: 719px) {
+  .beta-banner-link { font-size: var(--es-fs-12); }
+  .board-title { align-items: flex-start; }
+}
+
+/* Blizzard's main-raw render (character-media) is a 1600×1200 LANDSCAPE image with the figure in the middle, not the
+   portrait cut-out the design drew. The frame crops it around the figure instead of shrinking the whole picture. */
+.render .figure { position: absolute; inset: 0; width: 100%; max-width: none; height: 100%; object-fit: cover; object-position: 50% 40%; }
+@media (max-width: 719px) { .render .figure { width: 100%; } }

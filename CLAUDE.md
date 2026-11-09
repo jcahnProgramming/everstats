@@ -51,10 +51,10 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Sign-in providers | `server/auth/providers.js` | id, label, credential, authorize/token URLs, scopes, pkce, `identity()` |
 | Credentials | `server/credentials/registry.js` | id, label, unlocks, where to get it, fields (+ `.env` fallback names), test |
 | Admin settings | `server/admin/settings.js` | key, label, help, type, bounds, default |
-| Statistics / categories / leaderboards | `server/stats/registry.js` | **empty until the discovery pass**; shapes documented there |
+| Statistics / categories / leaderboards | `server/stats/catalog.js` | the `statistics` table (grows from crawls) + discovery decisions, else suggestions |
 | Account merge steps | `server/account/merge.js` | how each account-owned table moves on a merge |
-| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery` |
-| Data sources | `server/sources/registry.js` | id, label, credential, userProvider, create() → `get(path, { namespace, auth, userToken })`. One so far: `blizzard` |
+| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks` |
+| Data sources | `server/sources/registry.js` | id, label, credential, userProvider, create() → `get(path, { namespace, auth, userToken })`. One so far: `blizzard`. A provider named as a `userProvider` reads characters at sign-in |
 | Discovery endpoints | `server/discovery/endpoints.js` | what a discovery run asks for (data, account, character, guild, slug probes) |
 | Suggestion rules | `server/discovery/suggest.js` | per-statistic suggestions (category, bad, leaderboard), each with its reasoning |
 
@@ -103,9 +103,10 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   printed on the server: `docker exec -it everstats node server/tools/admin-invite.js`. The link carries the token
   in its `#fragment` (never in a server log).
 - **Visitors never see it**: no link anywhere; every `/api/admin/*` route except enrolment and sign-in answers a plain
-  404 without an admin session, and `/admin` then renders the ordinary "Nothing here" page. Admin sessions: 2 hours.
-- The page: the API key manager (registry-driven), the grading minimum, crawler status (from `worker_status`; a
-  heartbeat older than 3 minutes shows "Not responding", never "running").
+  404 without an admin session. `/admin` without one redirects to `/admin/sign-in` (owner's decision, 0.4.0); the API
+  stays a plain 404. Admin sessions: 2 hours.
+- The page: the API key manager (registry-driven), the grading minimum, crawler status (`worker_status` and
+  `crawler_status`; older than 3 minutes shows "Not responding", never "running"), the beta window and its perks.
 
 ## Discovery (`server/discovery/`, `client/src/admin/DiscoveryPage.jsx`)
 
@@ -133,6 +134,52 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   summaries and the combined catalog from stored responses with the current rules (no Blizzard request); a finished
   run rebuilds the combined catalog too. The raw responses are the record and are never rebuilt. Old `bad` decisions
   stay in the append-only history.
+
+## Crawler and the production data (0.4.0: `server/crawler/`, `server/stats/`, `server/characters/`)
+
+- **One Blizzard request budget** (`crawler/budget.js`, admin setting `crawler.requestsPerSecond`, default 8), owned by the
+  crawler in the WORKER (`crawler/service.js`, runs continuously beside the job loop). Waiting requests are served by
+  priority: 1 a person waiting (lookup, sign-in) · 2 auto-fetch after sign-in · 3 daily refresh · 4 guild rosters.
+  Background items hold at most 3 of the 4 slots, so a lookup never waits behind the crawl. Back-off is per endpoint
+  (429/5xx/no answer double the wait, Retry-After respected); only 20 successes in a row reset it.
+- The web process makes exactly one Blizzard call itself: `/profile/user/wow` with a sign-in's user token
+  (`crawler/account.js`), because the token must not be stored or handed on. Everything else is queued (`crawl_queue`)
+  and the web waits for it (lookups, up to 20 s).
+- **A character fetch** (`crawler/fetch.js`): profile; then achievement-statistics, statistics (attributes), equipment and
+  character-media in parallel = 5 requests. A daily 'check' whose `last_login_timestamp` equals the one at the last
+  full fetch stops after the profile (1 request; +1 while the render isn't ready). Every fetch or check takes today's
+  snapshot from the current values.
+- **Parsed values only** in production tables (`crawler/parse.js`); raw bodies exist only in `discovery_responses`.
+  Statistics Blizzard doesn't list are zero and have no row. Render URLs are kept only from
+  `https://render.worldofwarcraft.com` (the CSP's only other image host). `main-raw` is a 1600×1200 landscape image.
+- **Snapshots**: `character_snapshots`, one per character per UTC day (the first), two arrays (ids, values), in the
+  `snapshots` tablespace (~1 KB per character per day measured). The first snapshot in a week/month is that period's
+  baseline (`period_baselines`); `stat_gains` holds gains > 0, rebuilt per character on each fetch.
+- **Boards** (`stats/boards.js`): rank = 1 + visible characters strictly above; ties share; zeros tie after everyone;
+  hidden characters are on no board and in no population. Every count repeats the partial index predicate (`value > 0`,
+  `NOT hidden`), or the planner can't use the index. Nothing is cached: a rank and its "of N" are counted together.
+  Weekly = from Tuesday 15:00 UTC (US weekly reset); monthly = calendar month UTC (`stats/periods.js`). A period board
+  is "Collecting data" until snapshots began at or before the period's start. `scripts/measure-boards.js` measures it all
+  on synthetic data in a throwaway in-memory database.
+- **The catalog grows by itself**: a statistic id first seen in a crawl is added to `statistics` and appears on the
+  Discovery page's combined catalog; its category / grading / value type are the owner's decisions, else suggestions
+  (`stats/catalog.js`, cached 60 s per process; a decision clears the web's cache at once).
+- **Auto-fetch at sign-in**: a Battle.net sign-in, link or "Refresh my characters" (OAuth intent `characters`, only for an
+  identity already linked to the signed-in account) reads the character list once, upserts every character owned by
+  that account, queues level 10+ at priority 2, records the outcome (`account_character_checks`: ok / none / error).
+  A failure there never fails the sign-in.
+- Lookups: a character fully fetched in the last 10 minutes is served without asking Blizzard; only a lookup that asks
+  Blizzard counts against the per-network limit.
+
+## The beta (`server/beta.js`, `chrome/BetaBanner.jsx`, `/beta`)
+
+- A window (`beta_windows`), opened by migration 009 and closed/reopened only from the admin page. While open: the header
+  badge, the dismissible banner (localStorage, wrapped; keyed by the window's opening date), and /beta's "open"
+  version; closed, /beta thanks everyone and still lists the perks (admin setting `beta.perks`).
+- **Membership is permanent and decided only by the window**: a database trigger sets `accounts.beta_member` /
+  `beta_since` at INSERT from the window open at that moment; another refuses any later change except a merge giving
+  the kept account an EARLIER real membership (`account/merge.js`, `everstats.merging`). Never back-fill it, never
+  edit it, never add a code path that writes it. Accounts from before 0.4.0 are not members.
 
 ## Themes and design
 
@@ -186,6 +233,11 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
     for exactly that; its history lives on as the target's `account.merged_in` event.
   - **Unlinking a provider or removing a passkey deletes that row.** Reason: the person asked to remove a way in.
   - **Turning 2FA off deletes the secret and recovery codes.** Reason: a stale secret is a liability.
+  - **Finished crawl-queue items** (`crawl_queue`) are deleted an hour after they finish. Reason: they are work orders;
+    what they fetched lives in the character tables, and request counts in `crawler_hours` (kept forever).
+  - **Deleting an account** (Settings, `DELETE /api/account`) deletes the account row and everything that cascades from
+    it (sign-in links, passkeys, 2FA, recovery codes, sessions, flows, pins, events, character checks). Reason: the
+    person asked. Its characters stay (public data); ownership is cleared, a hidden one stays hidden.
   - **Discovery Battle.net tokens** (`discovery_grants`) are deleted when they expire (hourly sweep), when the admin
     forgets one, or when a new authorization replaces it. Reason: a credential, not history.
   - **Old nightly backup files are pruned**: the 14 newest dumps and the first dump of every month are kept, the rest
@@ -194,7 +246,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 - Every time-series table has a composite index on `(parent_id, timestamp)`.
 - **Every query takes limit/cursor. No unbounded selects, ever** (`pageLimit()` in `server/core/db.js`).
 - Migrations: `server/core/schema.js` (`{ id, up(q) }`, run under an advisory lock by both processes). Never edit or
-  reorder one that has shipped. **No Blizzard-shaped tables before the discovery pass.**
+  reorder one that has shipped. Blizzard-shaped tables (007+) follow what the discovery runs stored, never memory.
 - `pg` turns a JS array parameter into a Postgres array: for `jsonb` pass `JSON.stringify(value)`.
 - **Backups** (`server/core/backup.js`, registered as the worker job `backup`; `RESTORE.md`): every night after
   04:00 UTC (at once after a missed night) the worker runs `pg_dump --format=custom` into `BACKUP_DIR` (`/backups` in
@@ -222,7 +274,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 - `/api/health` on both returns `{ status, service, version, database }` (worker adds `loop`), 503 when the
   database is unreachable or the worker loop has stalled. Nothing else: it is public.
 - **Security headers** (`server/core/headers.js`): CSP `'self'` only (no inline script or style; the theme boot is a
-  served file), `nosniff`, `Referrer-Policy: same-origin`, HSTS over HTTPS, and a Permissions-Policy that denies
+  served file; images also from `https://render.worldofwarcraft.com`, Blizzard's character renders), `nosniff`, `Referrer-Policy: same-origin`, HSTS over HTTPS, and a Permissions-Policy that denies
   every device feature **except `publickey-credentials-get/create` for this origin** (next-up denies them, which
   would switch passkeys off).
 - **CSRF**: every non-GET `/api` request must carry `Origin: <PUBLIC_ORIGIN>` exactly (`server/core/sameOrigin.js`);
@@ -232,7 +284,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   them on the admin page (Proxy addresses). Never the visitor's own address. Put cloudflared's address there into
   `TRUSTED_PROXIES` in `.env`.
 - **Rate limits** per network, in memory (`server/core/rateLimit.js`, network from `CF-Connecting-IP` via
-  `server/core/network.js`, copied from next-up; set `TRUSTED_PROXIES`): lookups 30/15 min, auth starts 30/15 min,
+  `server/core/network.js`, copied from next-up; set `TRUSTED_PROXIES`): lookups that ask Blizzard 30/15 min, auth starts 30/15 min,
   wrong 2FA codes 10/15 min per network AND 5/15 min per account (a right code refunds), admin 10/15 min, account
   and admin writes 120/15 min.
 
@@ -325,9 +377,12 @@ Newest first; omit sections that don't apply.
 
 Write entries for someone reading them in six months: what changed from a user's point of view, not which files moved.
 
-## Open questions for the discovery pass
+## What the discovery runs settled (runs 1–2, 2026-11-09; the stored responses are the evidence)
 
-- Every Blizzard placeholder in `server/core/config.js` (`BLIZZARD_API`): namespaces, paths, realmless slugs.
-- Can surnames contain hyphens, spaces or apostrophes? The slug uses `-` as its separator (`server/stats/slug.js`).
-- What `/profile/user/wow` returns for Forever (the documented retail shape is realm-based).
-- How the statistics endpoint groups statistics, and which are "bad" (ungraded).
+- Namespaces `profile-forever-us` / `dynamic-forever-us` / versioned `static-…-forever-us`; character
+  `/profile/wow/character/{name}-{surname}` lower case (capitals 404; accents percent-encoded; `%2D` works too).
+- Statistics: `…/achievements/statistics` (not `/statistics`, which is attributes). Missing = zero.
+- `/profile/user/wow` lists `wow_accounts[].characters[]` with id (= the profile's id), name, surname, level, class,
+  race, faction and a character href, but **no slug field and no ruleset**. Characters < 10 are listed; their profile 404s.
+- Guilds live at `/data/wow/guild/{slug}` in the PROFILE namespace; rosters list members with id, slug, surname, level.
+- Still open: whether surnames can hold hyphens (slugs use `-` as the separator; `server/stats/slug.js` refuses them).

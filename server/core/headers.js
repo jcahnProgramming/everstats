@@ -15,7 +15,8 @@ export const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self'",
-  "img-src 'self' data:",
+  // Character renders come from Blizzard's render host (character-media), and only from there (crawler/parse.js).
+  "img-src 'self' data: https://render.worldofwarcraft.com",
   "font-src 'self'",
   "connect-src 'self'",
   "manifest-src 'self'",

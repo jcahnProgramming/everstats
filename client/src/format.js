@@ -1,6 +1,6 @@
 /** Display formatting shared by every page. US English (1.0 covers the US region only). */
 
-export const formatNumber = (n) => (Number.isFinite(n) ? n.toLocaleString('en-US') : '—');
+export const formatNumber = (n) => (Number.isFinite(n) ? n.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—');
 
 export const formatDate = (iso) => (iso ? new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : null);
 

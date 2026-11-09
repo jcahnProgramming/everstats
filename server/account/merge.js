@@ -25,6 +25,43 @@ export const MERGE_STEPS = [
     describe: 'Passkeys move to the account you keep.',
     run: (q, from, to) => q.query('UPDATE passkeys SET account_id = $2 WHERE account_id = $1', [from, to]),
   },
+  {
+    id: 'characters',
+    describe: 'Your characters (and whether each is hidden) move to the account you keep.',
+    run: (q, from, to) => q.query('UPDATE characters SET owner_account_id = $2 WHERE owner_account_id = $1', [from, to]),
+  },
+  {
+    id: 'character_checks',
+    describe: 'The record of each time Battle.net listed your characters moves too.',
+    run: (q, from, to) => q.query('UPDATE account_character_checks SET account_id = $2 WHERE account_id = $1', [from, to]),
+  },
+  {
+    id: 'dashboard',
+    describe: 'Pinned statistics and the featured character: the account you keep keeps its own, unless it never chose any.',
+    async run(q, from, to) {
+      const [src, dst] = [await q.one('SELECT pins_customised, featured_character_id FROM accounts WHERE id = $1', [from]), await q.one('SELECT pins_customised, featured_character_id FROM accounts WHERE id = $1', [to])];
+      if (src.pins_customised && !dst.pins_customised) {
+        await q.query('DELETE FROM account_pins WHERE account_id = $1', [to]);
+        await q.query('UPDATE account_pins SET account_id = $2 WHERE account_id = $1', [from, to]);
+        await q.query('UPDATE accounts SET pins_customised = true WHERE id = $1', [to]);
+      }
+      if (!dst.featured_character_id && src.featured_character_id) await q.query('UPDATE accounts SET featured_character_id = $2 WHERE id = $1', [to, src.featured_character_id]);
+    },
+  },
+  {
+    id: 'beta',
+    describe: 'Beta membership: if either account was made during the beta, the account you keep is a beta member, from the earlier date.',
+    async run(q, from, to) {
+      // The only change the database's beta guard allows (schema.js 009_beta): an earlier, real membership.
+      await q.query("SELECT set_config('everstats.merging', 'on', true)");
+      await q.query(
+        `UPDATE accounts t SET beta_member = true, beta_since = s.beta_since FROM accounts s
+          WHERE t.id = $2 AND s.id = $1 AND s.beta_member AND (NOT t.beta_member OR s.beta_since < t.beta_since)`,
+        [from, to],
+      );
+      await q.query("SELECT set_config('everstats.merging', 'off', true)");
+    },
+  },
 ];
 
 export async function mergeAccounts(q, sourceId, targetId) {

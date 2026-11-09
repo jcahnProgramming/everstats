@@ -1,4 +1,8 @@
 /**
+ * 0.4.0: the live catalog is server/stats/catalog.js (the `statistics` table, grown by crawls, classified by the
+ * owner's discovery decisions, else the suggestions). This file keeps the shapes tiers will be built against; the
+ * arrays stay empty until tiers are built from the catalog.
+ *
  * Statistic, category and leaderboard definitions: a REGISTRY, filled from the discovery pass (what Blizzard's WoW
  * Forever statistics endpoint really returns), never typed in from memory. Empty until then, on purpose: pages that
  * read it show "no coverage yet", never sample data.

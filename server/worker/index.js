@@ -9,7 +9,8 @@ import { APP_VERSION } from '../core/version.js';
 import { requireRootKey } from '../credentials/crypto.js';
 import { BACKUP_HOUR_UTC, run } from '../core/backup.js';
 import { createWorkerApp } from './app.js';
-import { JOBS } from './jobs.js';
+import { createCrawler } from '../crawler/service.js';
+import { createJobs } from './jobs.js';
 import { createLoop } from './loop.js';
 
 requireRootKey('worker');
@@ -26,6 +27,9 @@ await prepareDatabase(db, { processName: 'worker' });
 
 // One row per worker in worker_status. Stable across restarts of the same container (its hostname).
 const workerId = process.env.WORKER_ID || `worker-${hostname()}`;
+// The crawler runs continuously beside the job loop; it owns the one Blizzard request budget (crawler/service.js).
+const crawler = createCrawler({ db });
+const JOBS = createJobs({ crawler });
 const loop = createLoop({ db, jobs: JOBS, workerId, version: APP_VERSION });
 
 if (config.backupDir) {
@@ -36,11 +40,13 @@ if (config.backupDir) {
 }
 
 await loop.start();
+await crawler.start();
 const server = createWorkerApp({ loop, db }).listen(config.workerPort, config.listenHost, () => {
   console.log(`[worker] Everstats worker ${APP_VERSION} (${workerId}) on ${config.listenHost}:${config.workerPort}; ${JOBS.length} job(s) registered`);
 });
 
 async function shutdown() {
+  await crawler.stop();
   await loop.stop();
   server.close(() => {
     db.close().finally(() => process.exit(0));

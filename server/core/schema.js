@@ -1,3 +1,5 @@
+import { snapshotTablespace } from './tablespace.js';
+
 /**
  * Migrations, applied in order and recorded in _migrations (core/migrations.js). Each is { id: '001_name', up(q) }.
  * Never edit or reorder one that has shipped: add a new one.
@@ -5,8 +7,8 @@
  * Rules every table follows (CLAUDE.md, "Data rules"):
  *   - every time-series table has a composite index on (parent_id, timestamp)
  *   - nothing is deleted except where CLAUDE.md names the exception
- *   - no Blizzard-shaped tables (characters, statistics, snapshots, rulesets, guilds) before the discovery pass: their
- *     shape comes from what the API really returns. Snapshot tables go in the "snapshots" tablespace (core/tablespace.js).
+ *   - Blizzard-shaped tables (007+) are shaped by what the discovery runs stored, never by memory. Snapshot tables go in
+ *     the "snapshots" tablespace (core/tablespace.js).
  */
 export const migrations = [
   {
@@ -368,6 +370,287 @@ export const migrations = [
           summary      jsonb NOT NULL,
           analysed_at  timestamptz NOT NULL DEFAULT now()
         );
+      `);
+    },
+  },
+  {
+    // 0.4.0, the playable beta: the production character tables, shaped by what discovery runs 1 and 2 stored
+    // (discovery_responses). PARSED values only: no raw Blizzard body is kept in any of these tables.
+    id: '007_characters',
+    async up(q) {
+      await q.query(`
+        -- Rulesets, from the API (the ruleset index, and the ruleset each character profile names). Never typed in.
+        CREATE TABLE rulesets (
+          id             integer PRIMARY KEY,              -- Blizzard's id
+          name           text NOT NULL,
+          listed         boolean NOT NULL DEFAULT false,   -- in /data/wow/ruleset/index at the last read
+          first_seen_at  timestamptz NOT NULL DEFAULT now(),
+          updated_at     timestamptz NOT NULL DEFAULT now()
+        );
+
+        -- Guilds, as character profiles and rosters name them (guild pages are the next build; rosters seed characters).
+        CREATE TABLE guilds (
+          id                 bigint PRIMARY KEY,            -- Blizzard's id
+          slug               text NOT NULL,
+          name               text NOT NULL,
+          faction            text,
+          ruleset_id         integer REFERENCES rulesets (id),
+          first_seen_at      timestamptz NOT NULL DEFAULT now(),
+          updated_at         timestamptz NOT NULL DEFAULT now(),
+          roster_checked_at  timestamptz,
+          roster_members     integer
+        );
+        CREATE INDEX guilds_slug ON guilds (slug);
+        CREATE INDEX guilds_roster_time ON guilds (id, roster_checked_at);
+
+        -- Characters, keyed on Blizzard's character id. Blizzard's own slug, name and surname are stored as returned.
+        --   profile_state 'not_found': known (from a Battle.net account list or a roster) but the profile answers 404:
+        --                 under level 10, or not logged out since, or Blizzard hasn't caught up yet.
+        --   login_at_full: last_login_timestamp at the last full fetch: the daily refresh skips the expensive calls
+        --                 while the profile still says the same.
+        CREATE TABLE characters (
+          id                 bigint PRIMARY KEY,
+          slug               text,                          -- NULL when another character has taken it since
+          name               text NOT NULL,
+          surname            text NOT NULL DEFAULT '',
+          ruleset_id         integer REFERENCES rulesets (id),
+          faction            text,
+          race               text,
+          class              text,
+          gender             text,
+          level              integer,
+          guild_id           bigint REFERENCES guilds (id),
+          last_login_at      timestamptz,
+          login_at_full      timestamptz,
+          profile_state      text NOT NULL CHECK (profile_state IN ('ok', 'not_found')),
+          media              jsonb,                         -- { "main-raw": url, "avatar": url, … } from character-media
+          media_state        text CHECK (media_state IN ('ok', 'not_ready', 'failed')),
+          media_fetched_at   timestamptz,
+          equipment          jsonb,                         -- [{ slot, slotName, name, quality, level }]
+          attributes         jsonb,                         -- [{ key, label, value }] from /statistics
+          first_fetched_at   timestamptz,
+          last_fetched_at    timestamptz,                   -- last full fetch (statistics, gear, media)
+          last_checked_at    timestamptz,                   -- last time the profile was read, changed or not
+          stats_fetched_at   timestamptz,
+          source             text NOT NULL CHECK (source IN ('lookup', 'account', 'guild')),
+          tracked_since      timestamptz NOT NULL DEFAULT now(),
+          owner_account_id   bigint REFERENCES accounts (id) ON DELETE SET NULL,
+          owned_since        timestamptz,
+          account_level      integer,                       -- the level the owner's Battle.net account list gave
+          hidden             boolean NOT NULL DEFAULT false
+        );
+        CREATE UNIQUE INDEX characters_slug ON characters (slug) WHERE slug IS NOT NULL;
+        CREATE INDEX characters_owner ON characters (owner_account_id, id) WHERE owner_account_id IS NOT NULL;
+        CREATE INDEX characters_checked ON characters (last_checked_at NULLS FIRST, id);
+        CREATE INDEX characters_ranked ON characters (ruleset_id, id) WHERE stats_fetched_at IS NOT NULL AND NOT hidden;
+        CREATE INDEX characters_guild ON characters (guild_id, id);
+
+        -- The production statistics catalog: every statistic id seen in any production crawl, growing by itself (a new
+        -- statistic in a patch is a row, not a deploy). Category, grading and value type come from the discovery
+        -- decisions, else the suggestions (stats/catalog.js).
+        CREATE TABLE statistics (
+          id             bigint PRIMARY KEY,                -- Blizzard's id
+          name           text NOT NULL,
+          category_path  jsonb NOT NULL DEFAULT '[]',
+          has_text       boolean NOT NULL DEFAULT false,
+          named_example  text,
+          first_seen_at  timestamptz NOT NULL DEFAULT now(),
+          last_seen_at   timestamptz NOT NULL DEFAULT now()
+        );
+
+        -- Each character's current value of each statistic it has (a statistic Blizzard doesn't list is zero, and has
+        -- no row). ruleset_id and hidden are copied from the character so a board is one index range.
+        CREATE TABLE character_statistics (
+          character_id        bigint NOT NULL REFERENCES characters (id),
+          statistic_id        bigint NOT NULL REFERENCES statistics (id),
+          ruleset_id          integer NOT NULL,
+          hidden              boolean NOT NULL DEFAULT false,
+          value               double precision NOT NULL,
+          text                text,                         -- name + number statistics: the name beside the number
+          blizzard_updated_at timestamptz,
+          fetched_at          timestamptz NOT NULL,
+          PRIMARY KEY (character_id, statistic_id)
+        );
+        CREATE INDEX character_statistics_board ON character_statistics (statistic_id, ruleset_id, value DESC, character_id) WHERE NOT hidden AND value > 0;
+
+        -- Weekly / monthly gains: a character's first snapshot in each period (period_baselines) and what it has gained
+        -- since, per statistic, only where the gain is above zero (stat_gains). Rebuilt for a character whenever it is
+        -- fetched; past periods are kept.
+        CREATE TABLE period_baselines (
+          period        text NOT NULL CHECK (period IN ('week', 'month')),
+          period_start  timestamptz NOT NULL,
+          character_id  bigint NOT NULL REFERENCES characters (id),
+          ruleset_id    integer NOT NULL,
+          hidden        boolean NOT NULL DEFAULT false,
+          taken_at      timestamptz NOT NULL,
+          stat_ids      integer[] NOT NULL,
+          stat_values   double precision[] NOT NULL,
+          PRIMARY KEY (period, period_start, character_id)
+        );
+        CREATE INDEX period_baselines_population ON period_baselines (period, period_start, ruleset_id) WHERE NOT hidden;
+        CREATE INDEX period_baselines_character_time ON period_baselines (character_id, period_start);
+        CREATE TABLE stat_gains (
+          period        text NOT NULL,
+          period_start  timestamptz NOT NULL,
+          statistic_id  bigint NOT NULL,
+          ruleset_id    integer NOT NULL,
+          character_id  bigint NOT NULL REFERENCES characters (id),
+          hidden        boolean NOT NULL DEFAULT false,
+          gain          double precision NOT NULL,
+          PRIMARY KEY (period, period_start, statistic_id, character_id)
+        );
+        CREATE INDEX stat_gains_board ON stat_gains (period, period_start, statistic_id, ruleset_id, gain DESC, character_id) WHERE NOT hidden AND gain > 0;
+        CREATE INDEX stat_gains_character_time ON stat_gains (character_id, period_start);
+
+        -- The crawler's work queue. One pending item per (kind, key); a more urgent request raises its priority.
+        --   priority 1 a person waiting (lookup, sign-in) · 2 auto-fetch after sign-in · 3 daily refresh · 4 roster
+        -- Finished items are deleted after an hour (CLAUDE.md names this exception): they are work orders; what they
+        -- fetched lives in the character tables and the request counts in crawler_hours.
+        CREATE TABLE crawl_queue (
+          id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          kind         text NOT NULL CHECK (kind IN ('character', 'guild')),
+          key          text NOT NULL CHECK (length(key) BETWEEN 1 AND 200),
+          mode         text NOT NULL DEFAULT 'full' CHECK (mode IN ('full', 'check')),
+          priority     smallint NOT NULL CHECK (priority BETWEEN 1 AND 4),
+          account_id   bigint REFERENCES accounts (id) ON DELETE SET NULL,
+          state        text NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'running', 'done', 'failed')),
+          outcome      text CHECK (length(outcome) <= 200),
+          attempts     smallint NOT NULL DEFAULT 0,
+          enqueued_at  timestamptz NOT NULL DEFAULT now(),
+          not_before   timestamptz NOT NULL DEFAULT now(),
+          started_at   timestamptz,
+          finished_at  timestamptz
+        );
+        CREATE UNIQUE INDEX crawl_queue_pending ON crawl_queue (kind, key) WHERE state IN ('queued', 'running');
+        CREATE INDEX crawl_queue_next ON crawl_queue (priority, not_before, id) WHERE state = 'queued';
+        CREATE INDEX crawl_queue_finished ON crawl_queue (finished_at) WHERE state IN ('done', 'failed');
+
+        -- Blizzard requests per hour (kept forever, tiny), and the crawler's live status (one row, the worker's).
+        CREATE TABLE crawler_hours (
+          hour       timestamptz PRIMARY KEY,
+          requests   integer NOT NULL DEFAULT 0,
+          errors     integer NOT NULL DEFAULT 0,
+          throttled  integer NOT NULL DEFAULT 0
+        );
+        CREATE TABLE crawler_status (
+          id          smallint PRIMARY KEY CHECK (id = 1),
+          updated_at  timestamptz NOT NULL DEFAULT now(),
+          detail      jsonb NOT NULL DEFAULT '{}'
+        );
+        -- Moments the pipeline needs to remember, written once: 'first_snapshot_at' decides when the weekly and
+        -- monthly boards open (stats/periods.js periodOpen).
+        CREATE TABLE pipeline_facts (
+          key         text PRIMARY KEY,
+          at          timestamptz NOT NULL
+        );
+
+        -- Each time a sign-in read a Battle.net account's character list: what it found, or that it couldn't check.
+        CREATE TABLE account_character_checks (
+          id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          account_id  bigint NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+          provider    text NOT NULL,
+          checked_at  timestamptz NOT NULL DEFAULT now(),
+          outcome     text NOT NULL CHECK (outcome IN ('ok', 'none', 'error')),
+          characters  integer,
+          detail      text CHECK (length(detail) <= 200)
+        );
+        CREATE INDEX account_character_checks_account_time ON account_character_checks (account_id, checked_at);
+
+        -- The signed-in dashboard: which character is featured, and the statistics pinned to it.
+        ALTER TABLE accounts
+          ADD COLUMN featured_character_id bigint REFERENCES characters (id) ON DELETE SET NULL,
+          ADD COLUMN pins_customised boolean NOT NULL DEFAULT false;
+        CREATE TABLE account_pins (
+          account_id    bigint NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+          statistic_id  bigint NOT NULL,
+          position      smallint NOT NULL,
+          created_at    timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (account_id, statistic_id)
+        );
+        -- A pinned statistic's rank for each owned character, once a day: "rank movement since last week". Kept forever.
+        CREATE TABLE pin_rank_history (
+          character_id  bigint NOT NULL REFERENCES characters (id),
+          statistic_id  bigint NOT NULL,
+          day           date NOT NULL,
+          rank          integer NOT NULL,
+          population    integer NOT NULL,
+          recorded_at   timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (character_id, statistic_id, day)
+        );
+        CREATE INDEX pin_rank_history_character_time ON pin_rank_history (character_id, day);
+      `);
+    },
+  },
+  {
+    // Daily snapshots of each character's parsed statistic values, at most one per character per UTC day, kept
+    // forever, in the "snapshots" tablespace on the array disk. Two parallel arrays (ids, values) instead of a row per
+    // statistic: about a tenth of the size, and a day's snapshot is read whole anyway.
+    id: '008_snapshots',
+    async up(q) {
+      await q.query(`
+        CREATE TABLE character_snapshots (
+          character_id  bigint NOT NULL REFERENCES characters (id),
+          day           date NOT NULL,
+          taken_at      timestamptz NOT NULL,
+          level         smallint,
+          stat_ids      integer[] NOT NULL,
+          stat_values   double precision[] NOT NULL,
+          PRIMARY KEY (character_id, day)
+        ) ${await snapshotTablespace(q)};
+      `);
+    },
+  },
+  {
+    // The beta window and beta membership. Membership is decided ONLY by the window: the account row's insert trigger
+    // sets it from the window open at that moment, and an update trigger refuses any later change except a merge
+    // carrying an earlier membership over (CLAUDE.md "Beta"). Nothing can back-fill, edit or lose it.
+    id: '009_beta',
+    async up(q) {
+      await q.query(`
+        CREATE TABLE beta_windows (
+          id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          opened_at  timestamptz NOT NULL DEFAULT now(),
+          closed_at  timestamptz,
+          CHECK (closed_at IS NULL OR closed_at >= opened_at)
+        );
+        CREATE UNIQUE INDEX beta_windows_one_open ON beta_windows ((true)) WHERE closed_at IS NULL;
+        -- Open from this release (0.4.0).
+        INSERT INTO beta_windows DEFAULT VALUES;
+
+        -- Accounts that already exist were created before any beta window: they are not beta members (never back-filled).
+        ALTER TABLE accounts
+          ADD COLUMN beta_member boolean NOT NULL DEFAULT false,
+          ADD COLUMN beta_since timestamptz;
+
+        CREATE FUNCTION accounts_beta_on_insert() RETURNS trigger LANGUAGE plpgsql AS $fn$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM beta_windows WHERE opened_at <= NEW.created_at AND (closed_at IS NULL OR closed_at > NEW.created_at)) THEN
+            NEW.beta_member := true;
+            NEW.beta_since := NEW.created_at;
+          ELSE
+            NEW.beta_member := false;
+            NEW.beta_since := NULL;
+          END IF;
+          RETURN NEW;
+        END
+        $fn$;
+        CREATE TRIGGER accounts_beta_on_insert BEFORE INSERT ON accounts FOR EACH ROW EXECUTE FUNCTION accounts_beta_on_insert();
+
+        CREATE FUNCTION accounts_beta_guard() RETURNS trigger LANGUAGE plpgsql AS $fn$
+        BEGIN
+          IF NEW.beta_member IS DISTINCT FROM OLD.beta_member OR NEW.beta_since IS DISTINCT FROM OLD.beta_since THEN
+            -- The only change ever allowed: a merge (account/merge.js sets everstats.merging for its transaction)
+            -- giving the kept account an EARLIER real membership from the merged one.
+            IF current_setting('everstats.merging', true) = 'on' AND NEW.beta_member AND NEW.beta_since IS NOT NULL
+               AND (NOT OLD.beta_member OR NEW.beta_since < OLD.beta_since) THEN
+              RETURN NEW;
+            END IF;
+            RAISE EXCEPTION 'beta membership is permanent' USING ERRCODE = 'check_violation';
+          END IF;
+          RETURN NEW;
+        END
+        $fn$;
+        CREATE TRIGGER accounts_beta_guard BEFORE UPDATE OF beta_member, beta_since ON accounts FOR EACH ROW EXECUTE FUNCTION accounts_beta_guard();
       `);
     },
   },

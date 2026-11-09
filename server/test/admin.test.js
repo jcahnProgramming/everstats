@@ -82,5 +82,7 @@ test('the minimum population is an admin setting with a default of 500', async (
 test('the crawler status says when no worker has reported', async () => {
   const h = await sessionCookie();
   const state = (await t.client().get('/api/admin/state', h)).json;
-  assert.deepEqual(state.crawler, { workers: [] });
+  assert.deepEqual(state.crawler.workers, []);
+  assert.equal(state.crawler.crawler, null); // no crawler has written its status: nothing is claimed to be running
+  assert.deepEqual(state.crawler.queue[1], { queued: 0, running: 0 });
 });

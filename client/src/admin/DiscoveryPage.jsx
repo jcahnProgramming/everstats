@@ -617,7 +617,7 @@ function Catalog({ runId }) {
                 <td className="strong">{s.name}</td>
                 <td className="t2 small">{catPath(s) || '—'}</td>
                 <td><TypeTag stat={s} /></td>
-                {runId === null && <td className="mono xsmall">{s.runs.map((id) => `#${id}`).join(' ')}</td>}
+                {runId === null && <td className="mono xsmall">{s.fromProduction ? 'production' : s.runs.map((id) => `#${id}`).join(' ')}</td>}
                 <td className="r">{s.charactersPresent} / {s.charactersSampled}</td>
                 <td className="r">{s.charactersNonzero}</td>
                 <td className="r t2">{formatNumber(s.minValue)} · {formatNumber(s.medianValue)}</td>
@@ -711,7 +711,7 @@ function SuggestionRow({ runId, stat, nameOf, showType, onChanged }) {
         <b>{stat.name}</b>
         <span className="mono muted xsmall">id {stat.statisticId}</span>
         <span className="t2 xsmall">{catPath(stat) || 'no category'}</span>
-        {runId === null && <span className="muted xsmall">runs {stat.runs.map((id) => `#${id}`).join(' ')}</span>}
+        {runId === null && <span className="muted xsmall">{stat.fromProduction ? 'seen by the production crawler, in no discovery run' : `runs ${stat.runs.map((id) => `#${id}`).join(' ')}`}</span>}
       </div>
       {showType && <ValueTypeRow stat={stat} busy={busy} onSet={(value) => decide('value_type', 'approved', value)} onClear={() => decide('value_type', 'cleared')} />}
       {stat.visible.map((s) => (

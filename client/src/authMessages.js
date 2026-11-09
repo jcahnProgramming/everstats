@@ -9,6 +9,7 @@ export const AUTH_ERRORS = {
   linked_elsewhere: 'That login already belongs to a different Everstats account. To combine them, sign in to this account and use "Merge into another account" below.',
   merge_no_account: "No Everstats account uses that login, so there's nothing to merge into. (Nothing was created.)",
   same_account: "That's the account you're signed in to already.",
+  characters_other_account: "That Battle.net login isn't the one linked to this Everstats account, so its characters weren't read. Sign in to Battle.net as the linked account and try again.",
 };
 
 export const authError = (code) => (code ? AUTH_ERRORS[code] ?? 'Something went wrong. Try again.' : null);

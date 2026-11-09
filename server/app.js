@@ -3,17 +3,16 @@ import { join } from 'node:path';
 import express from 'express';
 import { createAccountRouter, THEMES } from './account/routes.js';
 import { createAdminRouter } from './admin/routes.js';
-import { getSetting } from './admin/settings.js';
 import { createAuthRouter, createCallbackRouter } from './auth/routes.js';
 import { loadSession } from './auth/sessions.js';
 import { config } from './core/config.js';
-import { createErrorHandler, HttpError, route } from './core/errors.js';
+import { createErrorHandler, route } from './core/errors.js';
 import { securityHeaders } from './core/headers.js';
 import { createNetworkResolver, logHeaderSources, trustedProxyEntries } from './core/network.js';
 import { createLimits, limitBy } from './core/rateLimit.js';
 import { requireSameOrigin } from './core/sameOrigin.js';
 import { APP_VERSION } from './core/version.js';
-import { parseSlug } from './stats/slug.js';
+import { createPublicRouter } from './characters/routes.js';
 
 /**
  * The web app (API + built client), without listening. index.js starts it; tests build it with their own database,
@@ -75,25 +74,8 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
     res.type('application/javascript').send(`document.documentElement.setAttribute('data-theme','${theme}');\n`);
   }));
 
-  // What Everstats covers right now. Every page's empty state reads this, so "not built yet", "no coverage" and
-  // "Unranked" come from one place. null means unknown / not measured, never zero.
-  app.get('/api/coverage', route(async (req, res) => {
-    res.json({
-      region: config.region,
-      lookups: 'not_built',
-      rulesets: null,
-      trackedCharacters: null,
-      minPopulation: await getSetting(db, 'grading.minPopulation'),
-    });
-  }));
-
-  // Character lookup. Not built: answers honestly, and is already rate-limited the way the real lookup will be (a
-  // search refreshes the character from Blizzard).
-  app.get('/api/characters/:slug', limitBy(limits.lookups, networkOf), route(async (req, res) => {
-    const parsed = parseSlug(req.params.slug);
-    if (!parsed) throw new HttpError(400, 'That isn’t a character name and surname.', 'invalid');
-    res.json({ slug: parsed.slug, status: 'not_built' });
-  }));
+  // Character lookups, leaderboards, the statistics catalog, coverage and the beta (characters/routes.js).
+  app.use('/api', createPublicRouter({ db, limits, networkOf }));
 
   app.use('/api/auth', createAuthRouter({ db, limits, networkOf, fetch }));
   app.use('/api/admin', createAdminRouter({
