@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en" data-theme="forever">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Everstats mockup</title>
+<link rel="stylesheet" href="../../assets/fonts/fonts.css">
+<link rel="stylesheet" href="../../tokens/themes.css">
+<link rel="stylesheet" href="../../components/components.css">
+<script>(function(){var q=new URLSearchParams(location.search);var t=q.get('theme');if(t){document.documentElement.setAttribute('data-theme',t);}window.ES_Q=q;})();</script>
+</head>
+<body>
+<div class="es mapbg">
+<header class="topbar"><div class="wrap in">
+  <a class="brand" href="../../pages/home/index.html"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" style="fill:none;stroke:var(--es-accent);stroke-width:3"/><path d="M32 6 L35 29 L58 32 L35 35 L32 58 L29 35 L6 32 L29 29 Z" style="fill:var(--es-accent);opacity:var(--es-opacity-ornament)"/><text x="32" y="42" text-anchor="middle" font-size="28" style="font-family:var(--es-font-display);font-weight:var(--es-weight-black);fill:var(--es-text)">E</text></svg>Everstats</a>
+  <nav class="navlinks" aria-label="Primary"><a href="../../pages/leaderboards-index/index.html">Leaderboards</a><a href="../../pages/guild/index.html">Guilds</a></nav>
+  <span class="spacer"></span>
+  <label class="search"><svg class="ico sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input placeholder="Character name + surname" aria-label="Search characters"><span class="kbd">/</span></label>
+  <a class="btn sm signin" href="../../pages/sign-in/index.html">Sign in</a>
+  <button class="btn ghost icon nav-icon" aria-label="Search"><svg class="ico md" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+  <button class="btn ghost icon nav-icon" aria-label="Menu"><svg class="ico md" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+</div></header>
+<main style="display: grid; place-items: center; padding: var(--es-space-72) var(--es-space-16)"><div class="sheet stack gap-22" style="width: 100%; max-width: var(--es-size-container-auth); padding: var(--es-space-36) var(--es-space-32); gap: var(--es-space-22)"><div data-variant="default"><div class="stack gap-8" style="align-items: center; text-align: center">
+  <svg style="width: var(--es-size-icon-2xl); height: var(--es-size-icon-2xl)" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" style="fill:none;stroke:var(--es-accent);stroke-width:3"/><path d="M32 6 L35 29 L58 32 L35 35 L32 58 L29 35 L6 32 L29 29 Z" style="fill:var(--es-accent);opacity:var(--es-opacity-ornament)"/><text x="32" y="42" text-anchor="middle" font-size="28" style="font-family:var(--es-font-display);font-weight:var(--es-weight-black);fill:var(--es-text)">E</text></svg>
+  <h1 class="h1" style="font-size: var(--es-fs-30)">Sign in</h1>
+  <p class="t2 small">Optional — every page is public. Signing in unlocks themes and highlights your own characters on the boards.</p></div>
+<div class="stack gap-10">
+  <a class="btn lg left" href="../../pages/sign-in-2fa/index.html"><svg class="ico md" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8M12 8v8"/></svg><span style="flex: 1; text-align: left">Continue with Battle.net</span><span class="muted xsmall" style="font-weight: var(--es-weight-medium)">imports characters</span></a>
+  <a class="btn lg left" href="../../pages/sign-in-2fa/index.html"><svg class="ico md" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14v10H9l-4 3z"/></svg><span style="flex: 1; text-align: left">Continue with Discord</span></a>
+  <div class="orn" style="margin: var(--es-space-4) 0"><span class="rule" style="background: var(--es-line)"></span><span class="muted xsmall">or</span><span class="rule" style="background: var(--es-line)"></span></div>
+  <a class="btn gold lg" href="?variant=passkey"><svg class="ico md" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M3 20c1-3.5 3.3-5.5 6-5.5 1.2 0 2.3.3 3.2 1M17 13a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM17 18v3M17 21h2"/></svg>Sign in with a passkey</a>
+  <span class="muted xsmall" style="text-align: center">Passkeys are added from Account settings after your first sign-in.</span></div></div><div data-variant="passkey" hidden><div class="stack gap-14" style="align-items: center; text-align: center; padding: var(--es-space-12) 0">
+  <svg class="spin" viewBox="0 0 64 64" aria-hidden="true" style="width: var(--es-size-icon-3xl); height: var(--es-size-icon-3xl)"><circle cx="32" cy="32" r="28" style="fill:none;stroke:var(--es-line-strong);stroke-width:2"/><path d="M32 4 A28 28 0 0 1 60 32" style="fill:none;stroke:var(--es-accent);stroke-width:3;stroke-linecap:round"/></svg>
+  <h1 class="h2" style="font-size: var(--es-fs-26)" role="status">Waiting for your passkey</h1>
+  <p class="t2 small">Follow your browser’s prompt. No code needed — passkeys skip two-factor.</p>
+  <a class="btn ghost sm" href="?">Cancel</a></div></div></div></main>
+<footer class="foot"><div class="wrap in"><span>Everstats · Not affiliated with or endorsed by Blizzard Entertainment · Data via the Blizzard API</span><a class="ver" href="../../pages/changelog/index.html">v0.1.0</a></div></footer>
+</div>
+<script>if(window.ES_Q&&ES_Q.get('variant')==='passkey'){document.querySelector('[data-variant=default]').hidden=true;document.querySelector('[data-variant=passkey]').hidden=false;}</script>
+</body>
+</html>

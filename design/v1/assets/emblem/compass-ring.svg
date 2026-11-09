@@ -1,0 +1,2 @@
+<?xml-stylesheet type="text/css" href="../../tokens/themes.css"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 200 200" aria-hidden="true"><circle cx="100" cy="100" r="96" style="fill:none;stroke:var(--es-accent);stroke-width:0.8"/><circle cx="100" cy="100" r="84" style="fill:none;stroke:var(--es-accent);stroke-width:0.5;stroke-dasharray:2 4"/><path d="M100 4 L105 95 L196 100 L105 105 L100 196 L95 105 L4 100 L95 95 Z" style="fill:var(--es-accent);opacity:0.14"/></svg>

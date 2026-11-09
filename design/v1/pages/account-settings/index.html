@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en" data-theme="forever">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account settings · Everstats mockup</title>
+<link rel="stylesheet" href="../../assets/fonts/fonts.css">
+<link rel="stylesheet" href="../../tokens/themes.css">
+<link rel="stylesheet" href="../../components/components.css">
+<script>(function(){var q=new URLSearchParams(location.search);var t=q.get('theme');if(t){document.documentElement.setAttribute('data-theme',t);}window.ES_Q=q;})();</script>
+</head>
+<body>
+<div class="es mapbg">
+<header class="topbar"><div class="wrap in">
+  <a class="brand" href="../../pages/home/index.html"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" style="fill:none;stroke:var(--es-accent);stroke-width:3"/><path d="M32 6 L35 29 L58 32 L35 35 L32 58 L29 35 L6 32 L29 29 Z" style="fill:var(--es-accent);opacity:var(--es-opacity-ornament)"/><text x="32" y="42" text-anchor="middle" font-size="28" style="font-family:var(--es-font-display);font-weight:var(--es-weight-black);fill:var(--es-text)">E</text></svg>Everstats</a>
+  <nav class="navlinks" aria-label="Primary"><a href="../../pages/leaderboards-index/index.html">Leaderboards</a><a href="../../pages/guild/index.html">Guilds</a></nav>
+  <span class="spacer"></span>
+  <label class="search"><svg class="ico sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input placeholder="Character name + surname" aria-label="Search characters"><span class="kbd">/</span></label>
+  <a class="btn sm ghost signin" href="../../pages/account-settings/index.html"><span class="av">AC</span>Account</a>
+  <button class="btn ghost icon nav-icon" aria-label="Search"><svg class="ico md" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+  <button class="btn ghost icon nav-icon" aria-label="Menu"><svg class="ico md" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+</div></header>
+<main class="wrap page-pad split" style="gap: var(--es-space-32)">
+<nav aria-label="Settings" class="stack gap-2" style="flex: 1 1 var(--es-space-120); max-width: var(--es-size-sidebar)">
+  <h1 class="h1" style="font-size: var(--es-fs-32); margin-bottom: var(--es-space-14)">Account</h1>
+  <a class="btn left" href="#appearance" aria-current="true" style="border-color: var(--es-accent)">Appearance</a><a class="btn ghost left" href="#signin">Sign-in methods</a><a class="btn ghost left" href="#twofa">Two-factor</a><a class="btn ghost left" href="#merge">Merge accounts</a>
+  <span class="hr" style="margin: var(--es-space-12) 0"></span><a class="btn ghost left" href="../../pages/home/index.html">Sign out</a></nav>
+<div class="main stack gap-28">
+  <section id="appearance" class="panel pad-24 stack gap-18">
+    <div class="row gap-10"><h2 class="h2" style="font-size: var(--es-fs-22)">Theme</h2><span class="tag gold">Signed-in perk</span><span class="muted small">Visitors always see Forever. Selection applies immediately.</span></div>
+    <div class="grid-auto" style="--col: var(--es-size-col-min-sm); gap: var(--es-space-14)" role="radiogroup" aria-label="Theme"><button class="theme-card" data-theme="forever" role="radio" aria-checked="true">
+<span class="stack gap-10" style="padding: var(--es-space-16); background: var(--es-hero); min-height: var(--es-space-120)"><span class="row gap-6"><span class="tier sm s" role="img" aria-label="Tier S"><b aria-hidden="true">S</b></span><span class="tier sm a" role="img" aria-label="Tier A"><b aria-hidden="true">A</b></span><span class="tier sm b" role="img" aria-label="Tier B"><b aria-hidden="true">B</b></span><span class="tier sm c" role="img" aria-label="Tier C"><b aria-hidden="true">C</b></span><span class="tier sm d" role="img" aria-label="Tier D"><b aria-hidden="true">D</b></span></span><span class="row gap-6"><span style="height: var(--es-space-8); width: 40%; border-radius: var(--es-radius-xs); background: var(--es-accent)"></span><span style="height: var(--es-space-8); width: 25%; border-radius: var(--es-radius-xs); background: var(--es-line-strong)"></span></span></span>
+<span class="row" style="justify-content: space-between; padding: var(--es-space-12) var(--es-space-16); color: var(--es-text)"><span class="h3" style="font-size: var(--es-fs-16)">Forever</span><span class="muted xsmall act">Active</span></span></button><button class="theme-card" data-theme="alliance" role="radio" aria-checked="false">
+<span class="stack gap-10" style="padding: var(--es-space-16); background: var(--es-hero); min-height: var(--es-space-120)"><span class="row gap-6"><span class="tier sm s" role="img" aria-label="Tier S"><b aria-hidden="true">S</b></span><span class="tier sm a" role="img" aria-label="Tier A"><b aria-hidden="true">A</b></span><span class="tier sm b" role="img" aria-label="Tier B"><b aria-hidden="true">B</b></span><span class="tier sm c" role="img" aria-label="Tier C"><b aria-hidden="true">C</b></span><span class="tier sm d" role="img" aria-label="Tier D"><b aria-hidden="true">D</b></span></span><span class="row gap-6"><span style="height: var(--es-space-8); width: 40%; border-radius: var(--es-radius-xs); background: var(--es-accent)"></span><span style="height: var(--es-space-8); width: 25%; border-radius: var(--es-radius-xs); background: var(--es-line-strong)"></span></span></span>
+<span class="row" style="justify-content: space-between; padding: var(--es-space-12) var(--es-space-16); color: var(--es-text)"><span class="h3" style="font-size: var(--es-fs-16)">Alliance</span><span class="muted xsmall act">Active</span></span></button><button class="theme-card" data-theme="horde" role="radio" aria-checked="false">
+<span class="stack gap-10" style="padding: var(--es-space-16); background: var(--es-hero); min-height: var(--es-space-120)"><span class="row gap-6"><span class="tier sm s" role="img" aria-label="Tier S"><b aria-hidden="true">S</b></span><span class="tier sm a" role="img" aria-label="Tier A"><b aria-hidden="true">A</b></span><span class="tier sm b" role="img" aria-label="Tier B"><b aria-hidden="true">B</b></span><span class="tier sm c" role="img" aria-label="Tier C"><b aria-hidden="true">C</b></span><span class="tier sm d" role="img" aria-label="Tier D"><b aria-hidden="true">D</b></span></span><span class="row gap-6"><span style="height: var(--es-space-8); width: 40%; border-radius: var(--es-radius-xs); background: var(--es-accent)"></span><span style="height: var(--es-space-8); width: 25%; border-radius: var(--es-radius-xs); background: var(--es-line-strong)"></span></span></span>
+<span class="row" style="justify-content: space-between; padding: var(--es-space-12) var(--es-space-16); color: var(--es-text)"><span class="h3" style="font-size: var(--es-fs-16)">Horde</span><span class="muted xsmall act">Active</span></span></button></div>
+    <label class="toggle"><input type="checkbox" checked><span class="track"></span><span class="small">Reduce motion (stops shimmer and spinners)</span></label>
+  </section>
+  <section id="signin" class="panel pad-24 stack gap-16">
+    <div class="stack gap-4"><h2 class="h2" style="font-size: var(--es-fs-22)">Sign-in methods</h2><span class="muted small">Sign in with any of these. New methods are added here while you’re signed in.</span></div>
+    <div class="listbox">
+      <div class="listrow"><span class="provider-ico"><svg class="ico md" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8M12 8v8"/></svg></span><span class="stack" style="flex: 1 1 var(--es-size-col-min)"><b>Battle.net</b><span class="muted xsmall">Linked as [BattleTag] · imports your US characters · since [Date]</span></span><span class="tag ok">Linked</span><button class="btn sm danger">Unlink</button></div>
+      <div class="listrow"><span class="provider-ico"><svg class="ico md" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14v10H9l-4 3z"/></svg></span><span class="stack" style="flex: 1 1 var(--es-size-col-min)"><b>Discord</b><span class="muted xsmall">Not linked</span></span><button class="btn sm">Link Discord</button></div>
+      <div class="listrow" style="flex-direction: column; align-items: stretch"><div class="row gap-14"><span class="provider-ico"><svg class="ico md" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M3 20c1-3.5 3.3-5.5 6-5.5 1.2 0 2.3.3 3.2 1M17 13a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM17 18v3M17 21h2"/></svg></span><span class="stack" style="flex: 1 1 var(--es-size-col-min)"><b>Passkeys</b><span class="muted xsmall">Passkey sign-in skips the two-factor step.</span></span><button class="btn sm gold"><svg class="ico sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add a passkey</button></div>
+        <div class="raised"><div style="display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: var(--es-space-12); align-items: center; padding: var(--es-space-10) var(--es-space-14)"><span><b>[Device name 1]</b> <span class="muted xsmall">· [Authenticator]</span></span><span class="muted xsmall">Last used [Date]</span><button class="btn sm ghost">Remove</button></div><div class="hr"></div><div style="display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: var(--es-space-12); align-items: center; padding: var(--es-space-10) var(--es-space-14)"><span><b>[Device name 2]</b> <span class="muted xsmall">· [Authenticator]</span></span><span class="muted xsmall">Added [Date]</span><button class="btn sm ghost">Remove</button></div></div></div>
+    </div>
+  </section>
+  <section id="twofa" class="panel pad-24 stack gap-18">
+    <div class="row gap-10"><h2 class="h2" style="font-size: var(--es-fs-22)">Two-factor authentication</h2><span class="tag">Optional</span><span class="muted small">An authenticator-app code after Battle.net or Discord sign-in.</span></div>
+    <ol class="grid-auto" style="--col: var(--es-size-col-min-lg); list-style: none; margin: 0; padding: 0; gap: var(--es-space-18)">
+      <li class="raised stack gap-14 pad-20"><span class="eyebrow">Step 1 · Scan</span>
+        <div class="row gap-16"><span class="qr">[QR CODE]<br>otpauth://totp</span><span class="stack gap-6" style="flex: 1 1 var(--es-space-120)"><span class="t2 small">Can’t scan? Enter this key:</span><span class="mono small" style="letter-spacing: var(--es-tracking-code); word-break: break-all">XXXX XXXX XXXX XXXX</span><button class="btn sm" style="align-self: flex-start"><svg class="ico sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy key</button></span></div>
+        <div class="field"><label for="s-otp">Enter the 6-digit code</label><div class="row gap-8" style="flex-wrap: nowrap"><input id="s-otp" class="inp otp" inputmode="numeric" placeholder="000 000" style="flex: 1; min-width: 0"><button class="btn gold">Verify</button></div></div></li>
+      <li class="sheet stack gap-14 pad-20"><span class="eyebrow">Step 2 · Recovery codes — shown once</span>
+        <div class="note warn small"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span>Save these now. Each works once if you lose your authenticator. We can’t show them again — only generate a new set.</span></div>
+        <div class="codes"><span><span class="muted" style="font-size: var(--es-fs-11)">01</span> XXXX-XXXX</span><span><span class="muted" style="font-size: var(--es-fs-11)">02</span> XXXX-XXXX</span><span><span class="muted" style="font-size: var(--es-fs-11)">03</span> XXXX-XXXX</span><span><span class="muted" style="font-size: var(--es-fs-11)">04</span> XXXX-XXXX</span><span><span class="muted" style="font-size: var(--es-fs-11)">05</span> XXXX-XXXX</span><span><span class="muted" style="font-size: var(--es-fs-11)">06</span> XXXX-XXXX</span><span><span class="muted" style="font-size: var(--es-fs-11)">07</span> XXXX-XXXX</span><span><span class="muted" style="font-size: var(--es-fs-11)">08</span> XXXX-XXXX</span><span><span class="muted" style="font-size: var(--es-fs-11)">09</span> XXXX-XXXX</span><span><span class="muted" style="font-size: var(--es-fs-11)">10</span> XXXX-XXXX</span></div>
+        <div class="row gap-8"><button class="btn sm"><svg class="ico sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Download .txt</button><button class="btn sm"><svg class="ico sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy all</button><button class="btn sm"><svg class="ico sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9V4h10v5M7 17H5a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M7 14h10v6H7z"/></svg>Print</button></div>
+        <label class="check"><input type="checkbox">I’ve stored these somewhere safe</label>
+        <button class="btn gold" disabled>Finish setup</button></li>
+    </ol>
+  </section>
+  <section id="merge" class="panel pad-24 stack gap-16">
+    <div class="stack gap-4"><h2 class="h2" style="font-size: var(--es-fs-22)">Merge accounts</h2><span class="muted small">Signed in with Discord once and Battle.net another time? Fold the second account into this one.</span></div>
+    <div class="grid-auto" style="--col: var(--es-size-col-min); gap: var(--es-space-16); align-items: center">
+      <div class="raised stack gap-4 pad-16"><span class="eyebrow">Keep · this account</span><b>Battle.net · [BattleTag]</b><span class="muted xsmall">0 characters · theme Forever · 0 passkeys</span></div>
+      <div class="stack gap-8 pad-16" style="border: var(--es-border-1) dashed var(--es-line-strong); border-radius: var(--es-radius-lg)"><span class="eyebrow">Absorb · other account</span><span class="t2 small">Sign in to it to prove it’s yours.</span><div class="row gap-8"><button class="btn sm">Battle.net</button><button class="btn sm">Discord</button></div></div>
+    </div>
+    <div class="note small"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/></svg><span>Its sign-in methods and characters move here; its theme and 2FA are dropped. This can’t be undone — a confirmation modal follows.</span></div>
+  </section>
+</div>
+</main>
+<footer class="foot"><div class="wrap in"><span>Everstats · Not affiliated with or endorsed by Blizzard Entertainment · Data via the Blizzard API</span><a class="ver" href="../../pages/changelog/index.html">v0.1.0</a></div></footer>
+</div>
+<script>(function(){var cur=document.documentElement.getAttribute('data-theme')||'forever';document.querySelectorAll('.theme-card').forEach(function(b){b.setAttribute('aria-checked',b.dataset.theme===cur?'true':'false');b.onclick=function(){document.documentElement.setAttribute('data-theme',b.dataset.theme);document.querySelectorAll('.theme-card').forEach(function(x){x.setAttribute('aria-checked',x===b?'true':'false');});};});})();</script>
+</body>
+</html>

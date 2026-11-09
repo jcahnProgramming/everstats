@@ -1,0 +1,2 @@
+<?xml-stylesheet type="text/css" href="../../tokens/themes.css"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" style="fill:none;stroke:var(--es-accent);stroke-width:3"/><path d="M32 6 L35 29 L58 32 L35 35 L32 58 L29 35 L6 32 L29 29 Z" style="fill:var(--es-accent);opacity:var(--es-opacity-ornament)"/><text x="32" y="42" text-anchor="middle" font-size="28" style="font-family:var(--es-font-display);font-weight:var(--es-weight-black);fill:var(--es-text)">E</text></svg>
