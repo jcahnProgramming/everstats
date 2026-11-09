@@ -1,4 +1,6 @@
-import { TIER_BANDS } from '../../../server/stats/tiers.js';
+import { Link } from 'react-router-dom';
+import { TIER_LETTERS, bandRanges } from '../../../server/stats/tiers.js';
+import { formatNumber } from '../format.js';
 
 /**
  * Tier badge (design/v1/components/tier-badge.md): a shield with the letter S/A/B/C/D, or "–" for Unranked.
@@ -28,25 +30,78 @@ export function TierBadge({ letter = null, size = 'md', loading = false, label }
   );
 }
 
-/** What each letter means. It describes the rule (CLAUDE.md "Tiers"); it shows no one's grade. */
-export function TierLegend() {
-  let from = 0;
+/**
+ * What each letter means, from the LIVE shares (admin setting tiers.shares, sent by the API). It describes the rule;
+ * it shows no one's grade. `minPopulation`: the ruleset minimum, for the Unranked line.
+ */
+export function TierLegend({ shares, minPopulation = null }) {
   return (
     <ul className="plain stack gap-8 tier-legend">
-      {TIER_BANDS.map((b) => {
-        const range = from === 0 ? `Top ${b.share}%` : from + b.share === 100 ? `Bottom ${b.share}%` : `Next ${b.share}% (${from}–${from + b.share}%)`;
-        from += b.share;
-        return (
-          <li key={b.letter} className="row gap-12">
-            <TierBadge letter={b.letter} size="sm" />
-            <span className="t2 small">{range} of their ruleset</span>
-          </li>
-        );
-      })}
+      {bandRanges(shares).map((b) => (
+        <li key={b.letter} className="row gap-12">
+          <TierBadge letter={b.letter} size="sm" />
+          <span className="t2 small">{b.share === 0 ? 'Nobody (share set to 0%)' : `${b.range} of their ruleset`}</span>
+        </li>
+      ))}
       <li className="row gap-12">
         <TierBadge letter={null} size="sm" />
-        <span className="t2 small">Unranked: the ruleset doesn't have enough tracked characters to grade yet</span>
+        <span className="t2 small">Unranked: {minPopulation ? `the ruleset has fewer than ${formatNumber(minPopulation)} tier-eligible characters, or ` : ''}the character doesn't meet a minimum yet (the page says which)</span>
       </li>
     </ul>
+  );
+}
+
+/** "Top 5%" etc. for a letter under the given shares. */
+export function letterRange(letter, shares) {
+  return bandRanges(shares).find((b) => b.letter === letter)?.range ?? null;
+}
+
+/**
+ * A distribution of letters (design: guild "Members by tier"): the tier bar, sized by the real counts, plus the same
+ * counts in words, so it never relies on the bar alone. letters: { S, A, B, C, D, unranked }.
+ */
+export function TierDistribution({ letters, label = 'Members by tier' }) {
+  const total = [...TIER_LETTERS, 'unranked'].reduce((n, l) => n + (letters[l] ?? 0), 0);
+  const parts = [...TIER_LETTERS.map((l) => [l, l.toLowerCase(), l]), ['unranked', 'u', '–']].filter(([k]) => letters[k] > 0);
+  const words = [...TIER_LETTERS.map((l) => `${l} ${formatNumber(letters[l] ?? 0)}`), `Unranked ${formatNumber(letters.unranked ?? 0)}`].join(' · ');
+  return (
+    <div className="stack gap-8">
+      <span className="eyebrow">{label}</span>
+      {total > 0 && (
+        <div className="tierbar" role="img" aria-label={words}>
+          {parts.map(([k, cls, text]) => <span key={k} className={cls} style={{ flex: letters[k] }}>{text}</span>)}
+        </div>
+      )}
+      <span className="t2 small tier-words">{words}</span>
+    </div>
+  );
+}
+
+/** A small letter (or "–") linking to the character's "Why this tier", for lists. */
+export function TierLink({ slug, letter }) {
+  if (!slug) return <TierBadge letter={letter} size="sm" />;
+  return (
+    <Link className="tier-link" to={`/c/${encodeURIComponent(slug)}#why-tier`} aria-label={letter ? `Tier ${letter}: why` : 'Unranked: why'}>
+      <TierBadge letter={letter} size="sm" label={letter ? `Tier ${letter}` : 'Unranked'} />
+    </Link>
+  );
+}
+
+/**
+ * A featured character's tier (dashboard, profile): the letter, or Unranked with the reason in words, and a link to
+ * its "Why this tier". brief: { letter, status, reason } from the API (server/tiers/view.js tierBrief), null = hidden.
+ */
+export function TierBrief({ brief, slug }) {
+  if (!brief) return null;
+  return (
+    <Link className="row gap-12 tier-brief" to={`/c/${encodeURIComponent(slug)}#why-tier`}>
+      <TierBadge letter={brief.letter} size="md" />
+      <span className="stack gap-2">
+        <span className="eyebrow">Overall tier</span>
+        <span className="small strong-text">{brief.letter ? `Tier ${brief.letter}` : 'Unranked'}</span>
+        {brief.reason && <span className="muted xsmall">{brief.reason}</span>}
+        <span className="xsmall">Why this tier →</span>
+      </span>
+    </Link>
   );
 }

@@ -13,6 +13,7 @@ import { backupStatus } from '../core/backup.js';
 import { betaState, setBetaOpen } from '../beta.js';
 import { createPlayersRouter } from './players.js';
 import { retentionStatus } from '../retention/sweep.js';
+import { createAdminTierRouter } from '../tiers/routes.js';
 
 /**
  * The admin area, under /api/admin. The admin is NOT an account: one person, passkeys only (admin_passkeys),
@@ -112,6 +113,8 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
   r.use('/discovery', createDiscoveryRouter({ db, limits, networkOf, limitBy }));
   // Players (usernames, allowances, grants, reclaims) and the reserved list: behind the same gate.
   r.use('/', createPlayersRouter({ db, writes }));
+  // Tier settings, the preview and "What counts" (0.6.0): behind the same gate.
+  r.use('/', createAdminTierRouter({ db, writes }));
 
   r.put('/credentials/:id', writes, route(async (req, res) => res.json({ credential: await saveCredential(db, req.params.id, req.body) })));
   r.delete('/credentials/:id', writes, route(async (req, res) => res.json({ credential: await removeCredential(db, req.params.id) })));

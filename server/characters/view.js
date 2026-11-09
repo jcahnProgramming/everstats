@@ -75,6 +75,8 @@ export async function characterStatistics(db, row) {
       key: categoryKey(c.label),
       farmable: c.farmable,
       graded: c.graded,
+      tierCounted: c.tierCounted ?? 0,
+      inOverall: Boolean(c.inOverall),
       statistics: c.statisticIds.map((id) => {
         const s = statistics.get(id);
         const mine = mineById.get(id);
@@ -89,6 +91,7 @@ export async function characterStatistics(db, row) {
           text: mine?.text ?? null,
           named: s.named,
           grading: s.grading,
+          tierRole: s.tierRole ?? 'undecided',
           rank,
           withAny: bc.nonzero,
           updatedAt: mine?.updatedAt ?? null,

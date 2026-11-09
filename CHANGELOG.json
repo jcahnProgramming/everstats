@@ -1,6 +1,31 @@
 {
   "releases": [
     {
+      "version": "0.6.0",
+      "date": "2026-11-09",
+      "title": "Letter tiers",
+      "sections": {
+        "New": [
+          "Tiers. Every tracked character now gets an overall letter from S to D, and a letter in each statistics category. Letters compare a character with everyone else on the same ruleset, over their whole career: by default the top 5% get S, the next 15% A, the next 30% B, the next 30% C and the bottom 20% D.",
+          "How a letter is worked out: each statistic that counts gives you a percentile (how much of your ruleset you are ahead of, with ties sharing). A category's score is the average of your percentiles in it, and your overall score is the average of your category scores, each category weighing the same. Your letter comes from where that score places on your ruleset.",
+          "\"Why this tier\" on every character page shows everything behind the letters: each category's score, letter and rank, and for every statistic that counts, your value and your percentile. Open a category to see where to improve.",
+          "Only statistics that have been reviewed and approved count toward a tier. Deaths and similar \"bad\" statistics never do, statistics that count the same thing are graded once, and farmable categories (Social; Camping & Hearth) get their own letter but don't count toward the overall letter. The new \"How tiers work\" page lists exactly what counts in each category, along with the current letter shares and minimums.",
+          "Unranked, and why. A ruleset is graded once it has 50 tier-eligible characters (level 10 and up, fully fetched, not hidden); until then everyone on it is Unranked, and the page says how many are tracked so far. A category letter needs a value above zero in at least half of its graded statistics, so one lucky statistic can't earn an S, and an overall letter needs a letter in at least half of the categories that count toward it. Every Unranked badge says which of these applies.",
+          "Tier boards: every ruleset's characters ranked by overall score with their letter, plus a board for each category. Find them from the leaderboards page.",
+          "Letters show next to characters on guild rosters, search results, your dashboard and public profiles. Guild pages show how the guild's tracked members spread across the letters, Unranked included.",
+          "Everyone is graded again every few hours and after the daily refresh. A character you look up is graded straight after its fetch, against the ruleset's most recent full grading; the page says when it was graded."
+        ],
+        "Improved": [
+          "Statistics on character pages are full-width sections that start collapsed, so the page no longer has gaps between categories of different lengths. Click a category's header (or press Enter on it) to open or close it; each one's header shows its letter, how many statistics it has and your best rank in it.",
+          "Statistics that don't count toward a tier say so: \"not graded\" for leaderboard-only statistics, \"not graded yet\" for ones still waiting to be reviewed."
+        ],
+        "Fixed": [
+          "Core stats: weapon damage ranges such as \"Main hand damage\" no longer wrap onto two lines. They show as whole numbers (45–64) in the same right-hand column as every other number; hover for the exact values.",
+          "Guild pages say \"of 1 guild\", not \"of 1 guilds\", and list a guild board under \"On the guild boards\" only once at least 3 guilds are ranked on it, because \"#1 of 1\" says nothing. When no board has enough guilds yet, the page says so."
+        ]
+      }
+    },
+    {
       "version": "0.5.0",
       "date": "2026-11-09",
       "title": "Guild pages and guild leaderboards",

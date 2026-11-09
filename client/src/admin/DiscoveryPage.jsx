@@ -35,6 +35,11 @@ export function DiscoveryPage() {
   const [problem, setProblem] = useState(null);
   const [selected, setSelected] = useState(null);
   const [combinedVersion, setCombinedVersion] = useState(0); // bumps after any re-analysis: every catalog view reloads
+  // 0.6.0: /admin/discovery?stat=ID (from Tiers → What counts) opens the combined suggestions on that statistic.
+  const [focusStat, setFocusStat] = useState(() => {
+    const n = Number(new URLSearchParams(window.location.search).get('stat'));
+    return Number.isSafeInteger(n) && n > 0 ? n : null;
+  });
   const [notice] = useState(() => {
     const q = new URLSearchParams(window.location.search);
     if (q.get('authorized') === '1') return { ok: true, text: 'Battle.net authorized for discovery.' };
@@ -96,7 +101,7 @@ export function DiscoveryPage() {
         <AuthorizePanel grant={state.grant} configured={state.configured} onChanged={load} />
         <RunPanel state={state} active={active} onQueued={(run) => { setSelected(run.id); load(); toast.ok(`Run #${run.id} queued`, 'The worker starts it within about 30 seconds.'); }} onSettings={load} />
       </div>
-      <CombinedSection key={`combined-${combinedVersion}-${state.runs.filter((r) => r.status === 'done').length}`} hasRuns={state.runs.some((r) => r.status === 'done')} onReanalysed={() => { setCombinedVersion((v) => v + 1); load(); }} />
+      <CombinedSection key={`combined-${combinedVersion}-${state.runs.filter((r) => r.status === 'done').length}`} hasRuns={state.runs.some((r) => r.status === 'done')} onReanalysed={() => { setCombinedVersion((v) => v + 1); load(); }} focusStat={focusStat} onUnfocus={() => setFocusStat(null)} />
       <RunsSection runs={state.runs} selected={selected} onSelect={setSelected} />
       {selected && <RunDetail key={selected} runId={selected} listedStatus={state.runs.find((r) => r.id === selected)?.status} outerVersion={combinedVersion} onReanalysed={() => setCombinedVersion((v) => v + 1)} />}
     </div>
@@ -106,7 +111,7 @@ export function DiscoveryPage() {
 const tallyText = (o) => Object.entries(o ?? {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k}: ${formatNumber(n)}`).join(' · ') || 'none';
 
 /** Every finished run's statistics in one catalog: what the admin approves from. */
-function CombinedSection({ hasRuns, onReanalysed }) {
+function CombinedSection({ hasRuns, onReanalysed, focusStat = null, onUnfocus }) {
   const toast = useToasts();
   const [combined, setCombined] = useState(undefined);
   const [problem, setProblem] = useState(null);
@@ -161,7 +166,7 @@ function CombinedSection({ hasRuns, onReanalysed }) {
           </div>
           <div className="pad-x-20"><Tabs tabs={[{ id: 'suggestions', label: 'Suggestions' }, { id: 'catalog', label: 'Catalog', count: combined.catalogSize }]} value={tab} onChange={setTab} label="Combined catalog" idPrefix="comb" /></div>
           <div className="pad-20" role="tabpanel" id={`comb-panel-${tab}`} aria-labelledby={`comb-tab-${tab}`}>
-            {tab === 'catalog' ? <Catalog runId={null} /> : <Suggestions runId={null} />}
+            {tab === 'catalog' ? <Catalog runId={null} /> : <Suggestions runId={null} focusStat={focusStat} onUnfocus={onUnfocus} />}
           </div>
         </>
       )}
@@ -660,14 +665,15 @@ const inView = (view) => (s) => {
   return s.decision === view;
 };
 
-function Suggestions({ runId }) {
+function Suggestions({ runId, focusStat = null, onUnfocus = null }) {
   const { catalog, problem, replace } = useCatalog(runId);
-  const [view, setView] = useState('pending');
+  const [view, setView] = useState(focusStat ? 'all' : 'pending');
   const [shown, setShown] = useState(50);
   const names = useMemo(() => new Map((catalog ?? []).map((s) => [s.statisticId, s.name])), [catalog]);
   const rows = useMemo(() => (catalog ?? [])
+    .filter((s) => focusStat === null || s.statisticId === focusStat)
     .map((s) => ({ ...s, visible: s.suggestions.filter(inView(view)) }))
-    .filter((s) => (view === 'types' ? s.valueTypeGuessed : s.visible.length)), [catalog, view]);
+    .filter((s) => (view === 'types' ? s.valueTypeGuessed : s.visible.length)), [catalog, view, focusStat]);
   if (problem) return <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>;
   if (!catalog) return <span className="t2 small" role="status">Loading suggestions…</span>;
   return (
@@ -679,6 +685,9 @@ function Suggestions({ runId }) {
         A possible duplicate stops counting toward tiers only once you approve the pairing. Your decisions belong to the
         statistic, so they show in every run and in the combined catalog, and survive re-analysis.
       </p>
+      {focusStat !== null && (
+        <div className="note small" role="status"><Icon name="filter" /><span className="grow">Showing statistic id {focusStat} only (from Tiers → What counts).</span>{onUnfocus && <button type="button" className="btn sm ghost" onClick={onUnfocus}>Show every statistic</button>}</div>
+      )}
       <Segmented options={VIEWS} value={view} onChange={(v) => { setView(v); setShown(50); }} label="Which suggestions" />
       {view === 'types' && <span className="muted xsmall">Every statistic whose value type is still a guess. Confirm it or choose another; your choice replaces the guess from then on.</span>}
       {rows.length === 0 ? (

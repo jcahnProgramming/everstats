@@ -16,7 +16,7 @@ import { formatDateTime, formatNumber, timeAgo } from '../format.js';
  *             allow keeping data for at most 30 days, and Everstats keeps N of them (N comes from the server: 29 since 0.5.0).
  * Both say "Collecting data" until snapshots cover the whole period: never a partial ranking.
  *
- * Different from the mockup: no tier or 7-day columns (tiers are the next build, movement needs a week of history),
+ * Different from the mockup: no tier or 7-day columns (tier boards are their own page, /tiers; movement needs a week of history),
  * no faction filter or jump-to search yet, no "Climbers this week" card (the Weekly tab is that board). 0.5.0: the
  * guild column links each guild, and the side card opens this statistic's guild board.
  */
@@ -81,7 +81,14 @@ export function StatLeaderboardPage() {
   const s = data.statistic;
   const rows = [...data.rows, ...more.rows];
   const valueLabel = period === 'overall' ? (s.name ?? 'Value') : 'Gained';
-  const grading = s.grading === 'none' ? 'Leaderboard only: never counts toward a tier' : s.farmable || s.grading === 'category' ? `Counts toward its own ${s.category} tier, not the overall tier` : 'Counts toward the overall tier';
+  // 0.6.0: what it really does for the tiers, from the owner's decisions (never a suggestion).
+  const grading = {
+    counted: s.countsOverall ? 'Counts toward its category tier and the overall tier' : `Counts toward its own ${s.category} tier, not the overall tier`,
+    bad: 'Leaderboard only: never counts toward a tier',
+    named: 'Leaderboard only: a name + number statistic never counts toward a tier',
+    duplicate: 'Leaderboard only: it counts the same thing as another statistic, which is graded instead',
+    undecided: 'Doesn’t count toward a tier yet: not reviewed',
+  }[s.tierRole] ?? 'Doesn’t count toward a tier yet: not reviewed';
   const p = period === 'overall' ? null : data.periods[period];
   const rollingDays = data.periods.rolling?.days;
 

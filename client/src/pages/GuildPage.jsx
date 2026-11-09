@@ -6,7 +6,7 @@ import { Icon } from '../chrome/Icon.jsx';
 import { Segmented } from '../components/Controls.jsx';
 import { EmptyState, Fresh, Provenance } from '../components/EmptyState.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
-import { TierBadge } from '../components/Tier.jsx';
+import { TierBadge, TierDistribution, TierLink } from '../components/Tier.jsx';
 import { formatDate, formatNumber, timeAgo } from '../format.js';
 
 /**
@@ -14,7 +14,10 @@ import { formatDate, formatNumber, timeAgo } from '../format.js';
  * never fetched is looked up at Blizzard once (rate-limited like a character look-up).
  *
  * Different from the mockup, on purpose:
- *   - No "Members by tier" bar and no tier column: tiers are the next build. No tier is faked.
+ *   - 0.6.0: "Members by tier" counts real letters (Unranked included, and said in words beside the bar) and the roster
+ *     has a tier column; each letter links to that member's "Why this tier". No "Best category" column (not built).
+ *   - 0.6.0: "On the guild boards" lists a board only once it has guilds.minBoardGuilds ranked guilds ("#1 of 1" says
+ *     nothing), and says so when none qualifies yet.
  *   - Counts say exactly what they are: Blizzard's roster size and how many of them Everstats tracks. Members under
  *     level 10 or not fetched yet are COUNTED, never listed by name; hidden characters appear nowhere and count toward
  *     nothing.
@@ -155,6 +158,7 @@ function GuildSheet({ data }) {
         </EmptyState>
       )}
 
+      <GuildTiers data={data} />
       <Totals data={data} />
 
       <div className="split">
@@ -164,6 +168,28 @@ function GuildSheet({ data }) {
 
       <TopMembers data={data} />
     </div>
+  );
+}
+
+/** The guild's tracked members by overall letter (0.6.0). Unranked members are counted, with how to read it. */
+function GuildTiers({ data }) {
+  const t = data.tiers;
+  if (!t || data.counts.tracked === 0) return null;
+  const rs = data.guild.ruleset;
+  return (
+    <section className="panel pad-20 stack gap-10 guild-tiers" aria-label="Members by tier">
+      {t.graded ? (
+        <>
+          <TierDistribution letters={t.letters} />
+          <span className="muted xsmall">Tracked members by overall tier on {rs?.name}{t.gradedAt ? `, graded ${timeAgo(t.gradedAt)}` : ''}. Unranked: below a minimum (each member’s page says which). <Link to="/tiers/how">How tiers work</Link></span>
+        </>
+      ) : (
+        <>
+          <span className="eyebrow">Members by tier</span>
+          <span className="t2 small">{rs?.name ?? 'This ruleset'} isn’t graded yet: tiers open once it has enough tier-eligible characters. <Link to="/tiers/how">How tiers work</Link></span>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -191,8 +217,10 @@ function Totals({ data }) {
   );
 }
 
+const LETTER_ORDER = { S: 0, A: 1, B: 2, C: 3, D: 4 };
 const COLUMNS = [
   { id: 'name', label: 'Member', get: (m) => `${m.name} ${m.surname}`.toLowerCase() },
+  { id: 'tier', label: 'Tier', get: (m) => LETTER_ORDER[m.tier] ?? 9 },
   { id: 'level', label: 'Level', get: (m) => m.level ?? -1, desc: true },
   { id: 'class', label: 'Class', get: (m) => m.class ?? '' },
   { id: 'race', label: 'Race', get: (m) => m.race ?? '' },
@@ -246,6 +274,7 @@ function Roster({ data }) {
               {rows.map((m) => (
                 <tr key={m.slug}>
                   <td><Link to={`/c/${encodeURIComponent(m.slug)}`}>{m.name} <span className="surname">{m.surname}</span></Link></td>
+                  <td><TierLink slug={m.slug} letter={m.tier} /></td>
                   <td>{m.level ?? '—'}</td>
                   <td className="t2">{m.class ?? '—'}</td>
                   <td className="t2">{m.race ?? '—'}</td>
@@ -289,14 +318,20 @@ function Placements({ data }) {
       ) : !data.placements ? (
         <EmptyState kind="nodata" compact title="Being added up"><span>Placements appear within a few minutes.</span></EmptyState>
       ) : data.placements.length === 0 ? (
-        <EmptyState kind="nodata" compact title="Not on any board yet"><span>None of its tracked members has any of a statistic yet, and a zero isn’t ranked.</span></EmptyState>
+        data.placementsHeld > 0 ? (
+          <EmptyState kind="nodata" compact title="No board has enough guilds yet">
+            <span>A board is listed here once {formatNumber(data.minBoardGuilds)} guilds are ranked on it, because “#1 of 1” says nothing. This guild is ranked on {formatNumber(data.placementsHeld)} board{data.placementsHeld === 1 ? '' : 's'} that {data.placementsHeld === 1 ? 'hasn’t' : 'haven’t'} got there yet.</span>
+          </EmptyState>
+        ) : (
+          <EmptyState kind="nodata" compact title="Not on any board yet"><span>None of its tracked members has any of a statistic yet, and a zero isn’t ranked.</span></EmptyState>
+        )
       ) : (
         <div className="panel clip">
           {data.placements.map((p) => (
             <Link key={p.statisticId} className="placement" to={`/leaderboards/guilds/${rs.id}/${p.statisticId}${p.mode === 'average' ? '?mode=average' : ''}`}>
               <span className={`rk${p.rank <= 3 ? ` r${p.rank}` : ''} placement-rank`}>#{formatNumber(p.rank)}</span>
               <span className="small strong-text">{p.name}</span>
-              <span className="muted xsmall">{p.mode === 'average' ? 'by average per member' : 'by total'} · of {formatNumber(p.of)} guilds · {formatNumber(Math.round(p.value * 10) / 10)}</span>
+              <span className="muted xsmall">{p.mode === 'average' ? 'by average per member' : 'by total'} · of {formatNumber(p.of)} guild{p.of === 1 ? '' : 's'} · {formatNumber(Math.round(p.value * 10) / 10)}</span>
             </Link>
           ))}
         </div>

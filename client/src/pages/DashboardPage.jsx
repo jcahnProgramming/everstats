@@ -7,6 +7,7 @@ import { Button, Modal } from '../components/Controls.jsx';
 import { EmptyState, Fresh } from '../components/EmptyState.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
 import { useToasts } from '../components/Toasts.jsx';
+import { TierBadge, TierBrief } from '../components/Tier.jsx';
 import { formatDate, formatNumber, timeAgo } from '../format.js';
 import { useSession } from '../session.jsx';
 import { startProvider } from './SignInPages.jsx';
@@ -160,6 +161,7 @@ function Featured({ data, onPick }) {
           <span className="t2">{[f.level ? `Level ${f.level}` : null, f.race, f.class, f.ruleset?.name].filter(Boolean).join(' · ')}</span>
           <Fresh at={f.fetchedAt} prefix="Data as of " />
         </div>
+        <TierBrief brief={f.tier} slug={f.slug} />
         <button type="button" className="btn sm ghost" onClick={onPick}><Icon name="plus" size="sm" />Choose pins</button>
       </div>
       {f.hidden && <EmptyState kind="hidden" compact title="Hidden, so it isn't ranked"><span>Show it again in <Link to="/settings#characters">Settings</Link> to see its ranks.</span></EmptyState>}
@@ -190,6 +192,7 @@ function CharacterList({ data, onFeature }) {
       <div className="listbox flush">
         {data.characters.map((c) => (
           <div key={c.id} className="listrow">
+            {c.state === 'tracked' && !c.hidden && <TierBadge letter={c.tier ?? null} size="sm" />}
             <span className="stack grow-col">
               <b>{c.state === 'tracked' ? <Link to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link> : <>{c.name} <span className="surname">{c.surname}</span></>}</b>
               <span className="muted xsmall">{STATE_TEXT[c.state]?.(c) ?? [c.level ? `Level ${c.level}` : null, c.race, c.class, c.ruleset?.name].filter(Boolean).join(' · ')}</span>

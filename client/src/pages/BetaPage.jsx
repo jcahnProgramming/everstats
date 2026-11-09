@@ -38,7 +38,7 @@ export function BetaPage() {
           <h2 className="h2 h2-panel" id="what-h">What “beta” means here</h2>
           <ul className="t2 stack gap-8 beta-list">
             <li><b className="strong-text">Boards are filling up.</b> A rank is out of everyone tracked so far. Every search and every sign-in adds characters, and guild rosters bring in their members.</li>
-            <li><b className="strong-text">Things may change.</b> Categories, pages and numbers can move as we learn what Blizzard's data really holds. Tiers and guild pages are the next build.</li>
+            <li><b className="strong-text">Things may change.</b> Categories, pages and numbers can move as we learn what Blizzard's data really holds. Tiers are new: what counts toward them can change as statistics are reviewed.</li>
             <li><b className="strong-text">Feedback is welcome.</b> Something wrong, missing or confusing? Tell us: it shapes 1.0.</li>
           </ul>
         </section>

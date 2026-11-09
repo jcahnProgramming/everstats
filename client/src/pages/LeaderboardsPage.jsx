@@ -56,7 +56,10 @@ export function LeaderboardsPage() {
       <div className="stack gap-18">
         <div className="row gap-12"><h1 className="h1">Leaderboards</h1><span className="tag gold">Beta</span></div>
         <p className="lead">Every statistic gets its own leaderboard on each ruleset, for characters and for guilds: overall, this week{data?.periods?.rolling?.days ? ` and the last ${data.periods.rolling.days} days` : ' and over recent days'}.</p>
-        <Segmented label="Rank" large options={[{ id: 'characters', label: 'Characters' }, { id: 'guilds', label: 'Guilds' }]} value={view} onChange={(id) => go({ view: id })} />
+        <div className="row gap-12">
+          <Segmented label="Rank" large options={[{ id: 'characters', label: 'Characters' }, { id: 'guilds', label: 'Guilds' }]} value={view} onChange={(id) => go({ view: id })} />
+          <Link className="btn ghost sm" to={`/tiers${rs?.id ? `?ruleset=${rs.id}` : ''}`}>Tier boards</Link>
+        </div>
         {error && <ServiceUnavailable inline title="Couldn't load the leaderboards">{error}</ServiceUnavailable>}
         {data && data.rulesets.length > 0 && (
           <div className="row gap-16">
@@ -87,7 +90,7 @@ export function LeaderboardsPage() {
 
       {data && rs && data.categories.map((cat) => (
         <section key={cat.key} id={cat.key} className="stack gap-14" aria-labelledby={`h-${cat.key}`}>
-          <div className="orn"><span className="gem" /><h2 className="h2 h2-panel" id={`h-${cat.key}`}>{cat.label}</h2><span className="muted xsmall">{cat.boards.length} boards · {!cat.graded ? 'not graded' : cat.farmable ? 'own tier only' : 'graded'}</span><span className="rule" /></div>
+          <div className="orn"><span className="gem" /><h2 className="h2 h2-panel" id={`h-${cat.key}`}>{cat.label}</h2><span className="muted xsmall">{cat.boards.length} boards · {!cat.tierCounted ? 'not graded' : cat.inOverall ? `${cat.tierCounted} graded` : 'own tier only'}</span><span className="rule" /></div>
           <div className="grid-auto col-md gap-14">
             {cat.boards.map((b) => (guilds ? <MiniGuildBoard key={b.id} board={b} ruleset={rs} minMembers={data.minMembers} /> : <MiniBoard key={b.id} board={b} ruleset={rs} population={data.population} />))}
           </div>
@@ -101,10 +104,10 @@ export function LeaderboardsPage() {
       )}
 
       <section className="panel pad-24 stack gap-16" aria-labelledby="grading-h">
-        <h2 className="h2 h2-panel" id="grading-h">Grading</h2>
-        <p className="t2 small">Tiers are the next build. When they arrive, each ruleset is graded on its own, once it has enough tracked characters.</p>
-        <TierLegend />
-        {coverage && <UnrankedNote minPopulation={coverage.minPopulation} tracked={data?.population ?? null} ruleset={rs?.name ?? null} />}
+        <h2 className="h2 h2-panel" id="grading-h">Tiers</h2>
+        <p className="t2 small">Each ruleset is graded on its own, from approved statistics only, once it has {coverage ? formatNumber(coverage.minPopulation) : 'enough'} tier-eligible characters. <Link to={`/tiers${rs?.id ? `?ruleset=${rs.id}` : ''}`}>Tier boards</Link> · <Link to="/tiers/how">How tiers work</Link></p>
+        {coverage && <TierLegend shares={coverage.tierShares} minPopulation={coverage.minPopulation} />}
+        {coverage && data?.population !== undefined && data.population < coverage.minPopulation && <UnrankedNote minPopulation={coverage.minPopulation} tracked={data?.population ?? null} ruleset={rs?.name ?? null} />}
       </section>
     </div>
   );

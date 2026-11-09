@@ -24,8 +24,8 @@ import { RetentionSection } from './RetentionSection.jsx';
  *     count) and per UTC hour, characters checked and fetched today, the last error, back-offs, and Pause. No
  *     "Run now": the crawl never stops, and a person's lookup always goes first.
  *   - Per-ruleset grading progress needs rulesets, which come from Blizzard (not loaded yet), so it says so.
- * Added: Backups (nightly pg_dump), Proxy addresses (where CF-Connecting-IP arrives from, for TRUSTED_PROXIES) and a
- * link to Discovery (DiscoveryPage.jsx), the Blizzard API discovery pass.
+ * Added: Backups (nightly pg_dump), Proxy addresses (where CF-Connecting-IP arrives from, for TRUSTED_PROXIES) and
+ * links to Discovery (DiscoveryPage.jsx), the Blizzard API discovery pass, and Tiers (TiersAdminPage.jsx, 0.6.0).
  */
 export function AdminPage() {
   const navigate = useNavigate();
@@ -57,6 +57,7 @@ export function AdminPage() {
         <h1 className="h1 admin-title">Admin</h1>
         <span className="tag gold">Owner only</span>
         <span className="spacer" />
+        <Link className="btn sm" to="/admin/tiers"><Icon name="chart" size="sm" />Tiers</Link>
         <Link className="btn sm" to="/admin/discovery"><Icon name="search" size="sm" />Discovery</Link>
         <button type="button" className="btn ghost sm" onClick={load}><Icon name="refresh" size="sm" />Refresh</button>
         <button type="button" className="btn ghost sm" onClick={async () => { await api('/api/admin/sign-out', { method: 'POST', body: {} }); navigate('/'); }}>Sign out of admin</button>
@@ -200,6 +201,7 @@ function GradingSection({ settings, onSaved }) {
   return (
     <section className="panel pad-20 stack gap-16" aria-labelledby="grading-h">
       <h2 className="h2 h2-panel" id="grading-h">Grading</h2>
+      <span className="t2 small">Tier settings (letter shares, the ruleset minimum, the half rules) and what counts toward tiers are on <Link to="/admin/tiers">Tiers</Link>, with a preview before anything is saved.</span>
       {settings.filter((s) => s.section === 'grading').map((s) => <SettingRow key={s.key} setting={s} onSaved={onSaved} />)}
       {coverage && coverage.rulesets === null && (
         <EmptyState kind="nocoverage" compact title="No rulesets loaded yet">

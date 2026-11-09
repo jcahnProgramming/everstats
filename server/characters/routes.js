@@ -15,6 +15,8 @@ import { characterStatistics, characterView } from './view.js';
 import { resolveProfileName } from '../accounts/usernames.js';
 import { PLATFORMS, getPlatform, linkFor } from '../accounts/socials.js';
 import { pinCards, pinsOf } from '../stats/pins.js';
+import { lettersFor } from '../tiers/store.js';
+import { characterTierView, tierBrief } from '../tiers/view.js';
 
 /**
  * The public, read-mostly API: character lookups, leaderboards, the statistics catalog, coverage and the beta.
@@ -81,6 +83,7 @@ export function createPublicRouter({ db, limits, networkOf }) {
       rulesets: rulesets.length ? rulesets : null,
       trackedCharacters: (await db.one('SELECT count(*)::int AS n FROM characters WHERE stats_fetched_at IS NOT NULL AND NOT hidden')).n,
       minPopulation: await getSetting(db, 'grading.minPopulation'),
+      tierShares: await getSetting(db, 'tiers.shares'),
     });
   }));
 
@@ -94,7 +97,7 @@ export function createPublicRouter({ db, limits, networkOf }) {
     res.json({
       categories: categories.map((c) => ({
         label: c.label, key: categoryKey(c.label), farmable: c.farmable, graded: c.graded,
-        statistics: c.statisticIds.map((id) => ({ id, name: statistics.get(id).name, grading: statistics.get(id).grading })),
+        statistics: c.statisticIds.map((id) => ({ id, name: statistics.get(id).name, grading: statistics.get(id).grading, tierRole: statistics.get(id).tierRole ?? 'undecided' })),
       })),
     });
   }));
@@ -126,8 +129,10 @@ export function createPublicRouter({ db, limits, networkOf }) {
         ORDER BY c.level DESC NULLS LAST, c.id LIMIT 50`,
       [a.id],
     );
+    const letters = await lettersFor(db, chars.map((c) => c.id));
     const view = (c) => ({
       slug: c.slug, name: c.name, surname: c.surname, level: c.level, race: c.race, class: c.class, faction: c.faction,
+      tier: letters.get(Number(c.id)) ?? null,
       ruleset: c.ruleset_id !== null ? { id: c.ruleset_id, name: c.ruleset_name } : null,
       render: c.media_state === 'ok' ? c.media?.['main-raw'] ?? null : null, fetchedAt: c.last_fetched_at,
     });
@@ -155,7 +160,7 @@ export function createPublicRouter({ db, limits, networkOf }) {
       const cards = await pinCards(db, ids, featured);
       if (cards.length) sections.push({ id: 'pins', character: { name: featured.name, surname: featured.surname, slug: featured.slug, ruleset: featured.ruleset_name, rulesetId: featured.ruleset_id }, cards, fetchedAt: featured.last_fetched_at });
     }
-    if (featured) sections.push({ id: 'featured', character: view(featured) });
+    if (featured) sections.push({ id: 'featured', character: { ...view(featured), tierBrief: await tierBrief(db, featured) } });
     const others = chars.filter((c) => c.id !== featured?.id).map(view);
     if (others.length) sections.push({ id: 'characters', characters: others });
     if (guilds.size) sections.push({ id: 'guilds', guilds: [...guilds.values()] });
@@ -219,6 +224,8 @@ export function createPublicRouter({ db, limits, networkOf }) {
       notice,
       character: await characterView(db, row, { mine: mine() }),
       statistics: await characterStatistics(db, row),
+      // 0.6.0: the overall tier, every category's, and what fed each letter (null for a hidden character).
+      tiers: await characterTierView(db, row),
     });
   }));
 
@@ -250,7 +257,7 @@ export function createPublicRouter({ db, limits, networkOf }) {
       population: counts.population,
       periods: await periodsInfo(db),
       categories: categories.map((c) => ({
-        label: c.label, key: categoryKey(c.label), farmable: c.farmable, graded: c.graded,
+        label: c.label, key: categoryKey(c.label), farmable: c.farmable, graded: c.graded, tierCounted: c.tierCounted ?? 0, inOverall: Boolean(c.inOverall),
         boards: c.statisticIds.map((id) => {
           const s = statistics.get(id);
           const list = byStat.get(id) ?? [];
@@ -280,7 +287,7 @@ export function createPublicRouter({ db, limits, networkOf }) {
     if (!stat || !ruleset) throw new HttpError(404, 'Everstats has no such board.', 'no_board');
     const periods = await periodsInfo(db);
     const head = {
-      statistic: { id: stat.id, name: stat.name, category: stat.category, categoryKey: categoryKey(stat.category), grading: stat.grading, named: stat.named, valueType: stat.valueType, farmable: stat.farmable },
+      statistic: { id: stat.id, name: stat.name, category: stat.category, categoryKey: categoryKey(stat.category), grading: stat.grading, named: stat.named, valueType: stat.valueType, farmable: stat.farmable, tierRole: stat.tierRole ?? 'undecided', countsOverall: Boolean(stat.countsOverall) },
       ruleset, rulesets, period, periods,
     };
     if (period !== 'overall' && !periods[period].open) return res.json({ ...head, collecting: true, rows: [], next: null });

@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { EmptyState, Provenance } from '../components/EmptyState.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
 import { RenderFrame } from '../components/Stats.jsx';
+import { TierBadge, TierBrief } from '../components/Tier.jsx';
 import { formatDate, formatNumber } from '../format.js';
 
 /**
@@ -141,6 +142,7 @@ function FeaturedSection({ section }) {
         <div className="stack gap-8">
           <Link className="h-display char-name" to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link>
           <span className="t2">{[c.level ? `Level ${c.level}` : null, c.race, c.class, c.ruleset?.name].filter(Boolean).join(' · ')}</span>
+          <TierBrief brief={c.tierBrief} slug={c.slug} />
           <Link className="btn sm self-start" to={`/c/${encodeURIComponent(c.slug)}`}>Character page</Link>
           <Provenance source="Blizzard Entertainment’s game data API" fetchedAt={c.fetchedAt} />
         </div>
@@ -156,6 +158,7 @@ function CharactersSection({ section }) {
       <div className="listbox flush">
         {section.characters.map((c) => (
           <div key={c.slug} className="listrow">
+            <TierBadge letter={c.tier ?? null} size="sm" />
             <span className="stack grow-col">
               <b><Link to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link></b>
               <span className="muted xsmall">{[c.level ? `Level ${c.level}` : null, c.race, c.class, c.ruleset?.name].filter(Boolean).join(' · ')}</span>

@@ -1,25 +1,58 @@
 import { HttpError } from '../core/errors.js';
+import { DEFAULT_SHARES, TIER_LETTERS, sharesProblem } from '../stats/tiers.js';
 
 /**
  * The admin settings registry. Every setting declares itself here; the admin page renders whatever is declared and
  * the store refuses anything undeclared. A missing row in `settings` means the declared default.
  *
- *   key, section ('grading' | 'discovery' | 'crawler' | 'beta': which admin panel shows it), label, help, type, default
+ *   key, section ('grading' | 'tiers' | 'discovery' | 'crawler' | 'beta': which admin panel shows it), label, help, type, default
  *   type 'integer'  (min, max)
+ *        'percent'  a whole percent (min, max), shown with a % sign
+ *        'shares'   the five letter shares { S, A, B, C, D }, whole percents adding up to 100
  *        'boolean'
  *        'perks'    a short list of { title, description } (the beta page's perks), at most PERKS_MAX items
  */
 export const PERKS_MAX = 12;
 export const SETTINGS = [
   {
+    // 0.6.0: tiers (server/tiers/). The default fell from 500 to 50 (owner's decision for tiers). A value saved on the
+    // admin page before 0.6.0 stays what it was.
     key: 'grading.minPopulation',
-    section: 'grading',
-    label: 'Minimum tracked characters before a ruleset is graded',
-    help: 'Until a ruleset has this many tracked characters it shows "Unranked — grading opens at N tracked characters" instead of tiers. Leaderboards still show.',
+    section: 'tiers',
+    label: 'Tier-eligible characters a ruleset needs before it is graded',
+    help: 'Tier-eligible: level 10 or higher, fully fetched, not hidden. Until a ruleset has this many, nobody on it gets a tier: their pages say "Tiers open once N characters are tracked on {ruleset}". Leaderboards still show.',
     type: 'integer',
     min: 1,
     max: 10_000_000,
-    default: 500,
+    default: 50,
+  },
+  {
+    key: 'tiers.shares',
+    section: 'tiers',
+    label: 'Letter shares',
+    help: 'What share of a ruleset gets each letter, best first. The same shares apply to every category tier and the overall tier. They must add up to 100.',
+    type: 'shares',
+    default: { ...DEFAULT_SHARES },
+  },
+  {
+    key: 'tiers.categoryHalf',
+    section: 'tiers',
+    label: 'Share of a category’s counted statistics a character needs above zero',
+    help: 'A character gets a category letter only with a value above zero in at least this share of the category’s counted statistics (rounded up), so one lucky statistic can’t earn an S.',
+    type: 'percent',
+    min: 1,
+    max: 100,
+    default: 50,
+  },
+  {
+    key: 'tiers.overallHalf',
+    section: 'tiers',
+    label: 'Share of the overall categories a character needs a letter in',
+    help: 'A character gets an overall letter only with a letter in at least this share (rounded up) of the categories that count toward the overall tier.',
+    type: 'percent',
+    min: 1,
+    max: 100,
+    default: 50,
   },
   {
     // 0.5.0: guild boards (stats/guildBoards.js). A guild below this shows "Not ranked yet: needs N tracked members".
@@ -31,6 +64,17 @@ export const SETTINGS = [
     min: 1,
     max: 1000,
     default: 5,
+  },
+  {
+    // 0.6.0: "#1 of 1" says nothing, so a board is listed under a guild's "On the guild boards" only from this many.
+    key: 'guilds.minBoardGuilds',
+    section: 'grading',
+    label: 'Ranked guilds a board needs before a guild page lists its placement there',
+    help: 'A guild page lists its places on the guild boards under "On the guild boards". A board with fewer ranked guilds than this isn’t listed there (it still has its own page).',
+    type: 'integer',
+    min: 1,
+    max: 1000,
+    default: 3,
   },
   {
     key: 'discovery.maxCharacters',
@@ -107,6 +151,16 @@ function check(def, value) {
     if (value < def.min || value > def.max) throw new HttpError(400, `${def.label} must be between ${def.min} and ${def.max}`, 'invalid');
     return value;
   }
+  if (def.type === 'percent') {
+    if (!Number.isInteger(value)) throw new HttpError(400, `${def.label} must be a whole percent`, 'invalid');
+    if (value < def.min || value > def.max) throw new HttpError(400, `${def.label} must be between ${def.min}% and ${def.max}%`, 'invalid');
+    return value;
+  }
+  if (def.type === 'shares') {
+    const problem = sharesProblem(value);
+    if (problem) throw new HttpError(400, problem, 'invalid');
+    return Object.fromEntries(TIER_LETTERS.map((l) => [l, value[l]]));
+  }
   if (def.type === 'boolean') {
     if (typeof value !== 'boolean') throw new HttpError(400, `${def.label} must be on or off`, 'invalid');
     return value;
@@ -157,11 +211,22 @@ export async function listSettings(db) {
   }));
 }
 
-export async function setSetting(db, key, value) {
+/** Validates a value for a setting without saving it (the tier preview uses it). → the cleaned value. */
+export function checkSetting(key, value) {
+  const def = byKey.get(key);
+  if (!def) throw new HttpError(404, 'Unknown setting');
+  return check(def, value);
+}
+
+/** Keys whose change re-grades every ruleset (the worker's tiers job picks the request up). */
+export const TIER_SETTING_KEYS = Object.freeze(['grading.minPopulation', 'tiers.shares', 'tiers.categoryHalf', 'tiers.overallHalf']);
+
+export async function setSetting(db, key, value, { q: outer = null } = {}) {
   const def = byKey.get(key);
   if (!def) throw new HttpError(404, 'Unknown setting');
   const clean = check(def, value);
-  await db.tx(async (q) => {
+  const run = outer ? (fn) => fn(outer) : (fn) => db.tx(fn);
+  await run(async (q) => {
     await q.query(
       `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2::jsonb, now())
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
@@ -169,5 +234,9 @@ export async function setSetting(db, key, value) {
     );
     const logged = def.type === 'perks' ? `${clean.length} perk(s)` : clean;
     await q.query("INSERT INTO admin_events (type, detail) VALUES ('setting.changed', $1)", [JSON.stringify({ key, value: logged })]);
+    if (TIER_SETTING_KEYS.includes(key)) {
+      const { requestTierRecompute } = await import('../tiers/store.js');
+      await requestTierRecompute(q, `setting ${key}`);
+    }
   });
 }

@@ -10,6 +10,7 @@ import { UsernamePrompt } from '../components/UsernameClaim.jsx';
 import { BrandMark } from './BrandMark.jsx';
 import { Icon } from './Icon.jsx';
 import { createScrollMemory, focusMainHeading, restoreScroll, scrollDecision } from './scrollMemory.js';
+import { TierBadge } from '../components/Tier.jsx';
 
 /**
  * The frame of every page (design v1, navigation option A "Ledger Bar", design/v1/components/nav.md):
@@ -327,6 +328,7 @@ function TopSearch({ full = false, autoFocus = false, shortcut = false }) {
           {found.characters.map((c) => (
             <Link key={`c-${c.slug}`} to={`/c/${encodeURIComponent(c.slug)}`} onClick={() => done(`/c/${encodeURIComponent(c.slug)}`)}>
               <span className="tag search-kind">Character</span>
+              <TierBadge letter={c.tier ?? null} size="sm" />
               <span className="ellipsis grow">{c.name} <span className="surname">{c.surname}</span></span>
               <span className="muted xsmall nowrap">{[c.level ? `Level ${c.level}` : null, c.ruleset].filter(Boolean).join(' · ')}</span>
             </Link>

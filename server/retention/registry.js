@@ -41,6 +41,20 @@ export const BLIZZARD = [
     sweep: async (q, cutoff) => n(await q.query('DELETE FROM character_statistics WHERE fetched_at < $1 RETURNING 1', [cutoff])),
   },
   {
+    // 0.6.0. Derived from values; a full grading rewrites them at least every 6 hours (tiers/store.js), so a row this
+    // old belongs to a ruleset nobody grades any more.
+    table: 'character_category_tiers', holds: 'Category tier scores and letters (derived from statistic values)', fetched: 'computed_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM character_category_tiers WHERE computed_at < $1 RETURNING 1', [cutoff])),
+  },
+  {
+    table: 'character_tiers', holds: 'Overall tier scores, letters and per-statistic percentiles (derived from statistic values)', fetched: 'computed_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM character_tiers WHERE computed_at < $1 RETURNING 1', [cutoff])),
+  },
+  {
+    table: 'tier_rulesets', holds: 'Each ruleset’s last full grading: population and letter cutoffs (derived from values)', fetched: 'computed_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM tier_rulesets WHERE computed_at < $1 RETURNING 1', [cutoff])),
+  },
+  {
     table: 'item_media', holds: 'Item icon URLs (render host)', fetched: 'fetched_at',
     sweep: async (q, cutoff) => n(await q.query('DELETE FROM item_media WHERE fetched_at < $1 RETURNING 1', [cutoff])),
   },
@@ -95,7 +109,7 @@ export const BLIZZARD = [
         const ids = gone.map((r) => r.id);
         // Their guilds' totals lose them: rebuilt by the worker (0.5.0).
         await q.query('UPDATE guilds SET totals_dirty_at = now() WHERE id IN (SELECT guild_id FROM characters WHERE id = ANY($1::bigint[]) AND guild_id IS NOT NULL)', [ids]);
-        for (const t of ['character_statistics', 'character_snapshots', 'period_baselines', 'stat_gains', 'pin_rank_history']) {
+        for (const t of ['character_statistics', 'character_snapshots', 'period_baselines', 'stat_gains', 'pin_rank_history', 'character_category_tiers', 'character_tiers']) {
           await q.query(`DELETE FROM ${t} WHERE character_id = ANY($1::bigint[])`, [ids]);
         }
         await q.query(
@@ -214,6 +228,7 @@ export const OURS = {
   username_history: 'Username changes',
   reserved_names: 'Reserved usernames',
   retention_sweeps: 'What each retention sweep deleted (counts, times)',
+  tier_runs: 'Full tier gradings and requests for one: times, reasons, letter counts (0.6.0)',
 };
 
 /** Oldest "last fetched from Blizzard" per category still stored (for the admin page). */
@@ -231,6 +246,9 @@ export const OLDEST = [
   ['guild_slugs', 'SELECT min(seen_at) AS t FROM guild_slugs'],
   ['guild_totals', 'SELECT min(computed_at) AS t FROM guild_totals'],
   ['guild_populations', 'SELECT min(computed_at) AS t FROM guild_populations'],
+  ['character_tiers', 'SELECT min(computed_at) AS t FROM character_tiers'],
+  ['character_category_tiers', 'SELECT min(computed_at) AS t FROM character_category_tiers'],
+  ['tier_rulesets', 'SELECT min(computed_at) AS t FROM tier_rulesets'],
   ['rulesets', 'SELECT min(updated_at) AS t FROM rulesets'],
   ['statistics (names)', 'SELECT min(last_seen_at) AS t FROM statistics WHERE name IS NOT NULL'],
   ['pin_rank_history', 'SELECT min(day)::timestamptz AS t FROM pin_rank_history'],

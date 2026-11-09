@@ -11,7 +11,9 @@ import { guessValueType } from '../discovery/analyze.js';
  *
  *   loadCatalog(db) → { statistics: Map(id → Stat), categories: [{ label, farmable, order, statisticIds }] }
  *   Stat { id, name, categoryPath, category, categorySource ('decision' | 'suggestion' | 'blizzard'), farmable,
- *          grading ('overall' | 'category' | 'none'), gradingSource, valueType, named (name + number) }
+ *          grading ('overall' | 'category' | 'none'), gradingSource, valueType, named (name + number), decided }
+ *   decided  the owner's DECISIONS only, never a suggestion (0.6.0: tiers count nothing else, tiers/counting.js):
+ *            { category, categoryRejected, grading, gradingRejected, duplicateOf, duplicatePendingOf, valueTypeSet }
  *
  * Kept in memory for CACHE_MS per process, so a decision on the Discovery page shows within a minute.
  */
@@ -73,6 +75,23 @@ export function classify(row, discovery, decisions) {
   const cat = pick('category');
   const category = cat.value ?? base.categoryPath[0]?.name ?? 'Other';
   const grading = pick('grading');
+  // The latest decision of each kind ('cleared' = no decision), whatever value the suggestion shows now.
+  const latest = (kind) => {
+    const d = decisions.get(kind);
+    return d && d.decision !== 'cleared' ? d : null;
+  };
+  const dupSuggestion = shown.suggestions.find((x) => x.kind === 'duplicate' && !x.stale) ?? null;
+  const dupDecision = latest('duplicate');
+  const decided = {
+    category: latest('category')?.decision === 'approved' ? latest('category').value : null,
+    categoryRejected: latest('category')?.decision === 'rejected',
+    grading: latest('grading')?.decision === 'approved' ? latest('grading').value : null,
+    gradingRejected: latest('grading')?.decision === 'rejected',
+    duplicateOf: dupDecision?.decision === 'approved' && Number.isSafeInteger(dupDecision.value?.of) ? dupDecision.value.of : null,
+    // A pairing the samples suggest that the owner hasn't decided on (approve or reject) yet.
+    duplicatePendingOf: dupSuggestion && dupSuggestion.decision === null && Number.isSafeInteger(dupSuggestion.value?.of) ? dupSuggestion.value.of : null,
+    valueTypeSet: latest('value_type')?.decision === 'approved',
+  };
   return {
     id: row.id,
     name: row.name,
@@ -84,6 +103,7 @@ export function classify(row, discovery, decisions) {
     gradingSource: grading.source ?? 'suggestion',
     valueType: shown.valueType,
     named: shown.valueType === 'name-and-number' || Boolean(row.has_text),
+    decided,
   };
 }
 
@@ -91,6 +111,12 @@ let cache = null; // { at, value, db }
 
 export function clearCatalogCache() {
   cache = null;
+}
+
+/** The catalog as it is right now, bypassing this process's cache (the tier grading reads decisions live). */
+export async function loadCatalogFresh(db, opts) {
+  clearCatalogCache();
+  return loadCatalog(db, opts);
 }
 
 export async function loadCatalog(db, { now = Date.now } = {}) {
@@ -123,6 +149,14 @@ export async function loadCatalog(db, { now = Date.now } = {}) {
   // overall tier, then the farmable ones (their own tier only), then those where nothing is graded (deaths & mishaps).
   const band = (c) => (!c.graded ? 2 : c.farmable ? 1 : 0);
   categories.sort((a, b) => band(a) - band(b));
+  // 0.6.0: what each statistic really does for the tiers, from the owner's DECISIONS only (tiers/counting.js). Pages
+  // say "counts toward the overall tier" from this, never from a suggestion.
+  //   Stat.tierRole  'counted' | 'bad' | 'named' | 'duplicate' | 'undecided';  Stat.countsOverall
+  //   category.tierCounted (how many of its statistics count) · category.inOverall
+  const { whatCounts } = await import('../tiers/counting.js');
+  const counts = whatCounts({ statistics, categories });
+  for (const [id, c] of counts.statistics) Object.assign(statistics.get(id), { tierRole: c.role, countsOverall: c.overall });
+  counts.categories.forEach((k, i) => Object.assign(categories[i], { tierCounted: k.counted.length, inOverall: k.inOverall }));
   const value = { statistics, categories };
   cache = { at: now(), value, db };
   return value;

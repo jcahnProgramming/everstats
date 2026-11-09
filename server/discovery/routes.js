@@ -10,6 +10,7 @@ import { VALUE_TYPES } from './analyze.js';
 import { SUGGESTION_KINDS, present } from './suggest.js';
 import { analyseCombined, analyseStored } from './run.js';
 import { clearCatalogCache, currentDecisions } from '../stats/catalog.js';
+import { requestTierRecompute } from '../tiers/store.js';
 import { guessValueType } from './analyze.js';
 
 /**
@@ -306,6 +307,8 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy }) {
         [statisticId, kind, JSON.stringify(value), decision, String(reasoning).slice(0, 600), runId],
       );
       await q.query("INSERT INTO admin_events (type, detail) VALUES ('discovery.decided', $1::jsonb)", [JSON.stringify({ statisticId, kind, decision })]);
+      // 0.6.0: tiers are graded from the live decisions. One full grading follows a burst of decisions (debounced).
+      await requestTierRecompute(q, 'decision');
     });
     clearCatalogCache(); // character pages and boards follow the decision at once
     const [after] = (await loadCatalog(db, runId)).filter((s) => s.statisticId === statisticId);

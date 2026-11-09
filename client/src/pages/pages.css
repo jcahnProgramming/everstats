@@ -348,3 +348,48 @@ button.armory-slot[aria-expanded="true"] { border-color: var(--qc, var(--es-line
 .guild-roster .tbl { min-width: var(--es-size-col-min-2xl); }
 .guild-search { flex: none; max-width: var(--es-size-col-min-xl); }
 .search-kind { flex: none; }
+
+/* 0.6.0: every core stat on one line, its value in the same right-hand column as the rest (a damage range wrapped its
+   label onto two lines). The label gives way (ellipsis, full text as its title) before the value ever does. */
+.core-kv { align-items: baseline; }
+.core-kv .core-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.core-kv .core-value { flex: none; white-space: nowrap; text-align: right; }
+
+/* 0.6.0: statistics sections. The header row holds a full-width toggle button and, beside it (never inside it),
+   the "All boards" link: a link inside a button can't be reached or clicked on its own. */
+.cathead.cat-toggle { padding: 0; gap: 0; flex-wrap: nowrap; }
+.cat-toggle-btn { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--es-space-14); padding: var(--es-space-14) var(--es-space-18); background: none; border: 0; color: var(--es-text); font: inherit; text-align: left; cursor: pointer; border-radius: var(--es-radius-lg); }
+.cat-toggle-btn:hover h3 { color: var(--es-accent-2); }
+.cat-toggle-btn .title { min-width: 0; }
+.cat-toggle .cat-boards { flex: none; padding: var(--es-space-14) var(--es-space-18) var(--es-space-14) var(--es-space-6); }
+
+/* "Why this tier" */
+.tier-card { padding: var(--es-space-12); text-decoration: none; color: var(--es-text); flex-wrap: nowrap; }
+.tier-card:hover { border-color: var(--es-line-strong); }
+.tier-card-title { font-weight: var(--es-weight-semibold); font-size: var(--es-fs-13-5); }
+.why-head { border: 0; border-radius: 0; }
+.why-head .title { min-width: 0; }
+.why-reason { padding: var(--es-space-12) var(--es-space-18) 0; }
+.statrow.why-row { grid-template-columns: minmax(0, 1fr) var(--es-space-96) var(--es-space-96) calc(var(--es-space-120) + var(--es-space-8)); }
+.why-pct { font-variant-numeric: tabular-nums; }
+.tier-reason { color: var(--es-text-2); display: inline-flex; gap: var(--es-space-6); align-items: flex-start; }
+.char-tier-text .tier-reason { max-width: calc(var(--es-space-120) * 2.4); }
+.tier-words { font-variant-numeric: tabular-nums; }
+@media (max-width: 719px) {
+  .cat-toggle-btn { padding: var(--es-space-12) var(--es-space-14); gap: var(--es-space-10); }
+  .cat-toggle .cat-boards { padding: var(--es-space-12) var(--es-space-14) var(--es-space-12) var(--es-space-4); }
+  .statrow.why-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .char-tier-text .tier-reason { max-width: none; }
+}
+.tier-brief { text-decoration: none; color: var(--es-text); flex-wrap: nowrap; align-items: center; }
+.tier-brief:hover .xsmall:last-child { text-decoration: underline; }
+
+/* 0.6.0: admin tier settings */
+.err-text { color: var(--es-danger); }
+.tier-share-row { align-items: flex-end; }
+.tier-share { flex-wrap: nowrap; align-items: flex-end; }
+.tier-share .field { width: calc(var(--es-space-64) + var(--es-space-24)); }
+.tier-share .tier { margin-bottom: var(--es-space-10); }
+.how-steps { padding-left: var(--es-space-20); }
+.how-steps li, .how-list li { color: var(--es-text-2); }
+.how-names { line-height: var(--es-lh-relaxed); }

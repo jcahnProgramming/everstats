@@ -14,6 +14,8 @@ import { periodStart, ROLLING_START } from '../stats/periods.js';
 import { defaultPinIds } from '../stats/pins.js';
 import { parseGuildSlug } from '../stats/slug.js';
 import { periodsInfo, rulesetList } from '../characters/routes.js';
+import { lettersFor } from '../tiers/store.js';
+import { guildTierDistribution } from '../tiers/view.js';
 
 /**
  * Guild pages, guild boards, the guild index and search (0.5.0). Everything here reads what the crawler already
@@ -76,16 +78,17 @@ export function createGuildRouter({ db, limits, networkOf }) {
       [like, prefix, OVERALL_START],
     );
     const characters = await db.query(
-      `SELECT c.slug, c.name, c.surname, c.level, c.class, rs.name AS ruleset FROM characters c LEFT JOIN rulesets rs ON rs.id = c.ruleset_id
+      `SELECT c.id, c.slug, c.name, c.surname, c.level, c.class, rs.name AS ruleset FROM characters c LEFT JOIN rulesets rs ON rs.id = c.ruleset_id
         WHERE c.slug IS NOT NULL AND NOT c.hidden AND c.profile_state = 'ok' AND c.missing_since IS NULL
           AND lower(c.name || ' ' || c.surname) LIKE $1
         ORDER BY (lower(c.name) LIKE $2) DESC, c.level DESC NULLS LAST, c.id LIMIT 8`,
       [like, prefix],
     );
+    const letters = await lettersFor(db, characters.map((c) => c.id));
     res.json({
       q,
       guilds: guilds.map((g) => ({ slug: g.slug, name: g.name, faction: g.faction, ruleset: g.ruleset, tracked: g.tracked ?? 0 })),
-      characters: characters.map((c) => ({ slug: c.slug, name: c.name, surname: c.surname, level: c.level, class: c.class, ruleset: c.ruleset })),
+      characters: characters.map((c) => ({ slug: c.slug, name: c.name, surname: c.surname, level: c.level, class: c.class, ruleset: c.ruleset, tier: letters.get(Number(c.id)) ?? null })),
     });
   }));
 
@@ -348,6 +351,7 @@ export async function guildView(db, g) {
     [g.id, g.ruleset_id, MAX_ROSTER],
   );
   const trackedIds = members.map((m) => m.id);
+  const letters = await lettersFor(db, trackedIds);
   const roster = await db.one(
     `SELECT count(*)::int AS listed, count(*) FILTER (WHERE level < 10)::int AS under_ten,
             count(*) FILTER (WHERE (level IS NULL OR level >= 10) AND NOT (character_id = ANY($2::bigint[])))::int AS others,
@@ -367,10 +371,15 @@ export async function guildView(db, g) {
   const totalBy = new Map(totals.map((t) => [t.statistic_id, t]));
   const built = Boolean(g.totals_built_at);
 
-  // Placements: the guild's best ranks on the guild boards (overall), the better mode per statistic.
+  // Placements: the guild's best ranks on the guild boards (overall), the better mode per statistic. 0.6.0: only boards
+  // with at least guilds.minBoardGuilds ranked guilds ("#1 of 1" says nothing); placementsHeld says how many were left out.
+  const minBoardGuilds = await getSetting(db, 'guilds.minBoardGuilds');
   let placements = null;
+  let placementsHeld = 0;
   if (members.length >= minMembers && built && g.ruleset_id !== null) {
-    const rows = await guildPlacements(db, { guildId: g.id, rulesetId: g.ruleset_id, minMembers });
+    const all = await guildPlacements(db, { guildId: g.id, rulesetId: g.ruleset_id, minMembers });
+    const rows = all.filter((p) => p.ranked >= minBoardGuilds);
+    placementsHeld = all.length - rows.length;
     placements = rows
       .map((p) => {
         const byAvg = p.rank_average < p.rank_total;
@@ -405,7 +414,12 @@ export async function guildView(db, g) {
       cards: pinIds.map((id) => ({ id, name: statistics.get(id)?.name ?? null, total: totalBy.get(id)?.total ?? 0, average: totalBy.get(id)?.average ?? 0 })).filter((c) => c.name !== null),
     },
     placements,
+    placementsHeld,
+    minBoardGuilds,
+    // 0.6.0: the tracked members by overall letter (Unranked included), and each member's letter on the roster.
+    tiers: await guildTierDistribution(db, g),
     roster: members.map((m) => ({
+      tier: letters.get(Number(m.id)) ?? null,
       slug: m.slug, name: m.name, surname: m.surname, level: m.level, class: m.class, race: m.race, lastLoginAt: m.last_login_at,
       rank: m.rank ?? null, rankName: rankName(m.rank), fetchedAt: m.stats_fetched_at,
     })),

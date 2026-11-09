@@ -2,6 +2,7 @@ import { BLIZZARD_API } from '../core/config.js';
 import { getSetting } from '../admin/settings.js';
 import { EQUIPMENT_VERSION, parseAttributes, parseEquipment, parseGuildProfile, parseMedia, parseProfile, parseRoster, parseStatistics } from './parse.js';
 import { queueItemMedia } from './items.js';
+import { gradeCharacter } from '../tiers/store.js';
 import { PRIORITY, enqueueMany } from './queue.js';
 import {
   markProfileMissing, storeDetails, storeGuildProfile, storeMedia, storeProfile, storeRoster, takeSnapshot, updateGains, upsertKnown, upsertRuleset,
@@ -76,6 +77,8 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
       await updateGains(q, p.id, { now });
       await queueItemMedia(q, p.id, priority); // an icon past its 30-day TTL is fetched again
     });
+    // Its values didn't change: its tier only needs grading if it has none yet (the full grading keeps the rest).
+    if (!(await db.one('SELECT 1 AS x FROM character_tiers WHERE character_id = $1', [p.id]))) await gradeQuietly(db, p.id);
     await maybeRoster({ db }, p);
     return 'unchanged';
   }
@@ -103,8 +106,19 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
     // Icons go in their own work item at this priority: the character is ready without waiting for them.
     await queueItemMedia(q, p.id, priority);
   });
+  // 0.6.0: its tier from its new values, before the item finishes, so a lookup's page shows it.
+  await gradeQuietly(db, p.id);
   await maybeRoster({ db }, p);
   return 'fetched';
+}
+
+/** A tier that couldn't be graded never fails the fetch: the next full grading includes the character anyway. */
+async function gradeQuietly(db, characterId) {
+  try {
+    await gradeCharacter(db, characterId);
+  } catch (err) {
+    console.error(`[tiers] character grading failed: ${err.code ?? err.name}`);
+  }
 }
 
 const sourceOf = (item) => (item.priority === PRIORITY.roster ? 'guild' : item.priority === PRIORITY.auto ? 'account' : 'lookup');

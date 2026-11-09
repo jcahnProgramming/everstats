@@ -5,7 +5,8 @@
  *
  * Zeros: shown in Base, Health & power, Defense and Resistances (a resistance of 0 is a real number on the sheet);
  * left out elsewhere, where Forever's response carries fields its era doesn't use (mastery, versatility, lifesteal,
- * avoidance, haste ratings), always 0. Damage min / max pairs are shown as one "25.5 – 34.5" line.
+ * avoidance, haste ratings), always 0. Damage min / max pairs are shown as one "26–35" line: whole numbers, like the
+ * in-game sheet (0.6.0: "45.14 – 64.14" wrapped its label in the Melee card), with the exact pair as its title.
  */
 export const CORE_GROUPS = [
   { id: 'base', label: 'Base', keys: ['strength', 'agility', 'stamina', 'intellect', 'spirit'], zeros: true },
@@ -64,7 +65,7 @@ export function groupCoreStats(attributes, equipment = null) {
     if (lo && hi) {
       byKey.delete(`${base}_min`);
       byKey.delete(`${base}_max`);
-      byKey.set(base, { key: base, label: LABELS[base], text: `${fmt(lo.value)} – ${fmt(hi.value)}`, value: hi.value });
+      byKey.set(base, { key: base, label: LABELS[base], text: `${Math.round(lo.value).toLocaleString('en-US')}–${Math.round(hi.value).toLocaleString('en-US')}`, exact: `${fmt(lo.value)} – ${fmt(hi.value)}`, value: hi.value });
     }
   }
   const placed = new Set();
@@ -75,7 +76,7 @@ export function groupCoreStats(attributes, equipment = null) {
       placed.add(k);
       const a = byKey.get(k);
       if (a.value === 0 && !g.zeros) continue;
-      rows.push({ key: k, label: LABELS[k] ?? a.label, value: a.text ?? `${fmt(a.value)}${a.percent ? '%' : ''}` });
+      rows.push({ key: k, label: LABELS[k] ?? a.label, value: a.text ?? `${fmt(a.value)}${a.percent ? '%' : ''}`, exact: a.exact ?? null });
     }
     return { id: g.id, label: g.label, rows };
   });

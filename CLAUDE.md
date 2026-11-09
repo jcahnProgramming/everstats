@@ -25,8 +25,8 @@ request as hostile: CSRF origin check, rate limits, httpOnly cookies, nothing se
   excluded from the overall tier**; a duplicate pair keeps both leaderboards, and one of them stops counting toward
   tiers **only once the owner approves the pairing** (after run 2: equal values in low-level samples aren't proof,
   and World vs Total Honorable Kills turned out to differ). A ruleset below the minimum
-  population shows **"Unranked — grading opens at N tracked characters"** (N = admin setting
-  `grading.minPopulation`, default 500).
+  population shows **"Tiers open once N characters are tracked on {ruleset} (n so far)"** (N = admin setting
+  `grading.minPopulation`, default 50 since 0.6.0). Built in 0.6.0: see "Tiers".
 - **Freshness:** a search refreshes the character immediately; every tracked character re-syncs at least daily
   (worker); guild rosters seed new characters. **Daily snapshots are kept 29 days, never longer** (Blizzard's 30-day
   rule, see "Retention"): enough for weekly boards, rank movement and the "Last 29 days" boards.
@@ -54,7 +54,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Admin settings | `server/admin/settings.js` | key, label, help, type, bounds, default |
 | Statistics / categories / leaderboards | `server/stats/catalog.js` | the `statistics` table (grows from crawls) + discovery decisions, else suggestions |
 | Account merge steps | `server/account/merge.js` | how each account-owned table moves on a merge |
-| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks`, `retention`, `guild-totals` |
+| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks`, `retention`, `guild-totals`, `tiers` |
 | Data sources | `server/sources/registry.js` | id, label, credential, userProvider, create() → `get(path, { namespace, auth, userToken })`. One so far: `blizzard`. A provider named as a `userProvider` reads characters at sign-in |
 | Discovery endpoints | `server/discovery/endpoints.js` | what a discovery run asks for (data, account, character, guild, slug probes) |
 | Suggestion rules | `server/discovery/suggest.js` | per-statistic suggestions (category, bad, leaderboard), each with its reasoning |
@@ -222,10 +222,38 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 - **Guild totals** (`guild_totals`, `guild_populations`): per guild, statistic and period, the total and average of its
   members' values (overall) or gains (week, rolling). Built by the worker job `guild-totals` (dirty guilds, the week
   rolling over, or older than 6 hours), never per request, never from an extra Blizzard request.
-- **Guild boards:** total (default) or average, same periods, zero never ranked, ties share. A guild is ranked only with
+- **Guild boards:** total (default) or average, same periods, zero never ranked, ties share. A guild page lists a
+  board under "On the guild boards" only from `guilds.minBoardGuilds` (default 3) ranked guilds (0.6.0). A guild is ranked only with
   `guilds.minMembers` (admin setting, default 5) counted members; below that it is "Not ranked yet: needs N tracked
   members". `scripts/measure-guilds.js` measures it all at 10,000 characters in 500 guilds.
 - **Guild rank names:** Blizzard sends a number only. 0 is "Guild Master", the rest "Rank N". Never invent names.
+
+## Tiers (0.6.0: `server/tiers/`, `server/stats/tiers.js`, `components/TierBreakdown.jsx`, `/tiers`, `/tiers/how`, `/admin/tiers`)
+
+- **What counts comes from the owner's Discovery DECISIONS, read live, never a suggestion** (`tiers/counting.js`): a
+  statistic counts only with an approved category AND an approved "counts toward" ('overall' | 'category'); approved
+  'none' = bad (or name + number), an approved duplicate is graded through the one it duplicates, and anything else
+  (no decision, rejected, a pairing still undecided) is `undecided` and counts as nothing. A counted statistic feeds
+  the overall tier only with 'overall' AND a non-farmable category (farmable = `CATEGORY_RULES` `farmable`). Pages say
+  "counts toward the overall tier" from `Stat.tierRole` / `countsOverall` (catalog.js), never from `grading`.
+- **The maths** (`tiers/engine.js`, pure): mid-rank percentile per counted statistic among the ruleset's tier-eligible
+  characters (missing = 0); category score = average percentile; overall score = average over EVERY overall category of
+  its overall-counting part, each category equal (an unlettered category still counts its score); letters from the
+  score's place among everyone's (rank = 1 + strictly above, ties share), shares `tiers.shares` (default 5/15/30/30/20).
+  Minimums: ruleset `grading.minPopulation` (50), category `tiers.categoryHalf` % of its counted stats above 0 (50),
+  overall `tiers.overallHalf` % of overall categories with a letter (50). Every Unranked carries its reason in words
+  (`tiers/view.js` REASONS). Tier-eligible = level 10+, fetched, not hidden, not missing (`ELIGIBLE`).
+- **Full vs one character** (`tiers/store.js`): the worker job `tiers` grades every ruleset at once (writes
+  `character_tiers`, `character_category_tiers`, `tier_rulesets` with each scope's cutoffs and the plan/settings
+  used) when a decision or tier setting asked for it (`tier_runs` pending row, debounced 30 s: a burst = one grading),
+  after the daily refresh drains, when a ruleset crosses the minimum, and every 6 h. A fetch grades that one
+  character (`gradeCharacter`): live percentiles, the ruleset's last plan + settings, placed against the stored
+  cutoffs; nobody else moves until the next full grading. Measured (`scripts/measure-tiers.js`, PGlite, 10,000
+  characters, 100 counted stats): full 2.5 s, one character 0.18 s, preview 0.7 s.
+- Tier tables are Blizzard-derived (registry BLIZZARD, swept by `computed_at`; purged/missing/hidden characters lose
+  their rows at once); `tier_runs` is ours. Admin: `/admin/tiers` (settings with a preview that must run before
+  Save, What counts with links to `/admin/discovery?stat=ID`, gradings). `server/tools/tiers-report.js` prints what
+  counts and the letters on the server.
 
 ## The beta (`server/beta.js`, `chrome/BetaBanner.jsx`, `/beta`)
 

@@ -250,9 +250,12 @@ export function createAccountRouter({ db, limits, networkOf }) {
     const check = await db.one('SELECT provider, checked_at, outcome, characters FROM account_character_checks WHERE account_id = $1 ORDER BY checked_at DESC LIMIT 1', [accountId]);
     const { ids, isDefault } = await pinsOf(db, accountId);
     const pins = featuredRow ? await pinCards(db, ids, featuredRow) : [];
+    const { lettersFor } = await import('../tiers/store.js');
+    const { tierBrief } = await import('../tiers/view.js');
+    const letters = await lettersFor(db, owned.filter((c) => !c.hidden).map((c) => c.id));
     res.json({
-      characters,
-      featured: featuredRow ? { ...characters.find((c) => c.id === featuredRow.id), fetchedAt: featuredRow.last_fetched_at } : null,
+      characters: characters.map((c) => ({ ...c, tier: c.hidden ? null : letters.get(Number(c.id)) ?? null })),
+      featured: featuredRow ? { ...characters.find((c) => c.id === featuredRow.id), fetchedAt: featuredRow.last_fetched_at, tier: await tierBrief(db, featuredRow) } : null,
       featuredChosen: Boolean(featuredRow && featuredRow.id === acct.featured_character_id),
       pins,
       pinIds: ids,

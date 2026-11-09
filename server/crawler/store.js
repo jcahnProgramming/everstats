@@ -129,6 +129,9 @@ export async function markProfileMissing(q, slug) {
   if (row.stats_fetched_at) {
     await q.query('DELETE FROM character_statistics WHERE character_id = $1', [row.id]);
     await q.query('DELETE FROM stat_gains WHERE character_id = $1', [row.id]);
+    // 0.6.0: and off the tier boards (its tier was graded from those values).
+    await q.query('DELETE FROM character_category_tiers WHERE character_id = $1', [row.id]);
+    await q.query('DELETE FROM character_tiers WHERE character_id = $1', [row.id]);
   }
   await q.query(
     `UPDATE characters SET last_checked_at = now(), missing_since = CASE WHEN stats_fetched_at IS NOT NULL THEN coalesce(missing_since, now()) ELSE missing_since END,
@@ -250,6 +253,9 @@ export async function setHidden(q, characterId, hidden) {
   await q.query('UPDATE character_statistics SET hidden = $2 WHERE character_id = $1', [characterId, hidden]);
   await q.query('UPDATE stat_gains SET hidden = $2 WHERE character_id = $1', [characterId, hidden]);
   await q.query('UPDATE period_baselines SET hidden = $2 WHERE character_id = $1', [characterId, hidden]);
+  // 0.6.0: hidden, it has no tier (and is on no tier board); shown again, it is graded at once.
+  const { gradeCharacter } = await import('../tiers/store.js');
+  await gradeCharacter(q, characterId);
   // 0.5.0: a hidden character counts toward no guild total from this moment, so its guild is rebuilt now, in the same
   // transaction, not on the worker's next pass.
   if (ch?.guild_id !== null && ch?.guild_id !== undefined) {

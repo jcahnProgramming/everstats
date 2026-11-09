@@ -11,7 +11,7 @@ import { BACKUP_HOUR_UTC, isDue, listBackups, recordedBackup } from '../core/bac
  * the worker as "Not responding". Long work (a backup) is started in the background and reported on.
  *
  * The crawler itself (crawler/service.js) runs continuously beside the loop, not as a job: the jobs below only queue
- * work for it (the daily refresh) or use its client (rulesets). Coming: tier recomputation per ruleset.
+ * work for it (the daily refresh) or use its client (rulesets). 0.6.0: 'tiers' runs the full tier grading.
  */
 
 /**
@@ -235,4 +235,29 @@ export function guildTotalsJob() {
   };
 }
 
-export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob()]);
+/**
+ * 0.6.0: the full tier grading (tiers/store.js). Every 15 seconds, checks whether one is due: a decision or tier
+ * setting changed and has been quiet for 30 s (so a burst of decisions makes one grading), the daily refresh has
+ * drained, a ruleset crossed the minimum, or the last one is 6 hours old. Runs in the background; reads stored values
+ * only (no Blizzard request).
+ */
+export function tiersJob() {
+  let running = null;
+  let last = null;
+  return {
+    id: 'tiers',
+    label: 'Letter tiers: full grading',
+    everyMs: 15 * 1000,
+    async run({ db, now = Date.now }) {
+      if (running) return { summary: 'Grading tiers' };
+      const { runDueTierWork } = await import('../tiers/store.js');
+      running = runDueTierWork(db, { now }).then((summary) => {
+        if (summary) last = summary;
+      }).catch((err) => console.error(`[tiers] failed: ${err.code ?? err.name}`)).finally(() => { running = null; });
+      return { summary: last ?? 'Waiting for the first grading' };
+    },
+    inFlight: () => running,
+  };
+}
+
+export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob(), tiersJob()]);

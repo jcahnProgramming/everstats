@@ -8,7 +8,8 @@ import { CharacterLoading, CharacterNotFound, ServiceUnavailable } from '../comp
 import { RankPill, RenderFrame } from '../components/Stats.jsx';
 import { GearSheet } from '../components/GearSheet.jsx';
 import { groupCoreStats } from '../coreStats.js';
-import { TierLegend } from '../components/Tier.jsx';
+import { TierBadge } from '../components/Tier.jsx';
+import { OverallTier, WhyThisTier } from '../components/TierBreakdown.jsx';
 import { useToasts } from '../components/Toasts.jsx';
 import { formatDate, formatDateTime, formatNumber, timeAgo } from '../format.js';
 import { useSession } from '../session.jsx';
@@ -21,8 +22,9 @@ import { useSession } from '../session.jsx';
  * owner; the owner still sees it) · unavailable (Blizzard didn't answer, or keys aren't set).
  *
  * Different from the mockup, on purpose:
- *   - Tiers are the next build: the tier area says so ("Tiers coming soon") instead of a letter. No grade is faked,
- *     and the category headers show the "–" shield with the category's grading rule instead of a letter.
+ *   - 0.6.0: the overall tier (or Unranked, with the reason in words) and "Why this tier" (components/TierBreakdown.jsx):
+ *     every letter comes with what fed it. Statistics sections are full width and start collapsed (the mockup's
+ *     multi-column cards left gaps); each collapsed header still says the category's letter, size and best rank.
  *   - No Progress chart or Share button yet; the Refresh button is the page reload (a lookup refreshes).
  *   - Gear slots are split in two columns as Blizzard lists them (no fixed slot list: whatever the API returns).
  */
@@ -144,14 +146,7 @@ function CharacterSheet({ data, onReload }) {
               <button type="button" className="btn ghost sm" onClick={onReload}><Icon name="refresh" size="sm" />Refresh</button>
             </div>
           </div>
-          <div className="row gap-18 char-tier">
-            <div className="stack gap-4 char-tier-text">
-              <span className="eyebrow">Overall tier</span>
-              <span className="h3">Tiers coming soon</span>
-              <a className="xsmall" href="#how-graded">How it will be graded</a>
-            </div>
-            <span className="tier lg blank" role="img" aria-label="No tier yet: tiers are the next build"><b aria-hidden="true" /></span>
-          </div>
+          <OverallTier tiers={data.tiers} />
         </div>
         <div className="stack gap-20 sheet-body">
           <GearSheet
@@ -166,19 +161,15 @@ function CharacterSheet({ data, onReload }) {
         </Provenance>
       </section>
 
-      <Statistics stats={stats} character={c} count={statCount} />
+      <WhyThisTier tiers={data.tiers} name={c.name} />
+
+      <Statistics stats={stats} character={c} count={statCount} tiers={data.tiers} />
 
       <section className="panel chart" aria-labelledby="progress-h">
         <div className="row gap-16"><h2 className="h2" id="progress-h">Progress</h2></div>
         <EmptyState kind="soon" compact title="Charts from the daily snapshots">
           <span>Everstats keeps a snapshot of {c.name}'s statistics every day, forever (tracked since {formatDateTime(c.trackedSince)}). The charts that draw them come in a later build.</span>
         </EmptyState>
-      </section>
-
-      <section id="how-graded" className="panel pad-24 stack gap-16" aria-labelledby="how-h">
-        <h2 className="h2" id="how-h">How tiers will be graded</h2>
-        <p className="t2">One letter per character, by percentile within their own ruleset only. Statistics roll up into category letters, and categories into the overall tier. Deaths and similar statistics get leaderboards but never count toward a tier. Tiers are the next build.</p>
-        <TierLegend />
       </section>
     </>
   );
@@ -198,7 +189,7 @@ function CoreStats({ attributes, equipment }) {
         {groups.map((g) => (
           <div key={g.id} className="well core-card">
             <h3 className="eyebrow core-card-title">{g.label}</h3>
-            {g.rows.map((r) => <div key={r.key} className="kv"><span className="t2">{r.label}</span><span className="num strong">{r.value}</span></div>)}
+            {g.rows.map((r) => <div key={r.key} className="kv core-kv"><span className="t2 core-label" title={r.label}>{r.label}</span><span className="num strong core-value" title={r.exact ?? undefined}>{r.value}</span></div>)}
           </div>
         ))}
       </div>
@@ -206,9 +197,28 @@ function CoreStats({ attributes, equipment }) {
   );
 }
 
-const PREVIEW = 6;
+/**
+ * One category's line when collapsed (0.6.0): its letter, its size and the character's best rank in it, e.g.
+ * "B · 11 statistics · Best: #3 Total deaths", so the collapsed page still tells the story.
+ *   tier: the category's tier entry (graded ruleset), undefined (graded ruleset, nothing in it counts), null (no tiers)
+ */
+function categorySummary(cat, tier) {
+  let head;
+  if (tier) head = tier.letter ?? 'Unranked';
+  else if (tier === undefined) head = 'No graded stats yet';
+  else head = cat.graded ? 'No letter' : 'Not graded';
+  const ranked = cat.statistics.filter((s) => s.rank !== null).sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
+  const best = ranked[0] ? `Best: #${formatNumber(ranked[0].rank)} ${ranked[0].name}` : 'No ranks yet';
+  return `${head} · ${cat.statistics.length} statistic${cat.statistics.length === 1 ? '' : 's'} · ${best}`;
+}
 
-function Statistics({ stats, character: c, count }) {
+/**
+ * Every statistic, one full-width section per category (0.6.0). Each header is a real button (aria-expanded; Enter
+ * and Space work because it IS a button) that opens and closes its own section; all start collapsed, and nothing is
+ * remembered, so a reload starts collapsed again. "All boards" sits beside the button, never inside it, so it
+ * navigates without toggling.
+ */
+function Statistics({ stats, character: c, count, tiers }) {
   const session = useSession();
   const toast = useToasts();
   const [open, setOpen] = useState(() => new Set());
@@ -230,6 +240,14 @@ function Statistics({ stats, character: c, count }) {
       toast.err("Couldn't change your pins", err.message);
     }
   };
+  const toggle = (key) => setOpen((o) => {
+    const n = new Set(o);
+    if (n.has(key)) n.delete(key);
+    else n.add(key);
+    return n;
+  });
+  const graded = tiers?.status === 'graded';
+  const tierBy = new Map((graded ? tiers.categories : []).map((t) => [t.key, t]));
   const rulesetName = c.ruleset?.name ?? 'its ruleset';
   return (
     <section id="stats" className="stack gap-18" aria-labelledby="stats-h">
@@ -239,45 +257,46 @@ function Statistics({ stats, character: c, count }) {
         <span className="spacer" />
         {stats.ranked && <span className="t2 small"><b className="strong-text">{formatNumber(stats.population)}</b> tracked on {rulesetName}</span>}
       </div>
-      <p className="t2 small">Blizzard lists only what a character has done, so anything missing here is a zero, and a zero isn't ranked. “#1 of 3 with any” means three tracked characters have done it at all. Beta: boards fill up as players join.</p>
-      <div className="grid-auto col-2xl gap-18 align-start-grid">
+      <p className="t2 small">Blizzard lists only what a character has done, so anything missing here is a zero, and a zero isn't ranked. “#1 of 3 with any” means three tracked characters have done it at all. Open a category to see every statistic in it.</p>
+      <div className="stack gap-8">
         {stats.categories.map((cat) => {
-          const all = open.has(cat.key);
-          const shown = all ? cat.statistics : cat.statistics.slice(0, PREVIEW);
-          const rule = !cat.graded ? 'Not graded · leaderboards only' : cat.farmable ? 'Its own tier only, never the overall tier' : 'Counts toward the overall tier';
+          const isOpen = open.has(cat.key);
+          const t = graded ? tierBy.get(cat.key) : null;
           return (
             <div key={cat.key} className="panel clip" id={`cat-${cat.key}`}>
-              <div className="cathead">
-                <span className="tier md u" role="img" aria-label="No tier yet"><b aria-hidden="true">–</b></span>
-                <div className="title"><h3>{cat.label}</h3><span className="muted xsmall">{rule} · {cat.statistics.length} statistic{cat.statistics.length === 1 ? '' : 's'}</span></div>
-                <span className="spacer" />
-                <Link className="xsmall" to={`/leaderboards?ruleset=${c.ruleset?.id ?? ''}#${cat.key}`}>All boards</Link>
-              </div>
-              <div className="statrow head" aria-hidden="true"><span className="eyebrow">Statistic</span><span className="eyebrow r">Value</span><span className="eyebrow">Rank</span><span className="eyebrow">Data</span></div>
-              {shown.map((s) => (
-                <div key={s.id} className="statrow">
-                  <span className="nm">
-                    {s.name}
-                    {s.grading === 'none' && <span className="ng">not graded</span>}
-                    {pins && (
-                      <button type="button" className={`pin-btn${pins.includes(s.id) ? ' is-pinned' : ''}`} aria-pressed={pins.includes(s.id)} aria-label={`${pins.includes(s.id) ? 'Unpin' : 'Pin'} ${s.name}`} title={pins.includes(s.id) ? 'Pinned to your dashboard' : 'Pin to your dashboard'} onClick={() => togglePin(s.id, s.name)}>
-                        <Icon name={pins.includes(s.id) ? 'check' : 'plus'} size="sm" />
-                      </button>
-                    )}
+              <div className={`cathead cat-toggle${isOpen ? '' : ' is-collapsed'}`}>
+                <button type="button" className="cat-toggle-btn" aria-expanded={isOpen} aria-controls={`cat-body-${cat.key}`} onClick={() => toggle(cat.key)}>
+                  <TierBadge letter={t?.letter ?? null} size="md" label={t?.letter ? `${cat.label}: tier ${t.letter}` : `${cat.label}: no letter`} />
+                  <span className="title">
+                    <h3>{cat.label}</h3>
+                    <span className="muted xsmall">{categorySummary(cat, t)}</span>
                   </span>
-                  <span className="v">{s.text && <span className="named muted">{s.text} · </span>}{formatNumber(s.value)}</span>
-                  {!stats.ranked ? <span className="rankpill pending">hidden: not ranked</span>
-                    : <RankPill rank={s.rank} of={s.withAny} to={`/leaderboards/${c.ruleset.id}/${s.id}`} />}
-                  <Fresh at={c.statsFetchedAt} />
+                  <span className="spacer" />
+                  <Icon name={isOpen ? 'chevron-up' : 'chevron-down'} size="sm" />
+                </button>
+                <Link className="xsmall cat-boards" to={`/leaderboards?ruleset=${c.ruleset?.id ?? ''}#${cat.key}`}>All boards</Link>
+              </div>
+              {isOpen && (
+                <div id={`cat-body-${cat.key}`}>
+                  <div className="statrow head" aria-hidden="true"><span className="eyebrow">Statistic</span><span className="eyebrow r">Value</span><span className="eyebrow">Rank</span><span className="eyebrow">Data</span></div>
+                  {cat.statistics.map((s) => (
+                    <div key={s.id} className="statrow">
+                      <span className="nm">
+                        {s.name}
+                        {s.tierRole !== 'counted' && <span className="ng" title={s.tierRole === 'undecided' ? 'Not reviewed yet, so it doesn’t count toward a tier' : 'Leaderboard only: never counts toward a tier'}>{s.tierRole === 'undecided' ? 'not graded yet' : 'not graded'}</span>}
+                        {pins && (
+                          <button type="button" className={`pin-btn${pins.includes(s.id) ? ' is-pinned' : ''}`} aria-pressed={pins.includes(s.id)} aria-label={`${pins.includes(s.id) ? 'Unpin' : 'Pin'} ${s.name}`} title={pins.includes(s.id) ? 'Pinned to your dashboard' : 'Pin to your dashboard'} onClick={() => togglePin(s.id, s.name)}>
+                            <Icon name={pins.includes(s.id) ? 'check' : 'plus'} size="sm" />
+                          </button>
+                        )}
+                      </span>
+                      <span className="v">{s.text && <span className="named muted">{s.text} · </span>}{formatNumber(s.value)}</span>
+                      {!stats.ranked ? <span className="rankpill pending">hidden: not ranked</span>
+                        : <RankPill rank={s.rank} of={s.withAny} to={`/leaderboards/${c.ruleset.id}/${s.id}`} />}
+                      <Fresh at={c.statsFetchedAt} />
+                    </div>
+                  ))}
                 </div>
-              ))}
-              {cat.statistics.length > PREVIEW && (
-                <button type="button" className="showall showall-btn" aria-expanded={all} onClick={() => setOpen((o) => {
-                  const n = new Set(o);
-                  if (n.has(cat.key)) n.delete(cat.key);
-                  else n.add(cat.key);
-                  return n;
-                })}>{all ? 'Show fewer' : `Show all ${cat.statistics.length} →`}</button>
               )}
             </div>
           );

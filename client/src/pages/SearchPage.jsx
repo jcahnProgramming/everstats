@@ -4,6 +4,7 @@ import { parseGuildSlug } from '../../../server/stats/slug.js';
 import { api } from '../api.js';
 import { EmptyState } from '../components/EmptyState.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
+import { TierBadge } from '../components/Tier.jsx';
 import { formatNumber } from '../format.js';
 import { parseCharacterSearch } from '../search.js';
 
@@ -43,6 +44,7 @@ export function SearchPage() {
               {res.characters.length === 0 ? <div className="listrow"><span className="t2 small">No tracked character matches.</span></div> : res.characters.map((c) => (
                 <Link key={c.slug} className="listrow linkrow" to={`/c/${encodeURIComponent(c.slug)}`}>
                   <span className="tag search-kind">Character</span>
+                  <TierBadge letter={c.tier ?? null} size="sm" />
                   <span className="stack grow-col"><b>{c.name} <span className="surname">{c.surname}</span></b><span className="muted xsmall">{[c.level ? `Level ${c.level}` : null, c.class, c.ruleset].filter(Boolean).join(' · ')}</span></span>
                 </Link>
               ))}

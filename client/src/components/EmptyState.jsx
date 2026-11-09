@@ -9,7 +9,7 @@ import { TierBadge } from './Tier.jsx';
  *   soon        Coming soon       the feature isn't built yet            solid gold-tinted frame, clock icon
  *   nodata      No data yet       built, and this has nothing yet        DASHED box, chart icon (design: no-data-yet)
  *   nocoverage  No coverage here  outside what Everstats tracks          HATCHED panel, crossed circle (design: no-coverage-here)
- *   unranked    Unranked          ruleset below the grading population   the "–" shield + a progress line (design: unranked)
+ *   unranked    Unranked          ruleset below the tier minimum          the "–" shield + a progress line (design: unranked)
  *
  * 0.4.0 adds four more, each again with its own label, icon and border (none shares one with another):
  *   collecting  Collecting data   a weekly/monthly board before a whole period of snapshots exists   DOTTED frame, trend icon
@@ -51,9 +51,9 @@ export function EmptyState({ kind, title, children, compact = false, action = nu
 }
 
 /**
- * "Unranked — grading opens at N tracked characters" (design/v1/states/unranked). N is the admin setting
- * grading.minPopulation. The progress line toward N shows only when the ruleset's tracked count is actually known:
- * before characters are tracked it says so instead of drawing a bar from a guess.
+ * "Tiers open once N characters are tracked on {ruleset}" (design/v1/states/unranked; 0.6.0 wording). N is the admin
+ * setting grading.minPopulation. `tracked` is the ruleset's tier-eligible count; the progress line toward N shows only
+ * when it is actually known: before characters are tracked it says so instead of drawing a bar from a guess.
  */
 export function UnrankedNote({ minPopulation = null, tracked = null, ruleset = null, compact = false }) {
   const n = Number.isInteger(minPopulation) ? formatNumber(minPopulation) : 'N';
@@ -64,7 +64,7 @@ export function UnrankedNote({ minPopulation = null, tracked = null, ruleset = n
       <div className="stack gap-12 state-body">
         <span className="state-kind">Unranked</span>
         {ruleset && <span className="tag state-ruleset">{ruleset}</span>}
-        <strong className="state-title">Unranked — grading opens at {n} tracked characters</strong>
+        <strong className="state-title">Tiers open once {n} characters are tracked on {ruleset ?? 'a ruleset'}{Number.isInteger(tracked) ? ` (${formatNumber(tracked)} so far)` : ''}</strong>
         {!compact && (
           <p className="t2 small">
             Tiers are graded only against the same ruleset, so a ruleset needs enough characters for percentiles to mean

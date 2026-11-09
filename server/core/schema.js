@@ -907,4 +907,85 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.6.0: letter tiers (server/tiers/). Scores and letters are DERIVED from Blizzard values (character_statistics),
+    // so every table here except tier_runs is Blizzard data in retention/registry.js, swept by computed_at.
+    //   tier_rulesets            per ruleset, the last FULL grading: population, the settings and the plan it used
+    //                            (counted statistic ids per category, from the owner's decisions then), and per scope
+    //                            the lowest score that earned each letter (a character graded on its own between full
+    //                            gradings is placed against these)
+    //   character_tiers          per character: overall score, letter (null = Unranked, with the reason), how many
+    //                            overall categories it has a letter in, and its percentile in every counted statistic
+    //   character_category_tiers per character and category: score, the overall-counting part, letter, and how many
+    //                            counted statistics it has above zero against how many it needs
+    //   tier_runs                our log of full gradings and the requests for one (a decision or setting change
+    //                            asks for one; a burst of them waits for a quiet moment and makes one). Times, reasons
+    //                            and letter counts only.
+    id: '014_tiers',
+    async up(q) {
+      await q.query(`
+        CREATE TABLE tier_rulesets (
+          ruleset_id   integer PRIMARY KEY,
+          population   integer NOT NULL,
+          graded       boolean NOT NULL,
+          settings     jsonb NOT NULL,
+          plan         jsonb NOT NULL,
+          scopes       jsonb NOT NULL DEFAULT '{}',
+          computed_at  timestamptz NOT NULL
+        );
+        CREATE INDEX tier_rulesets_computed ON tier_rulesets (computed_at);
+
+        CREATE TABLE character_tiers (
+          character_id  bigint PRIMARY KEY REFERENCES characters (id) ON DELETE CASCADE,
+          ruleset_id    integer NOT NULL,
+          score         double precision,
+          letter        text CHECK (letter IN ('S', 'A', 'B', 'C', 'D')),
+          reason        text CHECK (reason IN ('few_categories', 'no_categories')),
+          lettered      smallint NOT NULL,
+          needed        smallint NOT NULL,
+          total         smallint NOT NULL,
+          stat_ids      bigint[] NOT NULL,
+          stat_pcts     real[] NOT NULL,
+          graded_by     text NOT NULL CHECK (graded_by IN ('full', 'character')),
+          computed_at   timestamptz NOT NULL,
+          CHECK ((letter IS NULL) = (reason IS NOT NULL))
+        );
+        CREATE INDEX character_tiers_board ON character_tiers (ruleset_id, score DESC, character_id) WHERE letter IS NOT NULL;
+        CREATE INDEX character_tiers_ruleset ON character_tiers (ruleset_id, character_id);
+        CREATE INDEX character_tiers_computed ON character_tiers (computed_at);
+
+        CREATE TABLE character_category_tiers (
+          character_id  bigint NOT NULL REFERENCES characters (id) ON DELETE CASCADE,
+          category_key  text NOT NULL CHECK (length(category_key) <= 80),
+          ruleset_id    integer NOT NULL,
+          score         double precision NOT NULL,
+          overall_part  double precision,
+          letter        text CHECK (letter IN ('S', 'A', 'B', 'C', 'D')),
+          nonzero       smallint NOT NULL,
+          needed        smallint NOT NULL,
+          counted       smallint NOT NULL,
+          computed_at   timestamptz NOT NULL,
+          PRIMARY KEY (character_id, category_key)
+        );
+        CREATE INDEX character_category_tiers_board ON character_category_tiers (ruleset_id, category_key, score DESC, character_id) WHERE letter IS NOT NULL;
+        CREATE INDEX character_category_tiers_ruleset ON character_category_tiers (ruleset_id, category_key, character_id);
+        CREATE INDEX character_category_tiers_computed ON character_category_tiers (computed_at);
+
+        CREATE TABLE tier_runs (
+          id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          status        text NOT NULL CHECK (status IN ('pending', 'running', 'done', 'failed')),
+          reasons       text[] NOT NULL DEFAULT '{}',
+          requested_at  timestamptz NOT NULL DEFAULT now(),
+          started_at    timestamptz,
+          finished_at   timestamptz,
+          ms            integer,
+          summary       jsonb,
+          problem       text CHECK (length(problem) <= 300)
+        );
+        CREATE UNIQUE INDEX tier_runs_one_pending ON tier_runs (status) WHERE status = 'pending';
+        CREATE INDEX tier_runs_time ON tier_runs (requested_at);
+        CREATE INDEX tier_runs_finished ON tier_runs (status, finished_at);
+      `);
+    },
+  },
 ];
