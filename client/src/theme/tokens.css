@@ -1,232 +1,383 @@
-/* Everstats design tokens. THE ONLY FILE WITH COLOURS IN IT: everything else uses var(--…)
-   (server/test/client-colours.test.js fails the build's tests otherwise).
+/* Everstats design tokens. THE ONLY FILE WITH COLOURS IN IT: everything else uses var(--es-…)
+   (server/test/client-colours.test.js fails the tests otherwise, and checks every theme defines every colour).
 
-   Three themes, all following WoW's colour language, chosen by data-theme on <html>:
-     forever   (default; every logged-out visitor) twilight blue, gold and white, a faint old-map texture
-     alliance  deep royal blue, polished gold trim, pale parchment highlight
-     horde     dark crimson and charcoal, bronze / iron accents, a hint of ember orange
+   Source: design/v1/tokens/themes.css (Claude Design v1, "Cartographer's Ledger"), copied verbatim below this
+   comment so the next design handoff diffs cleanly. Change values there and re-copy, or change them here and say so.
+
+   Exactly three themes, chosen by data-theme on <html> (or on any element, so a swatch can wear a theme):
+     forever   default; every logged-out visitor. Twilight blue, gold and white, a faint old-map grid
+     alliance  signed-in perk. Deep royal blue, polished gold trim, pale parchment highlight
+     horde     signed-in perk. Dark crimson and charcoal, bronze/iron accents, a hint of ember orange
    The boot script (/api/theme-boot.js, served by the app from the account's choice) sets it before first paint.
 
-   Tier badges borrow item-quality colours: S legendary orange, A epic purple, B rare blue, C uncommon green,
-   D common grey. Each theme tunes them so a badge reads against that theme's surfaces (ring + fill + text).
-   "Unranked" is deliberately colourless.
+   Tier fills S/A/B/C/D borrow item-quality hues, tuned per theme so every letter reaches 7:1 on its fill
+   (design/v1/tokens/contrast.md). Unranked is colourless and dashed.
 
-   Not final: the full design pass comes next. Keep components token-driven so it can change everything here. */
+   Breakpoint: phone <= 719px, written literally in each @media rule (media queries can't read custom properties). */
 
-@font-face { font-family: "Inter"; src: url("fonts/InterVariable-latin.woff2") format("woff2"); font-weight: 100 900; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
-@font-face { font-family: "Inter"; src: url("fonts/InterVariable-latin-ext.woff2") format("woff2"); font-weight: 100 900; font-display: swap; unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 
+:root {
+  --es-space-0: 0px;
+  --es-space-1: 1px;
+  --es-space-2: 2px;
+  --es-space-3: 3px;
+  --es-space-4: 4px;
+  --es-space-5: 5px;
+  --es-space-6: 6px;
+  --es-space-7: 7px;
+  --es-space-8: 8px;
+  --es-space-9: 9px;
+  --es-space-10: 10px;
+  --es-space-11: 11px;
+  --es-space-12: 12px;
+  --es-space-14: 14px;
+  --es-space-16: 16px;
+  --es-space-18: 18px;
+  --es-space-20: 20px;
+  --es-space-22: 22px;
+  --es-space-24: 24px;
+  --es-space-28: 28px;
+  --es-space-32: 32px;
+  --es-space-36: 36px;
+  --es-space-40: 40px;
+  --es-space-48: 48px;
+  --es-space-56: 56px;
+  --es-space-64: 64px;
+  --es-space-72: 72px;
+  --es-space-88: 88px;
+  --es-space-96: 96px;
+  --es-space-120: 120px;
+  --es-radius-none: 0px;
+  --es-radius-xs: 3px;
+  --es-radius-sm: 4px;
+  --es-radius-md: 6px;
+  --es-radius-lg: 8px;
+  --es-radius-xl: 10px;
+  --es-radius-pill: 999px;
+  --es-radius-round: 50%;
+  --es-border-1: 1px;
+  --es-border-1-5: 1.5px;
+  --es-border-2: 2px;
+  --es-border-2-5: 2.5px;
+  --es-border-3: 3px;
+  --es-border-5: 5px;
+  --es-font-display: 'Cinzel', 'Trajan Pro', Georgia, 'Times New Roman', serif;
+  --es-font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --es-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --es-weight-regular: 400;
+  --es-weight-medium: 500;
+  --es-weight-semibold: 600;
+  --es-weight-bold: 700;
+  --es-weight-black: 800;
+  --es-fs-10: 10px;
+  --es-fs-11: 11px;
+  --es-fs-11-5: 11.5px;
+  --es-fs-12: 12px;
+  --es-fs-12-5: 12.5px;
+  --es-fs-13: 13px;
+  --es-fs-13-5: 13.5px;
+  --es-fs-14: 14px;
+  --es-fs-14-5: 14.5px;
+  --es-fs-15: 15px;
+  --es-fs-16: 16px;
+  --es-fs-17: 17px;
+  --es-fs-18: 18px;
+  --es-fs-20: 20px;
+  --es-fs-22: 22px;
+  --es-fs-24: 24px;
+  --es-fs-26: 26px;
+  --es-fs-28: 28px;
+  --es-fs-30: 30px;
+  --es-fs-32: 32px;
+  --es-fs-40: 40px;
+  --es-fs-44: 44px;
+  --es-fs-48: 48px;
+  --es-fs-56: 56px;
+  --es-fs-70: 70px;
+  --es-fs-display: clamp(36px, 4.4vw, 56px);
+  --es-fs-hero: clamp(40px, 5vw, 64px);
+  --es-lh-none: 1;
+  --es-lh-tight: 1.05;
+  --es-lh-snug: 1.2;
+  --es-lh-normal: 1.45;
+  --es-lh-relaxed: 1.6;
+  --es-tracking-none: 0;
+  --es-tracking-display: 0.02em;
+  --es-tracking-heading: 0.03em;
+  --es-tracking-brand: 0.04em;
+  --es-tracking-tag: 0.06em;
+  --es-tracking-th: 0.08em;
+  --es-tracking-eyebrow: 0.14em;
+  --es-tracking-code: 0.06em;
+  --es-tracking-otp: 0.3em;
+  --es-tracking-otp-lg: 0.4em;
+  --es-tracking-sep: 0.3em;
+  --es-size-control-xs: 32px;
+  --es-size-control-sm: 34px;
+  --es-size-control-md: 38px;
+  --es-size-control: 44px;
+  --es-size-control-lg: 52px;
+  --es-size-control-xl: 56px;
+  --es-size-topbar: 64px;
+  --es-size-topbar-phone: 56px;
+  --es-size-footbar: 52px;
+  --es-size-icon-xs: 15px;
+  --es-size-icon-sm: 16px;
+  --es-size-icon: 18px;
+  --es-size-icon-md: 20px;
+  --es-size-icon-lg: 28px;
+  --es-size-icon-xl: 44px;
+  --es-size-icon-2xl: 56px;
+  --es-size-icon-3xl: 64px;
+  --es-size-brand-mark: 30px;
+  --es-size-brand-mark-phone: 26px;
+  --es-size-emblem-hero: 420px;
+  --es-size-tier-sm-w: 22px;
+  --es-size-tier-sm-h: 26px;
+  --es-size-tier-sm-font: 13px;
+  --es-size-tier-sm-pad: 2px;
+  --es-size-tier-md-w: 40px;
+  --es-size-tier-md-h: 47px;
+  --es-size-tier-md-font: 22px;
+  --es-size-tier-md-pad: 2.5px;
+  --es-size-tier-lg-w: 116px;
+  --es-size-tier-lg-h: 136px;
+  --es-size-tier-lg-font: 70px;
+  --es-size-tier-lg-pad: 5px;
+  --es-size-pip: 6px;
+  --es-size-gem: 7px;
+  --es-size-gem-lg: 11px;
+  --es-size-gem-xl: 14px;
+  --es-size-dot: 7px;
+  --es-size-avatar: 28px;
+  --es-size-gear-slot: 38px;
+  --es-size-gear-slot-phone: 52px;
+  --es-size-render-min-h: 560px;
+  --es-size-render-phone-h: 340px;
+  --es-size-render-figure-w: 250px;
+  --es-size-chart-h: 240px;
+  --es-size-chart-h-phone: 120px;
+  --es-size-chart-axis-w: 64px;
+  --es-size-qr: 148px;
+  --es-size-checkbox: 18px;
+  --es-size-toggle-w: 44px;
+  --es-size-toggle-h: 26px;
+  --es-size-toggle-knob: 20px;
+  --es-size-rank-col: 56px;
+  --es-size-bar-h: 10px;
+  --es-size-bar-h-sm: 8px;
+  --es-size-tier-bar-h: 36px;
+  --es-size-container: 1240px;
+  --es-size-container-narrow: 860px;
+  --es-size-container-auth: 460px;
+  --es-size-sidebar: 260px;
+  --es-size-aside: 320px;
+  --es-size-modal: 480px;
+  --es-size-toast: 380px;
+  --es-size-col-min-xs: 130px;
+  --es-size-col-min-sm: 150px;
+  --es-size-col-min: 250px;
+  --es-size-col-min-md: 270px;
+  --es-size-col-min-lg: 300px;
+  --es-size-col-min-xl: 460px;
+  --es-size-col-min-2xl: 580px;
+  --es-size-phone: 390px;
+  --es-size-desktop: 1440px;
+  --es-shadow-sheet: 0 18px 48px var(--es-shadow);
+  --es-shadow-modal: 0 24px 64px var(--es-shadow);
+  --es-shadow-toast: 0 10px 30px var(--es-shadow);
+  --es-shadow-raise: 0 2px 0 var(--es-shadow);
+  --es-motion-fast: 120ms;
+  --es-motion-base: 200ms;
+  --es-motion-slow: 320ms;
+  --es-motion-shimmer: 1.6s;
+  --es-motion-spin: 2.4s;
+  --es-motion-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --es-z-base: 0;
+  --es-z-sticky: 20;
+  --es-z-dropdown: 30;
+  --es-z-modal: 50;
+  --es-z-toast: 60;
+  --es-opacity-disabled: 0.45;
+  --es-opacity-ornament: 0.4;
+  --es-opacity-ornament-faint: 0.18;
+  --es-opacity-motif: 0.55;
+  --es-layout-map-grid: 120px;
+  --es-layout-map-ring: 46px;
+  --es-layout-map-ring-line: 47px;
+}
+
+/* Forever — Twilight blue, gold and white. Default; the only theme logged-out visitors see. */
 :root, [data-theme="forever"] {
-  /* Type */
-  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
-  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  --text-xs: 0.75rem;
-  --text-sm: 0.875rem;
-  --text-md: 1rem;
-  --text-lg: 1.125rem;
-  --text-xl: 1.5rem;
-  --text-2xl: 2rem;
-  --text-3xl: 2.75rem;
-
-  /* Space, shape, motion */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-  --space-7: 48px;
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 14px;
-  --radius-pill: 999px;
-  --border-w: 1px;
-  --trim-w: 2px;
-  --page-max: 1120px;
-  --page-gutter: 16px;
-  --topbar-h: 60px;
-  --bottombar-h: 40px;
-  --tap: 44px;
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --dur: 160ms;
-
-  /* ---------- Forever (default) ---------- */
-  --bg: #0b1430;
-  --bg-deep: #070d22;
-  --surface-1: #111c3d;
-  --surface-2: #17244c;
-  --surface-3: #1e2d5b;
-  --surface-bar: #091231;
-  --text-1: #f5f2e8;
-  --text-2: #c3cadf;
-  --text-3: #97a1c0;
-  --text-on-accent: #1a1405;
-  --border: #2a3a6e;
-  --border-strong: #3d4f8a;
-  --accent: #d6b25e;
-  --accent-strong: #e8c977;
-  --accent-text: #e6c879;
-  --accent-soft: #2b2a3a;
-  --trim: #b8954a;
-  --highlight: #24356b;
-  --highlight-text: #f5f2e8;
-  --focus: #f0d68e;
-  --link: #e6c879;
-  --glow: #24356b;
-  --texture-line: #16234a;
-  --texture-line-2: #13204400;
-  --emblem-ring: #d6b25e;
-  --emblem-fill: #17244c;
-  --emblem-mark: #f5f2e8;
-
-  --success: #5fc48a;
-  --success-soft: #12352a;
-  --warning: #e7b75a;
-  --warning-soft: #3a2f16;
-  --danger: #ef7a6f;
-  --danger-soft: #3f1d22;
-  --info: #8fb3ff;
-  --info-soft: #1a2a55;
-
-  /* Empty states: four kinds that must never look alike */
-  --state-soon: #d6b25e;
-  --state-soon-soft: #2a2a3b;
-  --state-nodata: #8fb3ff;
-  --state-nodata-soft: #18284f;
-  --state-nocoverage: #a8a3c9;
-  --state-nocoverage-soft: #221f3d;
-  --state-unranked: #c3cadf;
-  --state-unranked-soft: #1a2445;
-
-  /* Tier badges */
-  --tier-s-bg: #ff9a2e; --tier-s-fg: #1d1000; --tier-s-ring: #ffd29a;
-  --tier-a-bg: #b65cf2; --tier-a-fg: #16051f; --tier-a-ring: #dcb0ff;
-  --tier-b-bg: #3b9bff; --tier-b-fg: #04162b; --tier-b-ring: #a9d2ff;
-  --tier-c-bg: #4fd66b; --tier-c-fg: #052010; --tier-c-ring: #b6f3c3;
-  --tier-d-bg: #b9bfcc; --tier-d-fg: #15181f; --tier-d-ring: #e6e9ef;
-  --tier-none-bg: transparent; --tier-none-fg: #c3cadf; --tier-none-ring: #3d4f8a;
-
-  --shadow: 0 6px 24px #02061899;
+  --es-bg: #0D1430;
+  --es-bg-2: #111A3B;
+  --es-sunken: #0A1028;
+  --es-surface: #16204A;
+  --es-raised: #1E2B5E;
+  --es-line: #2B3B70;
+  --es-line-strong: #43578F;
+  --es-text: #F5F2E9;
+  --es-text-2: #C6CDE3;
+  --es-muted: #8F9BC2;
+  --es-accent: #E7C068;
+  --es-accent-2: #F3DB9C;
+  --es-accent-ink: #1B1505;
+  --es-focus: #8CC8FF;
+  --es-success: #5ED39B;
+  --es-warning: #F2B64C;
+  --es-danger: #FF7B7B;
+  --es-c1: #E7C068;
+  --es-c2: #7DB6FF;
+  --es-c3: #C59BFF;
+  --es-c4: #5FD1B0;
+  --es-c5: #FF9A73;
+  --es-t-s: #F6C64E;
+  --es-t-a: #C0A0FF;
+  --es-t-b: #5AAEF7;
+  --es-t-c: #66CC88;
+  --es-t-d: #9CA4B6;
+  --es-t-ink: #141729;
+  --es-t-s-ring-hi: #FFF4CF;
+  --es-t-s-ring-lo: #7A5A14;
+  --es-q-poor: #A3A7B4;
+  --es-q-common: #F5F2E9;
+  --es-q-uncommon: #5FD37A;
+  --es-q-rare: #5AAEFF;
+  --es-q-epic: #C08CFF;
+  --es-q-legendary: #FF9F3D;
+  --es-hero-1: #22346F;
+  --es-hero-2: #131D45;
+  --es-hero-3: #0D1430;
+  --es-glow: rgba(125,182,255,0.16);
+  --es-glow-2: rgba(231,192,104,0.10);
+  --es-map-a: rgba(231,192,104,0.045);
+  --es-map-b: rgba(140,200,255,0.05);
+  --es-shadow: rgba(0,0,0,0.35);
+  --es-scrim: rgba(5,8,20,0.72);
+  --es-bevel-light: rgba(255,255,255,0.22);
+  --es-bevel-dark: rgba(0,0,0,0.14);
+  --es-swatch-edge: rgba(255,255,255,0.14);
+  --es-paper: #F5F2E9;
   color-scheme: dark;
 }
 
-/* ---------- Alliance ---------- */
+/* Alliance — Deep royal blue, polished gold trim, pale parchment highlight. Logged-in perk. */
 [data-theme="alliance"] {
-  --bg: #0a1a3f;
-  --bg-deep: #06112c;
-  --surface-1: #0f2452;
-  --surface-2: #142e66;
-  --surface-3: #1a3878;
-  --surface-bar: #081636;
-  --text-1: #fbf6e6;
-  --text-2: #cdd6ee;
-  --text-3: #9fb0d8;
-  --text-on-accent: #1d1503;
-  --border: #23427f;
-  --border-strong: #3459a3;
-  --accent: #e2bb4f;
-  --accent-strong: #f2cf6a;
-  --accent-text: #f0cd6b;
-  --accent-soft: #2d2f3c;
-  --trim: #c9a241;
-  --highlight: #efe3c2;
-  --highlight-text: #2a2210;
-  --focus: #f7dc8a;
-  --link: #f0cd6b;
-  --glow: #1b3c80;
-  --texture-line: #12285a;
-  --texture-line-2: #0f245200;
-  --emblem-ring: #e2bb4f;
-  --emblem-fill: #142e66;
-  --emblem-mark: #efe3c2;
-
-  --success: #63cf92;
-  --success-soft: #0f3a33;
-  --warning: #f0c060;
-  --warning-soft: #3b3214;
-  --danger: #ff8a7e;
-  --danger-soft: #431f2a;
-  --info: #9cc0ff;
-  --info-soft: #173465;
-
-  --state-soon: #e2bb4f;
-  --state-soon-soft: #2b3043;
-  --state-nodata: #9cc0ff;
-  --state-nodata-soft: #173465;
-  --state-nocoverage: #b9b2dc;
-  --state-nocoverage-soft: #24254d;
-  --state-unranked: #efe3c2;
-  --state-unranked-soft: #1b2f60;
-
-  --tier-s-bg: #ffa040; --tier-s-fg: #1d1000; --tier-s-ring: #ffe0b8;
-  --tier-a-bg: #c070ff; --tier-a-fg: #17041f; --tier-a-ring: #e6c6ff;
-  --tier-b-bg: #6db6ff; --tier-b-fg: #031a33; --tier-b-ring: #d6ebff;
-  --tier-c-bg: #5fe07a; --tier-c-fg: #032010; --tier-c-ring: #c7f7d1;
-  --tier-d-bg: #c9cfdb; --tier-d-fg: #141821; --tier-d-ring: #f1f3f7;
-  --tier-none-bg: transparent; --tier-none-fg: #efe3c2; --tier-none-ring: #3459a3;
-
-  --shadow: 0 6px 24px #020a1f99;
+  --es-bg: #08173A;
+  --es-bg-2: #0B1D48;
+  --es-sunken: #061230;
+  --es-surface: #0F2557;
+  --es-raised: #16316E;
+  --es-line: #264A8E;
+  --es-line-strong: #3D63AD;
+  --es-text: #FBF6E4;
+  --es-text-2: #E3D7B4;
+  --es-muted: #A6B4D6;
+  --es-accent: #D8AC48;
+  --es-accent-2: #F0D58C;
+  --es-accent-ink: #1C1404;
+  --es-focus: #FFE08A;
+  --es-success: #62D69E;
+  --es-warning: #F4BC52;
+  --es-danger: #FF8580;
+  --es-c1: #D8AC48;
+  --es-c2: #8CC2FF;
+  --es-c3: #EADFC0;
+  --es-c4: #6AD3B4;
+  --es-c5: #FF9E78;
+  --es-t-s: #F4CC5E;
+  --es-t-a: #C4A2FF;
+  --es-t-b: #78C0FF;
+  --es-t-c: #7FD79B;
+  --es-t-d: #A0A7B8;
+  --es-t-ink: #0E1430;
+  --es-t-s-ring-hi: #FFF6D8;
+  --es-t-s-ring-lo: #7A5A14;
+  --es-q-poor: #A9AEBC;
+  --es-q-common: #FBF6E4;
+  --es-q-uncommon: #62D67D;
+  --es-q-rare: #6FBAFF;
+  --es-q-epic: #C89AFF;
+  --es-q-legendary: #FFA64A;
+  --es-hero-1: #1C3F8A;
+  --es-hero-2: #10275E;
+  --es-hero-3: #08173A;
+  --es-glow: rgba(234,223,192,0.12);
+  --es-glow-2: rgba(216,172,72,0.12);
+  --es-map-a: rgba(234,223,192,0.05);
+  --es-map-b: rgba(216,172,72,0.05);
+  --es-shadow: rgba(0,0,0,0.38);
+  --es-scrim: rgba(3,8,24,0.72);
+  --es-bevel-light: rgba(255,255,255,0.22);
+  --es-bevel-dark: rgba(0,0,0,0.14);
+  --es-swatch-edge: rgba(255,255,255,0.14);
+  --es-paper: #FBF6E4;
+  color-scheme: dark;
 }
 
-/* ---------- Horde ---------- */
+/* Horde — Dark crimson and charcoal, bronze/iron accents, a hint of ember orange. Logged-in perk. */
 [data-theme="horde"] {
-  --bg: #141113;
-  --bg-deep: #0c0a0b;
-  --surface-1: #1d1719;
-  --surface-2: #261d1f;
-  --surface-3: #312426;
-  --surface-bar: #110d0e;
-  --text-1: #f4ebe3;
-  --text-2: #d3c3b8;
-  --text-3: #a8968a;
-  --text-on-accent: #fff4ec;
-  --border: #3e2c2c;
-  --border-strong: #5a3d38;
-  --accent: #a3211f;
-  --accent-strong: #c22a26;
-  --accent-text: #e2a06a;
-  --accent-soft: #3a1a19;
-  --trim: #b07a45;
-  --highlight: #3b1716;
-  --highlight-text: #f4ebe3;
-  --focus: #f08a4b;
-  --link: #e9a86e;
-  --glow: #3a1314;
-  --texture-line: #1c1617;
-  --texture-line-2: #1a141500;
-  --emblem-ring: #b07a45;
-  --emblem-fill: #5c1514;
-  --emblem-mark: #f08a4b;
-
-  --success: #6cc68b;
-  --success-soft: #16301f;
-  --warning: #f0a24b;
-  --warning-soft: #3d2712;
-  --danger: #ff7d6e;
-  --danger-soft: #45191a;
-  --info: #a9b9d6;
-  --info-soft: #222631;
-
-  --state-soon: #e9a86e;
-  --state-soon-soft: #33231a;
-  --state-nodata: #a9b9d6;
-  --state-nodata-soft: #222631;
-  --state-nocoverage: #c2a8b8;
-  --state-nocoverage-soft: #2e2028;
-  --state-unranked: #d3c3b8;
-  --state-unranked-soft: #261d1f;
-
-  --tier-s-bg: #ff9733; --tier-s-fg: #1d0f00; --tier-s-ring: #ffd2a3;
-  --tier-a-bg: #b866f0; --tier-a-fg: #15041d; --tier-a-ring: #dcb7fb;
-  --tier-b-bg: #4ea4ff; --tier-b-fg: #03162b; --tier-b-ring: #b9dbff;
-  --tier-c-bg: #55d570; --tier-c-fg: #041f0e; --tier-c-ring: #bdf2c8;
-  --tier-d-bg: #bdb6b1; --tier-d-fg: #1a1614; --tier-d-ring: #ebe6e2;
-  --tier-none-bg: transparent; --tier-none-fg: #d3c3b8; --tier-none-ring: #5a3d38;
-
-  --shadow: 0 6px 24px #00000099;
+  --es-bg: #130F10;
+  --es-bg-2: #1A1213;
+  --es-sunken: #0D0A0B;
+  --es-surface: #1F1617;
+  --es-raised: #2B1C1D;
+  --es-line: #43292A;
+  --es-line-strong: #6A3C36;
+  --es-text: #F4EAE3;
+  --es-text-2: #D3BFB5;
+  --es-muted: #A08D86;
+  --es-accent: #D39650;
+  --es-accent-2: #E8B57A;
+  --es-accent-ink: #1A0E05;
+  --es-focus: #FF9D57;
+  --es-success: #6CCB8A;
+  --es-warning: #F0A845;
+  --es-danger: #FF6B5E;
+  --es-c1: #D39650;
+  --es-c2: #FF7A2E;
+  --es-c3: #7FB2E8;
+  --es-c4: #B9A0E8;
+  --es-c5: #79C79A;
+  --es-t-s: #FFBE4D;
+  --es-t-a: #C995FF;
+  --es-t-b: #6DB2F0;
+  --es-t-c: #85C979;
+  --es-t-d: #ABA39D;
+  --es-t-ink: #1A1012;
+  --es-t-s-ring-hi: #FFE2B8;
+  --es-t-s-ring-lo: #6E3E12;
+  --es-q-poor: #A59F9C;
+  --es-q-common: #F4EAE3;
+  --es-q-uncommon: #6CCB7E;
+  --es-q-rare: #6DB2F0;
+  --es-q-epic: #C995FF;
+  --es-q-legendary: #FF9A3A;
+  --es-hero-1: #5A1416;
+  --es-hero-2: #2A1314;
+  --es-hero-3: #130F10;
+  --es-glow: rgba(158,31,31,0.28);
+  --es-glow-2: rgba(255,122,46,0.10);
+  --es-map-a: rgba(201,138,68,0.05);
+  --es-map-b: rgba(255,122,46,0.04);
+  --es-shadow: rgba(0,0,0,0.45);
+  --es-scrim: rgba(8,4,5,0.75);
+  --es-bevel-light: rgba(255,255,255,0.20);
+  --es-bevel-dark: rgba(0,0,0,0.16);
+  --es-swatch-edge: rgba(255,255,255,0.14);
+  --es-paper: #F4EAE3;
+  color-scheme: dark;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root { --dur: 0ms; }
+/* Composites: identical formula per theme, re-resolved inside each [data-theme] subtree. */
+:root, [data-theme] {
+  --es-hero: radial-gradient(ellipse 70% 80% at 30% 40%, var(--es-hero-1) 0%, var(--es-hero-2) 55%, var(--es-hero-3) 100%);
+  --es-tier-s-ring: linear-gradient(160deg, var(--es-t-s-ring-hi), var(--es-accent) 45%, var(--es-t-s-ring-lo));
+  --es-tier-a-ring: linear-gradient(160deg, var(--es-accent-2), var(--es-accent));
+  --es-tier-b-ring: color-mix(in oklab, var(--es-text) 55%, var(--es-line-strong));
+  --es-gold-fill: linear-gradient(180deg, var(--es-accent-2), var(--es-accent));
+  --es-own-row: color-mix(in oklab, var(--es-accent) 13%, transparent);
+  --es-row-sep: color-mix(in oklab, var(--es-line) 55%, transparent);
+  --es-topbar-bg: color-mix(in oklab, var(--es-bg) 82%, transparent);
+  --es-footbar-bg: color-mix(in oklab, var(--es-bg) 70%, var(--es-sunken));
 }
