@@ -1,0 +1,72 @@
+/* Everstats layout corrections over the design's share-card kit (0.8.1).
+   The kit (server/cards/kit) stays the design's files byte for byte; the renderer loads this file after cards.css and
+   then runs cards-layout.js. Found by rendering every type x format x layout with real Blizzard renders and real
+   names (the 0.8.0 pass used fixtures with no render). Each rule says why it is here. */
+
+/* ---------------------------------------------------------------- the render panel
+   The render is cut to the figure on the server (images.js figureCrop); cards-layout.js sizes and places the figure
+   and the ring from the panel's own box. The kit's `.rframe img` also matched the gear icons inside the panel and
+   stacked them all in the middle: icons are plain tiles again. */
+.rframe > img { transform: none; object-fit: contain; max-width: none; }
+.rframe .ring { top: 50%; }
+.rframe .cgear img { position: static; left: auto; bottom: auto; transform: none; width: 100%; height: 100%; max-width: none; object-fit: cover; }
+
+/* the board card's thumbnail: head and shoulders of the cropped figure, not a zoom into empty space */
+.t-board .thumb img { transform: none; object-fit: cover; object-position: center top; }
+
+/* ---------------------------------------------------------------- footer: its own band, inside the frame
+   The kit's footer ran under the gold frame (the credit touched its bottom edge on wide, the wordmark sat on the
+   frame line on story). It now sits within the frame's inner edge, with padding of its own. */
+.card-foot { box-sizing: border-box; height: auto; min-height: var(--c-foot-h);
+  margin: 0 calc(var(--es-card-inner-inset) + var(--es-border-2)) calc(var(--es-card-inner-inset) + var(--es-border-2));
+  padding: calc(var(--c-foot) * 0.7) calc(var(--c-safe) - var(--es-card-inner-inset));
+  border-radius: 0 0 calc(var(--es-card-panel-radius) - var(--es-border-2)) calc(var(--es-card-panel-radius) - var(--es-border-2)); }
+.card-foot .info { gap: calc(var(--c-foot) * 0.3); }
+.fmt-wide .card-foot { padding-top: calc(var(--c-foot) * 0.5); padding-bottom: calc(var(--c-foot) * 0.5); }
+.fmt-story .card-foot { gap: calc(var(--c-foot) * 0.6); padding-top: var(--c-foot); padding-bottom: var(--c-foot); }
+.fmt-story .card-foot .info { gap: calc(var(--c-foot) * 0.35); }
+.recruit { margin: 0 calc(var(--es-card-inner-inset) + var(--es-border-2)); }
+
+/* ---------------------------------------------------------------- tiles: no unfinished last row
+   cards-layout.js gives each tile its width: 1–3 tiles share the row, 4 → 2 + 2, 5 → 3 + 2 centred, 8 → 4 + 4. */
+.card .stats, .card .cats, .t-guild .totals { display: flex; flex-wrap: wrap; justify-content: center; align-content: start; --max-cols: 3; }
+.card .cats { --max-cols: 5; }
+.fmt-story.t-tier.v-a .cats { --max-cols: 2; }
+.t-guild .totals { --max-cols: 2; }
+.fmt-square.t-guild .totals, .fmt-wide.t-guild .totals { --max-cols: 4; }
+.card .stats[data-n="1"] .stat { align-items: center; text-align: center; }
+
+/* ---------------------------------------------------------------- tier label: one line each */
+.tierbox .pct b, .tierbox .pct span { white-space: nowrap; }
+.fmt-wide.t-char.v-a .body { grid-template-columns: calc(var(--c-w) * 0.26) minmax(0, 1fr) auto; }
+.fmt-wide.t-char.v-a .a-t { align-self: start; }
+
+/* ---------------------------------------------------------------- names (cards-layout.js decides one or two lines) */
+.cname.one[data-fit] > span { display: inline !important; }
+.cname.two[data-fit] > span { display: block !important; }
+
+/* ---------------------------------------------------------------- square character A: spare height goes to the render
+   (the kit gave it to the statistics row, so one to three statistics left the bottom half of the card empty) */
+.fmt-square.t-char.v-a .body { grid-template-rows: auto minmax(0, 1fr) auto; }
+.fmt-square.t-char.v-a .a-t { align-self: end; }
+
+/* story guild: the content sits in the middle of the card instead of leaving its bottom third empty */
+.fmt-story.t-guild .body { align-content: center; }
+
+/* ---------------------------------------------------------------- story character: the render is the hero
+   The kit gave it whatever was left (a short strip). Now at least 40% of the card's height, and it takes any space
+   the rest doesn't need. Layout A puts the tier box beside the level / guild / badge lines (the ident box's children
+   become grid items) so everything fits under a tall render; six statistics are two rows of three. */
+.fmt-story.t-char.v-a .body { grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(calc(var(--c-h) * 0.4), 1fr) auto auto auto auto auto auto;
+  grid-template-areas: "r r" "tg tg" "nm nm" "m1 t" "m2 t" "bd t" "s s"; row-gap: calc(var(--c-gap) * 0.3); column-gap: var(--c-gap); }
+.fmt-story.t-char.v-a .a-i { display: contents; }
+.fmt-story.t-char.v-a .a-i > .tagrow { grid-area: tg; margin-top: calc(var(--c-gap) * 0.5); }
+.fmt-story.t-char.v-a .a-i > .cname { grid-area: nm; }
+.fmt-story.t-char.v-a .a-i > span:nth-of-type(1) { grid-area: m1; }
+.fmt-story.t-char.v-a .a-i > span:nth-of-type(2) { grid-area: m2; }
+.fmt-story.t-char.v-a .a-i > span:nth-of-type(3) { grid-area: bd; }
+.fmt-story.t-char.v-a .a-t { grid-area: t; align-self: center; }
+.fmt-story.t-char.v-a .a-s { margin-top: calc(var(--c-gap) * 0.6); }
+.fmt-story.t-char.v-b .body { grid-template-rows: auto minmax(calc(var(--c-h) * 0.4), 1fr) auto; }
+.fmt-story.t-char .stat { padding: calc(var(--c-gap) * 0.45) calc(var(--c-gap) * 0.5); }

@@ -24,6 +24,18 @@ import { CARD_TYPES, FORMATS } from './catalog.js';
  */
 export const KIT = resolve(import.meta.dirname, 'kit');
 const CARDS_DIR = resolve(KIT, 'v3-share-cards', 'cards');
+/**
+ * Everstats' own layout pass over the kit (0.8.1, server/cards/layout): a stylesheet loaded after the kit's and a
+ * script run once fill.js is done. The kit stays the design's files; these two are ours. LAYOUT_VERSION is part of
+ * every image cache key and link-preview version, so a layout change never serves an old picture.
+ */
+const LAYOUT_DIR = resolve(import.meta.dirname, 'layout');
+const LAYOUT_PATH = '/everstats-layout/';
+export const LAYOUT_VERSION = 2;
+const LAYOUT_TAGS = {
+  css: `<link rel="stylesheet" href="${LAYOUT_PATH}cards-layout.css">`,
+  js: `<script src="${LAYOUT_PATH}cards-layout.js"></script>`,
+};
 export const CARD_ORIGIN = 'https://card.everstats.invalid';
 export const RENDER_TIMEOUT_MS = 20_000;
 export const IDLE_CLOSE_MS = 5 * 60 * 1000;
@@ -43,14 +55,21 @@ export class RendererBusy extends Error {
   }
 }
 
-/** A kit file for a request path, or null (never anything outside the kit). */
+/** A kit (or layout) file for a request path, or null (never anything outside those two folders). */
 async function kitFile(pathname) {
-  const file = resolve(KIT, `.${decodeURIComponent(pathname)}`);
-  if (!file.startsWith(KIT + sep)) return null;
+  const ours = pathname.startsWith(LAYOUT_PATH);
+  const root = ours ? LAYOUT_DIR : KIT;
+  const file = resolve(root, `.${decodeURIComponent(ours ? pathname.slice(LAYOUT_PATH.length - 1) : pathname)}`);
+  if (!file.startsWith(root + sep)) return null;
   const type = TYPES[extname(file)];
   if (!type) return null;
   try {
-    return { body: await readFile(file), type };
+    let body = await readFile(file);
+    // A template: our stylesheet after the kit's, our script after fill.js.
+    if (!ours && extname(file) === '.html') {
+      body = Buffer.from(String(body).replace('</head>', `${LAYOUT_TAGS.css}</head>`).replace('</body>', `${LAYOUT_TAGS.js}</body>`));
+    }
+    return { body, type };
   } catch {
     return null;
   }
@@ -146,6 +165,7 @@ export function createCardRenderer({ maxConcurrent = () => 2, maxQueue = 8, laun
       });
       await page.goto(`${CARD_ORIGIN}/v3-share-cards/cards/${template}`, { timeout: RENDER_TIMEOUT_MS, waitUntil: 'load' });
       await page.waitForSelector('html[data-ready="1"]', { timeout: RENDER_TIMEOUT_MS, state: 'attached' });
+      if (!(await page.evaluate(() => typeof window.everstatsLayout === 'function' && window.everstatsLayout()))) throw new Error('the layout pass did not run');
       // The card's own box, as a page screenshot: no scrolling or 'stable element' waits (fill.js has finished by now).
       const box = await page.locator('[data-card]').boundingBox({ timeout: RENDER_TIMEOUT_MS });
       if (!box) throw new Error('the card has no box');

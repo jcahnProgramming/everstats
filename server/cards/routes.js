@@ -13,7 +13,7 @@ import { guildBadgesView } from '../guildBadges/view.js';
 import { guildPeriodStart } from '../stats/guildBoards.js';
 import { ACCENTS, BOARD_PERIODS, CARD_TYPES, FORMATS, MAX_STATS, THEMES, THEME_LABELS, cleanOptions, defaultOptions, decodeOptions, optionsKey, statsShown } from './catalog.js';
 import { buildCard, characterStatChoices, defaultStatIds, periodLabel } from './data.js';
-import { fetchImages } from './images.js';
+import { fetchImages, fetchRender } from './images.js';
 import { RendererBusy } from './render.js';
 import { cacheKey, cachedImage, previewOptions, saveDefault, savedDefault, storeImage } from './store.js';
 
@@ -92,12 +92,12 @@ export const clearCardMemo = () => memo.clear();
 
 /** Blizzard's images in the data → data: URIs (images.js). A render that can't be fetched → the crest version. */
 async function withImages(data, fetch) {
-  const urls = [data.render, ...(data.gear ?? []).map((g) => g.icon)].filter(Boolean);
-  if (!urls.length) return data;
-  const got = await fetchImages(urls, { fetch });
+  const urls = (data.gear ?? []).map((g) => g.icon).filter(Boolean);
+  if (!urls.length && !data.render) return data;
+  const [got, render] = await Promise.all([fetchImages(urls, { fetch }), data.render ? fetchRender(data.render, { fetch }) : null]);
   return {
     ...data,
-    render: data.render ? got.get(data.render) ?? null : data.render,
+    render: data.render ? render ?? null : data.render,
     ...(data.gear ? { gear: data.gear.map((g) => ({ ...g, icon: g.icon ? got.get(g.icon) ?? null : null })) } : {}),
   };
 }

@@ -53,6 +53,64 @@ export async function fetchImage(url, { fetch = globalThis.fetch, now = Date.now
   return value;
 }
 
+/**
+ * The character render, cropped to the figure (0.8.1). Blizzard's main-raw is a 1600×1200 landscape PNG with the figure
+ * in the middle and most of the picture transparent: a dwarf fills less than half its height. The card's render panel
+ * sizes the figure from the panel (layout/cards-layout.js), so the image handed to Chromium is cut to the figure's own
+ * outline (every pixel more than ALPHA_MIN opaque) plus a little air. Measured on live renders (2026-11-09): figures
+ * span 46–56% of the height, feet at ~82%. An image with no transparency, or nothing opaque, is passed on uncropped.
+ */
+export const ALPHA_MIN = 24;
+const PAD = { top: 0.04, side: 0.03, bottom: 0.015 };
+const figureCache = new Map(); // url → { at, value }
+
+export async function figureCrop(dataUri) {
+  if (!dataUri) return null;
+  const comma = dataUri.indexOf(',');
+  const buf = Buffer.from(dataUri.slice(comma + 1), 'base64');
+  try {
+    const { default: sharp } = await import('sharp');
+    const meta = await sharp(buf).metadata();
+    if (!meta.hasAlpha || !meta.width || !meta.height) return dataUri;
+    const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const { width: w, height: h, channels } = info;
+    let x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (let y = 0; y < h; y++) {
+      const row = y * w * channels;
+      for (let x = 0; x < w; x++) {
+        if (data[row + x * channels + 3] > ALPHA_MIN) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          y1 = y;
+        }
+      }
+    }
+    if (x1 < 0) return dataUri;
+    const fh = y1 - y0 + 1;
+    const left = Math.max(0, Math.floor(x0 - fh * PAD.side));
+    const top = Math.max(0, Math.floor(y0 - fh * PAD.top));
+    const right = Math.min(w, Math.ceil(x1 + 1 + fh * PAD.side));
+    const bottom = Math.min(h, Math.ceil(y1 + 1 + fh * PAD.bottom));
+    const out = await sharp(buf).extract({ left, top, width: right - left, height: bottom - top }).png().toBuffer();
+    return `data:image/png;base64,${out.toString('base64')}`;
+  } catch {
+    return dataUri;
+  }
+}
+
+/** fetchImage + figureCrop, cached like fetchImage. */
+export async function fetchRender(url, opts = {}) {
+  const now = opts.now ?? Date.now;
+  const hit = figureCache.get(url);
+  if (hit && now() - hit.at < CACHE_MS) return hit.value;
+  const value = await figureCrop(await fetchImage(url, opts));
+  figureCache.delete(url);
+  figureCache.set(url, { at: now(), value });
+  while (figureCache.size > MAX_CACHED / 4) figureCache.delete(figureCache.keys().next().value);
+  return value;
+}
+
 /** Many at once (a gear strip), at most 6 in flight. → Map(url → data URI | null) */
 export async function fetchImages(urls, opts) {
   const list = [...new Set(urls.filter(Boolean))];
@@ -68,4 +126,7 @@ export async function fetchImages(urls, opts) {
   return out;
 }
 
-export const clearImageCache = () => cache.clear();
+export const clearImageCache = () => {
+  cache.clear();
+  figureCache.clear();
+};

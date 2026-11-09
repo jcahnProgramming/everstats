@@ -5,6 +5,7 @@ import { config } from '../core/config.js';
 import { parseGuildSlug, parseSlug } from '../stats/slug.js';
 import { loadCatalog } from '../stats/catalog.js';
 import { ogPath } from './routes.js';
+import { LAYOUT_VERSION } from './render.js';
 
 /**
  * Link previews (0.8.0). Discord, Reddit and X read Open Graph / Twitter tags from the HTML and never run our
@@ -27,7 +28,7 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 async function version(db, kind, id) {
   const saved = id ? await db.one('SELECT saved_at FROM share_card_defaults WHERE kind = $1 AND subject_id = $2', [kind, id]) : null;
   const day = new Date().toISOString().slice(0, 10);
-  return createHash('sha256').update(`${day}|${saved?.saved_at?.toISOString?.() ?? ''}`).digest('base64url').slice(0, 10);
+  return createHash('sha256').update(`${day}|${saved?.saved_at?.toISOString?.() ?? ''}|layout ${LAYOUT_VERSION}`).digest('base64url').slice(0, 10);
 }
 
 async function characterMeta(db, slug, kind) {

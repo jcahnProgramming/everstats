@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { cleanOptions, defaultOptions } from './catalog.js';
+import { LAYOUT_VERSION } from './render.js';
 
 /**
  * Share cards in the database (0.8.0).
@@ -44,7 +45,7 @@ export async function saveDefault(q, { kind, subjectId, options, accountId }) {
 
 /** The cache key: everything that decides the pixels. */
 export function cacheKey({ type, template, data }) {
-  return createHash('sha256').update(JSON.stringify([2, type, template, data])).digest('base64url');
+  return createHash('sha256').update(JSON.stringify([2, LAYOUT_VERSION, type, template, data])).digest('base64url');
 }
 
 export async function cachedImage(db, key) {
