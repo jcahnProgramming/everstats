@@ -96,6 +96,37 @@ export function planPrune(backups, { now = Date.now(), nightly = BACKUP_KEEP_NIG
   return out;
 }
 
+/**
+ * 0.10.3 (read only, Admin › Data › Backups): WHY each backup is kept, by the same rule as planPrune, for file names
+ * the web app knows from backup_runs (it can't see the folder: only the worker has BACKUP_DIR).
+ *   backups: [{ name, takenAt (ms) }] → Map name → 'nightly' | 'monthly' | 'nightly+monthly' | 'legacy' (a pre-0.5.0
+ *   dump still inside its days) | 'goes' (the rule deletes it at the next prune) | null (not a backup file name)
+ */
+export function keepReasons(backups, { now = Date.now(), nightly = BACKUP_KEEP_NIGHTLY, monthly = BACKUP_KEEP_MONTHLY, legacyKeepMs = LEGACY_BACKUP_KEEP_DAYS * DAY_MS } = {}) {
+  const parsed = backups.map((b) => {
+    const ours = NAME.exec(b.name ?? '');
+    const legacy = ours ? null : LEGACY_NAME.exec(b.name ?? '');
+    return { name: b.name, date: (ours ?? legacy)?.[1] ?? null, legacy: Boolean(legacy), takenAt: b.takenAt ?? null };
+  });
+  const goes = new Set(planPrune(parsed.filter((b) => b.date).map((b) => ({ ...b, takenAt: b.takenAt ?? Date.parse(`${b.date}T00:00:00Z`) })), { now, nightly, monthly, legacyKeepMs }));
+  const ours = parsed.filter((b) => b.date && !b.legacy).sort((a, b) => (a.date < b.date ? 1 : -1));
+  const newest = new Set(ours.slice(0, nightly).map((b) => b.name));
+  const firsts = new Set();
+  if (monthly) {
+    const first = new Map();
+    for (const b of ours) if (!first.has(b.date.slice(0, 7)) || b.date < first.get(b.date.slice(0, 7)).date) first.set(b.date.slice(0, 7), b);
+    for (const b of first.values()) firsts.add(b.name);
+  }
+  return new Map(parsed.map((b) => {
+    if (!b.date) return [b.name, null];
+    if (goes.has(b.name)) return [b.name, 'goes'];
+    if (b.legacy) return [b.name, 'legacy'];
+    const n = newest.has(b.name);
+    const m = firsts.has(b.name);
+    return [b.name, n && m ? 'nightly+monthly' : n ? 'nightly' : m ? 'monthly' : 'goes'];
+  }));
+}
+
 /** Deletes backups the rule says go. → the names removed. (The hourly retention sweep calls this; so does a backup.) */
 export function pruneBackups(dir, { now = Date.now() } = {}) {
   const removed = planPrune(listBackups(dir), { now });

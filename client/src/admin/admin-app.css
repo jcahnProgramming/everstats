@@ -1,0 +1,28 @@
+/* Admin additions and overrides on top of theme/admin.css (design/v5-admin, VERBATIM). Tokens only, like every
+   stylesheet outside tokens.css. Loaded with the admin chunk only. */
+.adm .contents { display: contents; }
+.menu-scrim { display: none; }
+.adm-loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: var(--es-space-24); background: var(--es-bg); }
+.adm .nitem.signout { width: 100%; background: none; cursor: pointer; font: inherit; font-weight: var(--es-weight-medium); font-size: var(--es-fs-13-5); }
+.adm .vmenu .vopt { width: 100%; background: none; border: 0; text-align: left; cursor: pointer; font: inherit; }
+.adm .vmenu .vs-note { padding: var(--es-space-4) var(--es-space-8); }
+.adm .auto-list { left: auto; right: 0; width: auto; min-width: var(--es-size-col-min-xs); }
+.adm .amain > .env-bar { position: sticky; top: 0; }
+.adm .tabs a[role="tab"] { text-decoration: none; }
+.adm .brand { display: inline-flex; align-items: center; gap: var(--es-space-8); text-decoration: none; color: var(--es-text); }
+/* The public wordmark's tracking and size don't fit the 244px rail beside the ADMIN tag and the collapse button. */
+.adm .aside .brandrow { gap: var(--es-space-6); padding: 0 var(--es-space-8) 0 var(--es-space-12); }
+.adm .aside .brand { letter-spacing: normal; gap: var(--es-space-8); font-size: var(--es-fs-15); }
+.adm .aside .brand svg { width: var(--es-size-icon-lg); height: var(--es-size-icon-lg); }
+/* Narrow desktops (720–1279px): the search shrinks first and the refresh control keeps its place. */
+.adm .atop { min-width: 0; }
+.adm .asearch { min-width: var(--es-space-120); }
+.adm .asearch .search { min-width: 0; }
+@media (max-width: 1279px) and (min-width: 720px) {
+  .adm .rfx .btn .only-desk { display: none; }
+  .adm .atop { gap: var(--es-space-8); padding: 0 var(--es-space-16); }
+}
+.adm .aside .collapse { min-width: 0; width: var(--es-size-control-sm); padding: 0; flex: none; }
+@media (max-width: 719px) { .adm .inpage nav { scrollbar-width: none; } }
+.adm .nitem.signout { text-align: left; justify-content: flex-start; }
+@media (max-width: 719px) { .adm .chip { white-space: normal; height: auto; min-height: var(--es-space-22); padding-top: var(--es-space-2); padding-bottom: var(--es-space-2); line-height: var(--es-lh-snug); } }

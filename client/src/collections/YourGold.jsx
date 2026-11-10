@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { formatDate } from '../format.js';
 import { formatMoney } from './parts.jsx';
+import { SwitchedOff } from '../components/SwitchedOff.jsx';
 
 /**
  * The dashboard's "Your gold" (0.9.0): private to the owner. Read from Blizzard at each Battle.net sign-in (only the
@@ -18,6 +19,15 @@ export function YourGold() {
       live = false;
     };
   }, []);
+  // 0.10.3: gold switched off: an owner Everstats has gold for is told so; nobody else sees anything.
+  if (data?.off) {
+    return (
+      <section className="panel pad-16 stack gap-10" aria-labelledby="gold-h">
+        <h2 className="h3" id="gold-h">Your gold</h2>
+        <SwitchedOff compact>{data.message}</SwitchedOff>
+      </section>
+    );
+  }
   if (!data?.characters?.length) return null;
   return (
     <section className="panel clip" aria-labelledby="gold-h">

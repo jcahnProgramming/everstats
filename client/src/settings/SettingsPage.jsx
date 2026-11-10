@@ -12,6 +12,7 @@ import { formatDate, formatShortDate } from '../format.js';
 import { providerNames, startProvider } from '../pages/SignInPages.jsx';
 import { passkeyRegister, passkeySignIn, passkeysSupported, wasCancelled } from '../passkeyClient.js';
 import { useSession } from '../session.jsx';
+import { OFF_WORDS, providerUsable } from '../features.js';
 import { UsernameClaim } from '../components/UsernameClaim.jsx';
 import { BadgesSection, YourGuildsSection } from './BadgesSection.jsx';
 
@@ -522,9 +523,9 @@ function MethodsSection({ account, providers, onChange }) {
           <div key={p.id} className="listrow">
             <span className="provider-ico"><Icon name="provider-account" size="md" /></span>
             <span className="stack grow-col"><b>{p.label}</b><span className="muted xsmall">Not linked</span></span>
-            {p.configured
+            {providerUsable(p)
               ? <button type="button" className="btn sm" onClick={() => link(p.id)}>Link {p.label}</button>
-              : <span className="tag">Not configured</span>}
+              : <span className="tag">{p.configured ? OFF_WORDS.discord : 'Not configured'}</span>}
           </div>
         ))}
         <div className="listrow passkey-row">
@@ -869,7 +870,7 @@ function MergeSection({ account, providers }) {
       if (!wasCancelled(err)) setProblem(err.message);
     }
   };
-  const configured = providers.filter((p) => p.configured);
+  const configured = providers.filter(providerUsable);
   return (
     <section id="merge" className="panel pad-24 stack gap-16" aria-labelledby="merge-h">
       <div className="stack gap-4">

@@ -44,16 +44,9 @@ const TITLES = [
   [/^\/banned\/?$/, 'Account suspended'],
   [/^\/admin\/sign-in\/?$/, 'Admin sign-in'],
   [/^\/admin\/enroll\/?$/, 'Admin enrolment'],
-  [/^\/admin\/discovery\/?$/, 'Discovery · Admin'],
-  [/^\/admin\/tiers\/?$/, 'Tiers · Admin'],
-  [/^\/admin\/badges\/?$/, 'Badges · Admin'],
-  [/^\/admin\/guild-badges\/?$/, 'Guild badges · Admin'],
-  [/^\/admin\/guild-links\/?$/, 'Guild links · Admin'],
-  [/^\/admin\/feedback\/?$/, 'Feedback · Admin'],
-  [/^\/admin\/accounts\/[^/]+\/?$/, 'Account · Admin'],
-  [/^\/admin\/accounts\/?$/, 'Accounts · Admin'],
-  [/^\/admin\/reports\/?$/, 'Reports · Admin'],
-  [/^\/admin\/?$/, 'Admin'],
+  // 0.10.3: every other admin address is the v5 admin shell, which names each page from its own registry
+  // (client/src/admin/shell/nav.js PAGES) once it loads, e.g. "Tiers · Admin".
+  [/^\/admin(\/.*)?$/, 'Admin'],
 ];
 
 /** The fixed title of a path: a string, null (the home page: the site's name alone), or undefined (no entry: Not found). */

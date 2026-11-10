@@ -5,6 +5,7 @@ import { HttpError, route } from '../core/errors.js';
 import { limitBy } from '../core/rateLimit.js';
 import { parseGuildSlug } from '../stats/slug.js';
 import { MAX_LINKS, checkDescription, checkInvite, checkLabel, checkUrl, inviteUrl } from './links.js';
+import { featureOn } from '../features/registry.js';
 
 /**
  * Guild page management (0.7.0). Who may edit a guild's page on Everstats:
@@ -164,6 +165,8 @@ export function createGuildManageRouter({ db, limits, networkOf }) {
 
   // Anyone (signed in or not) can report a link; it goes to the admin's queue. Rate-limited per network.
   r.post('/guilds/:slug/links/:id/report', reports, route(async (req, res) => {
+    // 0.10.3: the Player reports switch (features/registry.js 'reports')
+    if (!(await featureOn(db, 'reports'))) throw new HttpError(503, 'Reporting is switched off for now.', 'feature_off');
     const g = await guildOf(db, req.params.slug);
     const id = Number(req.params.id);
     const link = Number.isSafeInteger(id) ? await db.one('SELECT id FROM guild_links WHERE id = $1 AND guild_id = $2 AND removed_at IS NULL', [id, g.id]) : null;
@@ -293,19 +296,19 @@ export function createAdminGuildLinksRouter({ db, writes }) {
 
   r.get('/guild-links', route(async (req, res) => {
     const reportsOpen = await db.query(
-      `SELECT r.id, r.reported_at, r.note, l.id AS link_id, l.label, l.url, l.host, l.removed_at, g.slug, g.name,
+      `SELECT r.id, r.reported_at, r.note, l.id AS link_id, l.label, l.url, l.host, l.removed_at, r.guild_id, g.slug, g.name,
               (SELECT count(*)::int FROM guild_link_reports x WHERE x.link_id = l.id AND x.state = 'open') AS open_for_link
          FROM guild_link_reports r JOIN guild_links l ON l.id = r.link_id LEFT JOIN guilds g ON g.id = r.guild_id
         WHERE r.state = 'open' ORDER BY r.reported_at LIMIT 200`,
     );
     const recent = await db.query(
-      `SELECT l.id, l.label, l.url, l.host, l.created_at, l.removed_at, l.removed_by, g.slug, g.name
+      `SELECT l.id, l.guild_id, l.label, l.url, l.host, l.created_at, l.removed_at, l.removed_by, g.slug, g.name
          FROM guild_links l LEFT JOIN guilds g ON g.id = l.guild_id ORDER BY l.created_at DESC LIMIT 100`,
     );
     const blocked = await db.query('SELECT host, note, added_at FROM link_blocklist ORDER BY host LIMIT 5000');
     res.json({
-      reports: reportsOpen.map((x) => ({ id: x.id, at: x.reported_at, note: x.note, link: { id: x.link_id, label: x.label, url: x.url, host: x.host, removed: Boolean(x.removed_at) }, guild: x.slug ? { slug: x.slug, name: x.name } : null })),
-      recent: recent.map((x) => ({ id: x.id, label: x.label, url: x.url, host: x.host, createdAt: x.created_at, removedAt: x.removed_at, removedBy: x.removed_by, guild: x.slug ? { slug: x.slug, name: x.name } : null })),
+      reports: reportsOpen.map((x) => ({ id: x.id, at: x.reported_at, note: x.note, link: { id: x.link_id, label: x.label, url: x.url, host: x.host, removed: Boolean(x.removed_at) }, guildId: Number(x.guild_id), guild: x.slug ? { id: Number(x.guild_id), slug: x.slug, name: x.name } : null })),
+      recent: recent.map((x) => ({ id: x.id, label: x.label, url: x.url, host: x.host, createdAt: x.created_at, removedAt: x.removed_at, removedBy: x.removed_by, guildId: Number(x.guild_id), guild: x.slug ? { id: Number(x.guild_id), slug: x.slug, name: x.name } : null })),
       blocklist: blocked.map((b) => ({ host: b.host, note: b.note, addedAt: b.added_at })),
     });
   }));

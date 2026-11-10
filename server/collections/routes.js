@@ -10,6 +10,7 @@ import { COLLECTIONS_STALE_MS, queueCollections } from './fetch.js';
 import { GOLD_FIELDS, goldBoard, goldFor, setGoldPublic } from './gold.js';
 import { kindById } from './registry.js';
 import { collectionSection, collectionsOverview } from './view.js';
+import { featureOn } from '../features/registry.js';
 
 /**
  * Collections and gold (0.9.0).
@@ -23,7 +24,13 @@ import { collectionSection, collectionsOverview } from './view.js';
  *   PUT  /api/account/characters/:id/gold-public      the owner's "Show my gold stats publicly"
  *   GET  /api/gold-boards?ruleset=                    which gold boards exist, with counts
  *   GET  /api/gold-boards/:ruleset/:field             one gold board (opted-in characters only)
+ *
+ * 0.10.3, the feature switches (features/registry.js): Collections off → the tab answers { status: 'off' } (no refresh is
+ * queued), a section and Refresh answer 503 feature_off. Gold off → no gold in the tab (the owner is told it is
+ * switched off), "Your gold" and the gold boards say so, the public toggle is refused. Nothing stored is deleted.
  */
+const COLLECTIONS_OFF = 'Collections are switched off for now.';
+const GOLD_OFF = 'Gold is switched off for now.';
 const SECTION_KINDS = new Set([...kindById.keys(), 'legacy']);
 
 export function createCollectionsRouter({ db, limits, networkOf }) {
@@ -60,6 +67,7 @@ export function createCollectionsRouter({ db, limits, networkOf }) {
   r.get('/characters/:slug/collections', route(async (req, res) => {
     const c = await character(req);
     if (c.status !== 'ok') return res.json(c);
+    if (!(await featureOn(db, 'collections'))) return res.json({ status: 'off', message: COLLECTIONS_OFF });
     const stale = !c.row.collections_fetched_at || Date.now() - new Date(c.row.collections_fetched_at).getTime() > COLLECTIONS_STALE_MS;
     const refreshNote = stale ? await refresh(req, c.row) : (await pending(c.row.slug)) ? 'pending' : null;
     res.json({
@@ -73,6 +81,7 @@ export function createCollectionsRouter({ db, limits, networkOf }) {
   }));
 
   r.post('/characters/:slug/collections/refresh', route(async (req, res) => {
+    if (!(await featureOn(db, 'collections'))) throw new HttpError(503, COLLECTIONS_OFF, 'feature_off');
     const c = await character(req);
     if (c.status !== 'ok') throw new HttpError(404, 'Everstats doesn’t track that character.', 'not_found');
     const out = await refresh(req, c.row);
@@ -86,6 +95,7 @@ export function createCollectionsRouter({ db, limits, networkOf }) {
 
   r.get('/characters/:slug/collections/:kind', route(async (req, res) => {
     if (!SECTION_KINDS.has(req.params.kind)) throw new HttpError(404, 'Not found');
+    if (!(await featureOn(db, 'collections'))) throw new HttpError(503, COLLECTIONS_OFF, 'feature_off');
     const c = await character(req);
     if (c.status !== 'ok') return res.json(c);
     const q = { q: typeof req.query.q === 'string' ? req.query.q : '', cursor: req.query.cursor, slot: typeof req.query.slot === 'string' && /^[A-Z0-9_]{1,30}$/.test(req.query.slot) ? req.query.slot : null };
@@ -95,6 +105,7 @@ export function createCollectionsRouter({ db, limits, networkOf }) {
   r.put('/account/characters/:id/gold-public', route(async (req, res) => {
     const viewer = viewerOf(req);
     if (!viewer) throw new HttpError(401, 'Sign in first.', 'signed_out');
+    if (!(await featureOn(db, 'gold'))) throw new HttpError(503, GOLD_OFF, 'feature_off');
     if (!limits.writes.take(networkOf(req))) throw new HttpError(429, 'Too many changes. Wait a little.', 'rate_limited');
     const id = Number(req.params.id);
     if (!Number.isSafeInteger(id)) throw new HttpError(404, 'Not found');
@@ -109,6 +120,11 @@ export function createCollectionsRouter({ db, limits, networkOf }) {
   r.get('/account/gold', route(async (req, res) => {
     const viewer = viewerOf(req);
     if (!viewer) throw new HttpError(401, 'Sign in first.', 'signed_out');
+    if (!(await featureOn(db, 'gold'))) {
+      // Said only to an owner Everstats has gold for: everyone else never saw the panel.
+      const has = await db.one('SELECT 1 AS x FROM character_gold WHERE account_id = $1 LIMIT 1', [viewer]);
+      return res.json({ off: Boolean(has), message: GOLD_OFF, characters: [] });
+    }
     const rows = await db.query(
       `SELECT c.id, c.slug, c.name, c.surname, g.money, g.gold_gained, g.gold_lost, g.item_value_gained, g.fetched_at,
               EXISTS (SELECT 1 FROM character_gold_public p WHERE p.character_id = c.id AND p.account_id = $1) AS public
@@ -122,6 +138,7 @@ export function createCollectionsRouter({ db, limits, networkOf }) {
 
   r.get('/gold-boards', route(async (req, res) => {
     const rulesets = await rulesetList(db);
+    if (!(await featureOn(db, 'gold'))) return res.json({ off: true, message: GOLD_OFF, rulesets, ruleset: null, boards: [] });
     const asked = req.query.ruleset !== undefined ? Number(req.query.ruleset) : null;
     const ruleset = rulesets.find((x) => x.id === asked) ?? [...rulesets].sort((a, b) => b.tracked - a.tracked)[0] ?? null;
     if (!ruleset) return res.json({ rulesets, ruleset: null, boards: [] });
@@ -134,6 +151,7 @@ export function createCollectionsRouter({ db, limits, networkOf }) {
   }));
 
   r.get('/gold-boards/:ruleset/:field', route(async (req, res) => {
+    if (!(await featureOn(db, 'gold'))) throw new HttpError(503, GOLD_OFF, 'feature_off');
     const rulesetId = Number(req.params.ruleset);
     const rulesets = await rulesetList(db);
     const ruleset = rulesets.find((x) => x.id === rulesetId);

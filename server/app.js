@@ -29,6 +29,9 @@ import { versionApiGate, versionPageGate } from './core/versionRoutes.js';
 import { createCollectionsRouter } from './collections/routes.js';
 import { createFollowRouter } from './guilds/follow.js';
 import { getSetting } from './admin/settings.js';
+import { createDevTesterEndpoint, DEV_TESTER_PATH } from './devgate/endpoint.js';
+import { createDevGate } from './devgate/gate.js';
+import { createMaintenanceRouter } from './release/maintenance.js';
 
 /**
  * The web app (API + built client), without listening. index.js starts it; tests build it with their own database,
@@ -91,10 +94,19 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
     res.set('Cache-Control', 'no-store');
     next();
   });
+  // 0.10.3: the dev tester question (devgate/endpoint.js), production only, off unless DEV_TESTER_SECRET is set. The ONE
+  // path mounted before the CSRF Origin check: it carries no cookies and reads no session; the shared secret is its
+  // authentication. Every other /api write still needs Origin (server/test/devgate.test.js checks both).
+  app.post(DEV_TESTER_PATH, createDevTesterEndpoint({ db, limits, networkOf, environment }));
   app.use('/api', requireSameOrigin(config.publicOrigin));
   // 0.10.0: /api/v/{version}/{region}/… (core/versionRoutes.js): nothing is served there before 0.11.0.
   app.use('/api', versionApiGate());
   app.use(loadSession(db));
+  // 0.10.3: the dev tester gate (devgate/gate.js): on the dev site with its Features switch on, every page and API but
+  // sign-in, static files and /api/health needs a signed-in tester (production says who) or dev's admin. Off: nothing.
+  const devGate = createDevGate({ db, environment, fetch, now });
+  app.use(devGate.middleware);
+  app.get('/api/dev-gate', devGate.route);
 
   // The theme, applied before first paint by a blocking <script> in index.html. Logged-out visitors (and a half
   // signed-in 2FA session) ALWAYS get Forever; the account's choice is stored on the account, never in the browser.
@@ -110,6 +122,8 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
     res.type('application/javascript').send(`document.documentElement.setAttribute('data-theme','${theme}');\n${env}`);
   }));
 
+  // 0.10.3: the maintenance banner players see (release/maintenance.js; set from Admin → Release tools). Public.
+  app.use('/api', createMaintenanceRouter({ db }));
   // Character lookups, leaderboards, the statistics catalog, coverage and the beta (characters/routes.js).
   app.use('/api', createPublicRouter({ db, limits, networkOf }));
   // Guild pages, guild boards, the guild index and search (guilds/routes.js, 0.5.0).

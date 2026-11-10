@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { formatDateTime, formatNumber, timeAgo } from '../format.js';
+import { SwitchedOff } from '../components/SwitchedOff.jsx';
+import { OFF_WORDS } from '../features.js';
 
 /**
  * "Fetch all members" (0.9.0, server/guilds/fetchAll.js): pulls a whole guild in now instead of the few members a day
@@ -86,7 +88,10 @@ export function GuildFetch({ slug, onDone }) {
   }
 
   if (!s) return null;
-  const off = !s.configured;
+  // 0.10.3: switched off by Everstats (features/registry.js 'guild-fetch'): new fetches can't start; one already queued
+  // or running carries on and shows as usual.
+  const switchedOff = Boolean(s.switchedOff);
+  const off = !s.configured || switchedOff;
   const rate = s.perSecond;
 
   return (
@@ -105,7 +110,8 @@ export function GuildFetch({ slug, onDone }) {
             Blizzard’s roster ({s.rosterRequests} requests) and shows you what fetching the rest would cost; nothing else starts until you say so.
           </p>
           {s.state === 'failed' && <div className="note err small" role="alert"><Icon name="error" /><span>{s.problem ?? 'That didn’t work.'}</span></div>}
-          {off && <div className="note small"><Icon name="info" /><span>Look-ups aren’t switched on yet, so Everstats can’t ask Blizzard for this guild.</span></div>}
+          {switchedOff ? <SwitchedOff compact>{OFF_WORDS['guild-fetch']} Members are still refreshed daily.</SwitchedOff>
+            : off && <div className="note small"><Icon name="info" /><span>Look-ups aren’t switched on yet, so Everstats can’t ask Blizzard for this guild.</span></div>}
           <div className="row gap-8">
             <button type="button" className="btn" disabled={busy || off} onClick={() => post('roster')}>
               <Icon name="download" size="sm" />{busy ? 'Reading the roster…' : 'Fetch all members'}
@@ -126,10 +132,10 @@ export function GuildFetch({ slug, onDone }) {
                 <span className="muted"> (about {s.requestsPerMember} a member, at {formatNumber(rate)} a second: at most half of what Everstats may ask, so look-ups and the daily refresh keep going).</span>
               </p>
               <div className="row gap-8">
-                <button type="button" className="btn" disabled={busy} onClick={() => post('start')}>
+                <button type="button" className="btn" disabled={busy || switchedOff} onClick={() => post('start')}>
                   <Icon name="play" size="sm" />Start fetching {plural(s.counts.toFetch, 'member')}
                 </button>
-                <span className="muted xsmall">This roster count is good until {formatDateTime(s.expiresAt)}.</span>
+                {switchedOff ? <span className="muted xsmall">{OFF_WORDS['guild-fetch']}</span> : <span className="muted xsmall">This roster count is good until {formatDateTime(s.expiresAt)}.</span>}
               </div>
             </>
           ) : (

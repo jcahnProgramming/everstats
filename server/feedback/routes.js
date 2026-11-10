@@ -2,6 +2,7 @@ import express from 'express';
 import { requireAccount } from '../auth/sessions.js';
 import { config } from '../core/config.js';
 import { HttpError, route } from '../core/errors.js';
+import { featureOn } from '../features/registry.js';
 
 /**
  * Feedback and contact, with replies (0.7.1). One inbox for bug reports, ideas, questions and partnership requests.
@@ -79,6 +80,9 @@ export function createFeedbackRouter({ db, limits, networkOf }) {
   const r = express.Router();
 
   r.post('/feedback', route(async (req, res) => {
+    // 0.10.3: the Feedback form switch (features/registry.js). Off: no new threads from the public form; ban appeals
+    // (moderation/player.js) and replies in existing threads (/account/feedback/:id/reply) are separate routes and still work.
+    if (!(await featureOn(db, 'feedback'))) throw new HttpError(503, 'Feedback is closed for now. Try again later.', 'feature_off');
     const body = req.body ?? {};
     // The honeypot: a field people never see. A bot that fills it is told "sent", and nothing is stored or counted.
     if (typeof body.website === 'string' && body.website.trim() !== '') return res.json({ ok: true, signedIn: false });
@@ -153,26 +157,39 @@ export function createAdminFeedbackRouter({ db, writes }) {
 
   const sender = (t) => ({ username: t.username_claimed ? t.username : null, signedIn: t.account_id !== null, accountId: t.account_id === null ? null : Number(t.account_id) });
 
+  // 0.10.3: state 'all' (the v5 Inbox's default view) and a search over the sender's username, Discord name and messages.
   r.get('/feedback', route(async (req, res) => {
-    const state = STATES.includes(req.query.state) ? req.query.state : 'unread';
+    const state = STATES.includes(req.query.state) || req.query.state === 'all' ? req.query.state : 'unread';
     const type = ADMIN_TYPES.includes(req.query.type) ? req.query.type : null;
+    const q = typeof req.query.q === 'string' ? req.query.q.normalize('NFC').trim().toLowerCase().replace(/^@/, '').slice(0, 60) : '';
+    const like = q.replace(/[\\%_]/g, (c) => `\\${c}`);
     const rows = await db.query(
       `SELECT t.*, a.username, a.username_claimed,
               (SELECT body FROM feedback_messages m WHERE m.thread_id = t.id ORDER BY created_at, id LIMIT 1) AS first_body,
               (SELECT count(*)::int FROM feedback_messages m WHERE m.thread_id = t.id) AS messages
          FROM feedback_threads t LEFT JOIN accounts a ON a.id = t.account_id
-        WHERE t.state = $1 AND ($2::text IS NULL OR t.type = $2) ORDER BY t.updated_at DESC LIMIT 200`,
-      [state, type],
+        WHERE ($1 = 'all' OR t.state = $1) AND ($2::text IS NULL OR t.type = $2)
+          AND ($3 = '' OR (a.username_claimed AND a.username LIKE $3 || '%') OR lower(coalesce(t.discord, '')) LIKE '%' || $3 || '%'
+               OR EXISTS (SELECT 1 FROM feedback_messages m WHERE m.thread_id = t.id AND lower(m.body) LIKE '%' || $3 || '%'))
+        ORDER BY t.updated_at DESC LIMIT 200`,
+      [state, type, like],
     );
     const counts = await db.query('SELECT state, count(*)::int AS n FROM feedback_threads GROUP BY state LIMIT 10');
     res.json({
-      state, type, types: ADMIN_TYPES,
+      state, type, q, types: ADMIN_TYPES,
       counts: Object.fromEntries(STATES.map((s) => [s, counts.find((c) => c.state === s)?.n ?? 0])),
       threads: rows.map((t) => ({
         id: t.id, type: t.type, page: t.page, discord: t.discord, state: t.state, createdAt: t.created_at, updatedAt: t.updated_at,
         sender: sender(t), preview: String(t.first_body ?? '').slice(0, 160), messages: t.messages,
       })),
     });
+  }));
+
+  // 0.10.3: the Inbox tab count (registered before /feedback/:id).
+  r.get('/feedback/counts', route(async (req, res) => {
+    const counts = await db.query('SELECT state, count(*)::int AS n FROM feedback_threads GROUP BY state LIMIT 10');
+    const appeals = await db.one("SELECT count(*)::int AS n FROM feedback_threads WHERE type = 'appeal' AND state IN ('unread', 'read')");
+    res.json({ counts: Object.fromEntries(STATES.map((s) => [s, counts.find((c) => c.state === s)?.n ?? 0])), openAppeals: appeals.n });
   }));
 
   const threadOf = async (raw) => {
@@ -185,7 +202,18 @@ export function createAdminFeedbackRouter({ db, writes }) {
     const t = await threadOf(id);
     const messages = await db.query('SELECT id, author, body, created_at FROM feedback_messages WHERE thread_id = $1 ORDER BY created_at, id LIMIT 500', [t.id]);
     const notes = await db.query('SELECT id, body, created_at FROM feedback_notes WHERE thread_id = $1 ORDER BY created_at, id LIMIT 500', [t.id]);
+    // 0.10.3: an appeal shows the ban it appeals (design/v5-admin inbox-feedback "Linked moderation").
+    const ban = t.ban_id === null || t.ban_id === undefined ? null : await db.one(
+      `SELECT b.id, b.account_id, b.kind, b.starts_at, b.ends_at, b.reason, b.actor, b.lifted_at, b.lifted_reason,
+              (b.lifted_at IS NULL AND (b.ends_at IS NULL OR b.ends_at > now())) AS live
+         FROM account_bans b WHERE b.id = $1`,
+      [t.ban_id],
+    );
     return {
+      ban: ban ? {
+        id: Number(ban.id), accountId: Number(ban.account_id), kind: ban.kind, live: ban.live, startsAt: ban.starts_at, endsAt: ban.ends_at,
+        reason: ban.reason, by: ban.actor === 'admin' ? 'Admin' : ban.actor === 'moderator' ? 'a moderator' : 'Everstats', liftedAt: ban.lifted_at, liftedReason: ban.lifted_reason,
+      } : null,
       id: t.id, type: t.type, page: t.page, discord: t.discord, state: t.state, createdAt: t.created_at, updatedAt: t.updated_at,
       playerUnread: t.player_unread, sender: sender(t), banId: t.ban_id === null || t.ban_id === undefined ? null : Number(t.ban_id),
       messages: messages.map((m) => ({ id: m.id, author: m.author, body: m.body, at: m.created_at })),
@@ -231,7 +259,9 @@ export function createAdminFeedbackRouter({ db, writes }) {
     const t = await threadOf(req.params.id);
     await db.tx(async (q) => {
       await q.query('DELETE FROM feedback_threads WHERE id = $1', [t.id]);
-      await q.query("INSERT INTO admin_events (type, detail) VALUES ('feedback.deleted', $1::jsonb)", [JSON.stringify({ thread: t.id })]);
+      // 0.10.3: the v5 admin asks why (the Audit log shows it); the message itself is never logged.
+      const reason = typeof req.body?.reason === 'string' && req.body.reason.trim() ? req.body.reason.trim().slice(0, 500) : null;
+      await q.query("INSERT INTO admin_events (type, detail) VALUES ('feedback.deleted', $1::jsonb)", [JSON.stringify({ thread: t.id, ...(reason ? { reason } : {}) })]);
     });
     res.json({ ok: true });
   }));

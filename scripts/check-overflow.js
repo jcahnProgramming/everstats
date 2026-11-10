@@ -20,14 +20,20 @@ const flags = Object.fromEntries(process.argv.slice(2).filter((a) => a.startsWit
   return [a.slice(2, i < 0 ? undefined : i), i < 0 ? '' : a.slice(i + 1)];
 }));
 const [base = 'http://localhost:3000', character = '/c/path-vexley', guild = '/g/post-nerf-clarity'] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-const PAGES = [character, `${character}/collections`, `${character}/collections/transmog`, guild, '/leaderboards',
+// 0.10.3: --admin=<es_admin cookie value> checks every admin page instead (client/src/admin/shell/nav.js PAGES), with
+// --admin-ids=account:ID,guild:ID,feedback:ID filling the pages that need one (an admin session of a LOCAL server only).
+const adminIds = Object.fromEntries((flags['admin-ids'] ?? '').split(',').filter(Boolean).map((x) => x.split(':')));
+const ADMIN_PAGES = flags.admin === undefined ? [] : (await import('../client/src/admin/shell/nav.js')).PAGES.map((p) => p.path)
+  .map((p) => p.replace('/accounts/:id', `/accounts/${adminIds.account ?? ''}`).replace('/guilds/:id', `/guilds/${adminIds.guild ?? ''}`).replace('/feedback/:id', `/feedback/${adminIds.feedback ?? ''}`))
+  .filter((p) => !p.includes(':') && !p.includes('//') && !p.endsWith('/'));
+const PAGES = flags.admin !== undefined ? ADMIN_PAGES : [character, `${character}/collections`, `${character}/collections/transmog`, guild, '/leaderboards',
   ...(flags.profile ? [flags.profile] : []), ...(flags.cookie ? ['/'] : [])];
 const WIDTHS = [1920, 1440, 1024, 720, 390];
 const THEMES = ['forever', 'alliance', 'horde'];
 const PHONE = 719;
 // Sideways scrollers that are meant to scroll on a phone (and only there): the design's chip rows, icon strips and the
 // wide tables. Anything else that overflows is a bug.
-const INTENDED = ['.seg.phone-scroll', '.armory-col', '.armory-bottom', '.slotpick', '.tblbox'];
+const INTENDED = ['.seg.phone-scroll', '.armory-col', '.armory-bottom', '.slotpick', '.tblbox', '.adm .tabs', '.adm .inpage nav'];
 
 const browser = await chromium.launch();
 const problems = [];
@@ -37,6 +43,7 @@ for (const width of WIDTHS) {
     const [name, ...rest] = flags.cookie.split('=');
     await ctx.addCookies([{ name, value: rest.join('='), url: base }]);
   }
+  if (flags.admin) await ctx.addCookies([{ name: 'es_admin', value: flags.admin, url: base }]);
   const page = await ctx.newPage();
   // 0.10.0: a page that throws, or draws nothing, fails too. (A client bundle that crashed on load rendered every page
   // blank, and a blank page has no overflow: the check passed while nothing worked.)

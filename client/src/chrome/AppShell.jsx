@@ -6,6 +6,7 @@ import { parseCharacterSearch } from '../search.js';
 import { useSession } from '../session.jsx';
 import { ToastProvider } from '../components/Toasts.jsx';
 import { BetaBanner, BetaBadge } from './BetaBanner.jsx';
+import { MaintenanceBanner } from './MaintenanceBanner.jsx';
 import { fullTitle, pageTitleFor } from '../../../server/core/pageTitles.js';
 import { UsernamePrompt } from '../components/UsernameClaim.jsx';
 import { BrandMark } from './BrandMark.jsx';
@@ -16,6 +17,7 @@ import { BadgeToastWatcher, InlineBadge } from '../badges/Badges.jsx';
 import { feedbackHref } from '../feedback/FeedbackPages.jsx';
 import { UpdateBar } from './UpdateBar.jsx';
 import { BannedStrip, NoticeGate } from '../moderation/Moderation.jsx';
+import { DevGate } from './DevGatePage.jsx';
 
 /**
  * The frame of every page (design v1, navigation option A "Ledger Bar", design/v1/components/nav.md):
@@ -45,6 +47,7 @@ export function AppShell() {
         {/* 0.8.2: the "Everstats was updated" bar, a banned sign-in's strip, and moderation notices (shown once). */}
         <UpdateBar />
         <BannedStrip />
+        <MaintenanceBanner />
         <BetaBanner />
         <NoticeGate />
         <UsernamePrompt />
@@ -52,7 +55,7 @@ export function AppShell() {
         {/* 0.9.2: before <main>, so a page that knows its own title (usePageTitle) sets it after this one. */}
         <PageTitle pathname={pathname} />
         <main id="main" className="app-main" key={pathname}>
-          <Outlet />
+          <DevGate><Outlet /></DevGate>
         </main>
         <footer className="foot">
           <div className="wrap in">
@@ -74,7 +77,7 @@ export function AppShell() {
  * inside the sticky header so it never scrolls away, in the same magenta in every theme. Production never renders it:
  * SITE_ENVIRONMENT comes from the server's theme boot, set from the server's own environment.
  */
-function EnvBar() {
+export function EnvBar() {
   if (SITE_ENVIRONMENT !== 'dev') return null;
   return (
     <div className="env-bar" role="note" aria-label="Test site">

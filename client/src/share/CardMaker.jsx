@@ -9,6 +9,8 @@ import { ServiceUnavailable } from '../components/States.jsx';
 import { useToasts } from '../components/Toasts.jsx';
 import { formatDateTime, formatNumber } from '../format.js';
 import { useEditing } from '../chrome/updates.js';
+import { isFeatureOff } from '../features.js';
+import { SwitchedOff } from '../components/SwitchedOff.jsx';
 
 /**
  * The card maker (0.8.0, design/v3-share-cards: components/card-maker.md, pages/maker-*, states/*). One page for all four
@@ -85,7 +87,9 @@ export function CardMakerPage({ type }) {
     return (
       <div className="wrap page-pad stack gap-20">
         <h1 className="h1">Share card</h1>
-        {error.status === 404
+        {isFeatureOff(error)
+          ? <><SwitchedOff>{error.message}</SwitchedOff><Link className="btn self-start" to={back}>Back</Link></>
+          : error.status === 404
           ? <EmptyState kind="nodata" title="Nothing to share here yet"><span>{error.message}</span><Link to={back}>Back</Link></EmptyState>
           : <ServiceUnavailable inline title="Couldn’t open the card maker" onRetry={load}>{error.message}</ServiceUnavailable>}
       </div>

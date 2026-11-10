@@ -1,0 +1,7 @@
+/* Features page (0.10.3): additions to admin.css's .fgrid / .fcard. Tokens only. */
+.feat-groups .orn .h3 { white-space: nowrap; }
+.fcard .feat-foot { margin-top: auto; align-items: center; }
+.fcard .feat-foot .spacer { flex: 1; }
+.fcard .own .row .spacer { flex: 1; }
+.fcard .feat-perk { padding: var(--es-space-10) var(--es-space-12); border: var(--es-border-1) solid var(--es-row-sep); border-radius: var(--es-radius-md); }
+.fcard.is-hit { box-shadow: inset var(--es-border-3) 0 0 var(--es-accent); border-color: var(--es-accent); }

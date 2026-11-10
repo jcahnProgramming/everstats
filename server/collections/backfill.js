@@ -2,6 +2,7 @@ import { scopeSql } from '../core/config.js';
 import { getSetting } from '../admin/settings.js';
 import { PRIORITY, enqueueMany } from '../crawler/queue.js';
 import { KINDS } from './registry.js';
+import { featureOn } from '../features/registry.js';
 
 /**
  * The gradual first collections fetch (0.9.2). Characters tracked before 0.9.0 have no collections until they're
@@ -32,6 +33,8 @@ export async function backfillStatus(db) {
 export async function runBackfill(db) {
   if (!(await getSetting(db, 'collections.backfill'))) return 'Off';
   if (await getSetting(db, 'crawler.paused')) return 'Paused with the crawler';
+  // 0.10.3: and with Collections (features/registry.js: the backfill needs 'collections' and 'crawl').
+  if (!(await featureOn(db, 'collections-backfill'))) return 'Paused: Collections are switched off';
   const perDay = await getSetting(db, 'collections.backfillPerDay');
   const today = (await db.one("SELECT queued FROM collection_backfill_days WHERE day = (now() AT TIME ZONE 'UTC')::date"))?.queued ?? 0;
   const room = Math.min(BATCH, perDay - today);

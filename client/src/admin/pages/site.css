@@ -1,0 +1,29 @@
+/* Admin › Data, Data retention, Settings (0.10.3). Page additions on top of theme/admin.css: tokens only. */
+
+.site-pad { padding: var(--es-space-10) var(--es-space-16); }
+.site-switch { flex-wrap: wrap; }
+.site-clip { max-width: var(--es-size-col-min-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.site-err { display: block; color: var(--es-danger); font-size: var(--es-fs-12); }
+.site-when { display: block; font-size: var(--es-fs-11-5); color: var(--es-muted); }
+.site-note { margin: var(--es-space-10) var(--es-space-16); }
+.site-kv { display: contents; }
+
+/* A pager inside a panel footer: the footer already draws the line and the padding. */
+.ap > .ft .site-pager { padding: 0; border-top: 0; width: 100%; flex-wrap: wrap; }
+
+/* The retention timeline's legend, and a fifth segment for rows already past the keep days (due for the next sweep). */
+.site-legend i.e0, .expires .e0 { background: var(--es-text); }
+.site-legend i.e1 { background: var(--es-danger); }
+.site-legend i.e2 { background: var(--es-warning); }
+.site-legend i.e3 { background: var(--es-c3); }
+.site-legend i.e4 { background: var(--es-line-strong); }
+
+/* Settings: a row with an unsaved edit, a row the save refused, the "Players notice" tag. */
+.srow.site-dirty { box-shadow: inset var(--es-border-3) 0 0 var(--es-accent-2); }
+.srow.site-row-err { background: color-mix(in oklab, var(--es-danger) 8%, transparent); box-shadow: inset var(--es-border-3) 0 0 var(--es-danger); }
+.site-pf { margin-left: var(--es-space-8); font: var(--es-weight-semibold) var(--es-fs-11)/var(--es-lh-none) var(--es-font-body); color: var(--es-accent-2); text-transform: uppercase; letter-spacing: var(--es-tracking-th); }
+.site-group.is-hit { background: color-mix(in oklab, var(--es-accent) 10%, transparent); box-shadow: inset var(--es-border-3) 0 0 var(--es-accent); }
+.site-wide { flex: 1 1 100%; }
+.site-change { display: block; }
+.site-keyform { padding: var(--es-space-12) var(--es-space-16) var(--es-space-16); border-bottom: var(--es-border-1) solid var(--es-row-sep); background: var(--es-sunken); }
+.site-keyform .inp { color: var(--es-text); }

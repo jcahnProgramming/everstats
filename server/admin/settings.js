@@ -9,12 +9,16 @@ import { environmentDefault } from '../core/environment.js';
  * the store refuses anything undeclared. A missing row in `settings` means the declared default.
  *
  *   key, section ('grading' | 'tiers' | 'discovery' | 'crawler' | 'beta' | 'cards': which admin panel shows it), label, help, type, default
+ *   0.10.3: section 'features' = an on/off switch the Features page owns (server/features/registry.js says what each
+ *   one does, its fallback and its dependencies); 'release' = Release tools (the maintenance banner).
  *   type 'integer'  (min, max)
  *        'percent'  a whole percent (min, max), shown with a % sign
  *        'shares'   the five letter shares { S, A, B, C, D }, whole percents adding up to 100
  *        'boolean'
  *        'perks'    a short list of { title, description } (the beta page's perks), at most PERKS_MAX items
  *        'window'   null, or { start, end } as UTC calendar dates 'YYYY-MM-DD', both days included (0.7.0)
+ *        'banner'   null (off), or { text, start, end }: a maintenance notice for players; start / end are ISO times or
+ *                   null (from now / until turned off) (0.10.3)
  *        'weights'  { categoryKey: percent } pins for the overall tier's category weights (0.8.0); each 0.1–99.9, one
  *                   decimal; whether they fit the live categories is checked by tiers/engine.js weightsProblem
  */
@@ -302,6 +306,81 @@ export const SETTINGS = [
     type: 'boolean',
     default: false,
   },
+  // 0.10.3: feature switches (server/features/registry.js). Each defaults to what the site does today, so adding the
+  // switch changes nothing until the admin turns one off.
+  {
+    key: 'features.shareCards',
+    section: 'features',
+    label: 'Share cards and link previews',
+    help: 'On: the card maker, share-card images and picture link previews. Off: no Share buttons, card pages say sharing is off for now, and links preview as plain Everstats links.',
+    type: 'boolean',
+    default: true,
+  },
+  {
+    key: 'features.collections',
+    section: 'features',
+    label: 'Collections tab and refreshes',
+    help: 'On: the Collections tab and its screens, and collections fetches. Off: the tab says Collections are switched off for now, and no collections are fetched (the first-collections backfill pauses with it).',
+    type: 'boolean',
+    default: true,
+  },
+  {
+    key: 'features.goldOptIn',
+    section: 'features',
+    label: 'Gold opt-in',
+    help: 'On: gold is read at a Battle.net sign-in for the owner, and owners can show it publicly. Off: no gold is read, gold boards and the owner’s gold say gold is switched off for now; nothing stored is deleted.',
+    type: 'boolean',
+    default: true,
+  },
+  {
+    key: 'features.guildFetch',
+    section: 'features',
+    label: 'Guild “Fetch all members”',
+    help: 'On: anyone can ask for a whole guild to be fetched. Off: the button says it is switched off for now; fetches already running finish.',
+    type: 'boolean',
+    default: true,
+  },
+  {
+    key: 'features.discordSignIn',
+    section: 'features',
+    label: 'Discord sign-in',
+    help: 'On: Discord sign-in and linking. Off: the Discord button is shown as switched off; people use Battle.net or a passkey. Nobody is signed out.',
+    type: 'boolean',
+    default: true,
+  },
+  {
+    key: 'features.feedback',
+    section: 'features',
+    label: 'Feedback form',
+    help: 'On: the public feedback form. Off: /feedback says feedback is closed for now. Ban appeals and replies to existing threads still work.',
+    type: 'boolean',
+    default: true,
+  },
+  {
+    key: 'features.reports',
+    section: 'features',
+    label: 'Player reports',
+    help: 'On: “Report” on profiles, guild descriptions and guild links. Off: the Report buttons are hidden and new reports are refused; the queue stays.',
+    type: 'boolean',
+    default: true,
+  },
+  {
+    key: 'features.devGate',
+    section: 'features',
+    label: 'Dev tester gate',
+    help: 'Dev site only. On: every page needs a sign-in, and only accounts holding Dev Tester on production (and the dev admin) get in. Off: Cloudflare Access alone decides who reaches the dev site.',
+    type: 'boolean',
+    default: false,
+  },
+  {
+    key: 'maintenance.banner',
+    section: 'release',
+    label: 'Maintenance banner',
+    help: 'A short notice shown at the top of every page for players, between the start and end you give. Plain text on one line. Off by default.',
+    type: 'banner',
+    max: 200,
+    default: null,
+  },
 ];
 
 const byKey = new Map(SETTINGS.map((s) => [s.key, s]));
@@ -370,6 +449,23 @@ function check(def, value) {
     if (!ok(value?.start) || !ok(value?.end)) throw new HttpError(400, 'Give a start and an end date (YYYY-MM-DD), or clear the window.', 'invalid');
     if (value.end < value.start) throw new HttpError(400, 'The window ends before it starts.', 'invalid');
     return { start: value.start, end: value.end };
+  }
+  if (def.type === 'banner') {
+    if (value === null) return null;
+    const raw = String(value?.text ?? '').normalize('NFC');
+    if (TEXT_REFUSED.test(raw)) throw new HttpError(400, 'The banner is plain text on one line: no line breaks, control characters or angle brackets', 'invalid');
+    const text = raw.split(' ').filter(Boolean).join(' ');
+    if (text.length < 5 || text.length > def.max) throw new HttpError(400, `The banner text is 5–${def.max} characters`, 'invalid');
+    const when = (v, name) => {
+      if (v === null || v === undefined || v === '') return null;
+      const t = Date.parse(v);
+      if (typeof v !== 'string' || Number.isNaN(t)) throw new HttpError(400, `The banner's ${name} isn't a date and time`, 'invalid');
+      return new Date(t).toISOString();
+    };
+    const start = when(value.start, 'start');
+    const end = when(value.end, 'end');
+    if (start && end && end <= start) throw new HttpError(400, 'The banner ends before it starts.', 'invalid');
+    return { text, start, end };
   }
   if (def.type === 'weights') {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'Category weights must be a list of pinned percents', 'invalid');
@@ -445,20 +541,29 @@ export function checkSetting(key, value) {
 /** Keys whose change re-grades every ruleset (the worker's tiers job picks the request up). */
 export const TIER_SETTING_KEYS = Object.freeze(['grading.minPopulation', 'tiers.shares', 'tiers.categoryHalf', 'tiers.overallHalf', 'tiers.weights']);
 
-export async function setSetting(db, key, value, { q: outer = null, version = null } = {}) {
+/** A value as the log keeps it: perks as a count, a banner as on / off and its times (its text is in the setting). */
+const loggable = (def, v) => (def.type === 'perks' && Array.isArray(v) ? `${v.length} perk(s)` : v);
+
+export async function setSetting(db, key, value, { q: outer = null, version = null, reason = null } = {}) {
   const def = byKey.get(key);
   if (!def) throw new HttpError(404, 'Unknown setting');
   const clean = check(def, value);
   const stored = storageKey(key, version);
   const run = outer ? (fn) => fn(outer) : (fn) => db.tx(fn);
   await run(async (q) => {
+    // 0.10.3: the value before the change goes in the log too (the Audit log shows before → after), and the reason when
+    // the admin gave one (feature switches and visitor-affecting settings ask for it).
+    const was = await q.one('SELECT value FROM settings WHERE key = $1', [stored]);
+    const before = was ? was.value : environmentDefault(def.key, def.default);
     await q.query(
       `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2::jsonb, now())
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
       [stored, JSON.stringify(clean)],
     );
-    const logged = def.type === 'perks' ? `${clean.length} perk(s)` : clean;
-    await q.query("INSERT INTO admin_events (type, detail) VALUES ('setting.changed', $1)", [JSON.stringify({ key, value: logged, ...(stored !== key ? { version } : {}) })]);
+    const why = typeof reason === 'string' && reason.trim() ? reason.trim().slice(0, 500) : null;
+    await q.query("INSERT INTO admin_events (type, detail) VALUES ('setting.changed', $1)", [JSON.stringify({
+      key, value: loggable(def, clean), before: loggable(def, before), ...(why ? { reason: why } : {}), ...(stored !== key ? { version } : {}),
+    })]);
     if (TIER_SETTING_KEYS.includes(key)) {
       const { requestTierRecompute } = await import('../tiers/store.js');
       await requestTierRecompute(q, `setting ${key}`);

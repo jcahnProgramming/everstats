@@ -5,6 +5,10 @@ import { formatNumber } from '../format.js';
 import { startProvider } from '../pages/SignInPages.jsx';
 import { useSession } from '../session.jsx';
 import { Icon } from './Icon.jsx';
+import { providerUsable } from '../features.js';
+
+// 0.10.3: why a provider's button is disabled: no keys yet, or its feature switch is off.
+const notUsable = (p) => (p?.configured ? 'switched off for now' : 'not configured');
 
 /**
  * Giving signed-out visitors a reason to sign in (0.8.0), without nagging: no modal, nothing blocked, everything stays
@@ -58,12 +62,12 @@ export function WhySignIn() {
           ))}
         </ul>
         <div className="row gap-12 wrap-row">
-          {bnet?.configured
+          {providerUsable(bnet)
             ? <button type="button" className="btn gold lg" onClick={() => start('battlenet')}>Sign in with Battle.net</button>
-            : <button type="button" className="btn lg" disabled>Battle.net: not configured</button>}
-          {discord?.configured
+            : <button type="button" className="btn lg" disabled>Battle.net: {notUsable(bnet)}</button>}
+          {providerUsable(discord)
             ? <button type="button" className="btn lg" onClick={() => start('discord')}>Sign in with Discord</button>
-            : <button type="button" className="btn lg" disabled>Discord: not configured</button>}
+            : <button type="button" className="btn lg" disabled>Discord: {notUsable(discord)}</button>}
         </div>
         <span className="t2 small">{data.note} Everything here stays readable without an account.</span>
         <span className="muted xsmall">
@@ -85,7 +89,7 @@ export function SignInNudge({ id, icon = 'user', returnTo, children }) {
     <div className="note gold signup-call" role="note">
       <Icon name={icon} />
       <span className="flex-fill">{children}</span>
-      {bnet?.configured
+      {providerUsable(bnet)
         ? <button type="button" className="btn sm gold" onClick={() => startProvider('battlenet', 'sign_in', returnTo).catch(() => {})}>Sign in with Battle.net</button>
         : <Link className="btn sm" to="/sign-in">Sign in</Link>}
       <button type="button" className="btn ghost sm icon" aria-label="Dismiss" title="Dismiss" onClick={() => { writeDismissed(key); setHidden(true); }}><Icon name="close" size="sm" /></button>

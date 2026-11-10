@@ -5,6 +5,7 @@ export const AUTH_ERRORS = {
   state_mismatch: "That sign-in didn't come back the way it left, so it was stopped. Try again.",
   provider_failed: "The provider didn't confirm who you are. Try again in a moment.",
   not_configured: "That sign-in method isn't set up yet.",
+  switched_off: 'That sign-in method is switched off for now, so nothing changed. Every other way to sign in still works.',
   unknown_provider: "That sign-in method doesn't exist.",
   linked_elsewhere: 'That login already belongs to a different Everstats account. To combine them, sign in to this account and use "Merge into another account" below.',
   merge_no_account: "No Everstats account uses that login, so there's nothing to merge into. (Nothing was created.)",

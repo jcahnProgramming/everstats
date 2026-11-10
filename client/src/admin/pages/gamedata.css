@@ -1,0 +1,51 @@
+/* Game data pages (0.10.3): Tiers and Discovery (Approvals · Runs · Endpoint probe), built from design/v5-admin
+   (theme/admin.css, VERBATIM). Only what admin.css doesn't already have. Tokens only. */
+
+.gd-stack { display: flex; flex-direction: column; gap: var(--es-space-16); min-width: 0; }
+.gd-row { display: flex; align-items: center; gap: var(--es-space-8); flex-wrap: wrap; min-width: 0; }
+.gd-row.top { align-items: flex-start; }
+.gd-fill { flex: 1; min-width: 0; }
+.gd-note { font-size: var(--es-fs-12); color: var(--es-muted); }
+.gd-wrap { overflow-wrap: anywhere; min-width: 0; }
+
+/* Letter shares: the five inputs under the split bar */
+.gd-shares { display: flex; flex-wrap: wrap; gap: var(--es-space-10); align-items: flex-end; }
+.gd-shares .field { width: var(--es-space-88); }
+.gd-shares .gd-share-lab { display: inline-flex; align-items: center; gap: var(--es-space-6); }
+.gd-num { width: var(--es-space-88); height: var(--es-size-control-sm); }
+
+/* The save bar's list of what changed */
+.savebar .gd-changes { font-size: var(--es-fs-12); color: var(--es-text-2); min-width: 0; overflow-wrap: anywhere; }
+
+/* A question and its answer (Discovery run answers, probe answers) */
+.gd-q { display: flex; flex-direction: column; gap: var(--es-space-8); padding-top: var(--es-space-14); border-top: var(--es-border-1) dashed var(--es-line); min-width: 0; }
+.gd-q > h3 { font: var(--es-weight-semibold) var(--es-fs-14)/var(--es-lh-snug) var(--es-font-body); }
+.gd-answer { display: flex; flex-direction: column; gap: var(--es-space-4); padding-top: var(--es-space-8); border-top: var(--es-border-1) solid var(--es-row-sep); min-width: 0; overflow-wrap: anywhere; }
+
+/* Raw bodies and field outlines */
+.gd-pre { margin: 0; max-height: 60vh; overflow: auto; padding: var(--es-space-12); background: var(--es-sunken); color: var(--es-text); border: var(--es-border-1) solid var(--es-line); border-radius: var(--es-radius-md); font: var(--es-fs-12)/var(--es-lh-snug) var(--es-font-mono); white-space: pre; }
+
+/* One suggestion inside a statistic's row */
+.gd-sug { display: flex; gap: var(--es-space-10); align-items: flex-start; flex-wrap: wrap; padding: var(--es-space-6) 0; border-top: var(--es-border-1) solid var(--es-row-sep); min-width: 0; }
+.gd-sug:first-child { border-top: 0; padding-top: 0; }
+.gd-sug .gd-fill { display: flex; flex-direction: column; gap: var(--es-space-2); }
+
+/* Stat lists in What counts */
+.gd-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--es-space-2); font-size: var(--es-fs-13); }
+.gd-details > summary { cursor: pointer; padding: var(--es-space-8) var(--es-space-16); font-size: var(--es-fs-13); border-top: var(--es-border-1) solid var(--es-row-sep); }
+.gd-details > .gd-stack { padding: var(--es-space-8) var(--es-space-16) var(--es-space-14); gap: var(--es-space-12); }
+
+/* The probe's render check */
+.gd-render { max-width: var(--es-size-col-min-2xl); width: 100%; height: auto; border-radius: var(--es-radius-md); border: var(--es-border-1) solid var(--es-line); }
+
+/* The endpoint probe matrix: one chip per version, centred */
+.dt td.gd-cell { text-align: center; }
+.gd-area td { background: var(--es-sunken); font-weight: var(--es-weight-semibold); }
+
+@media (max-width: 719px) {
+  .dt td.gd-cell { text-align: left; }
+  .gd-area td { background: none; }
+}
+
+/* A whole panel reached from settings search (Letter shares, Category weights: one setting each) */
+.ap.is-hit { border-color: var(--es-accent); box-shadow: inset var(--es-border-3) 0 0 var(--es-accent); }

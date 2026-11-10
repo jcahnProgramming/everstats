@@ -147,3 +147,56 @@ What they can't do:
 - **Building** the dev image (npm install, the client build, Chromium) runs in Docker's builder, which the caps don't
   cover: a dev deploy briefly uses more CPU than the dev containers may.
 - **A rollback** puts the previous image back, not the previous database: a migration the failed version ran stays.
+
+## The dev tester gate (0.10.3)
+
+Grant **Dev Tester** to someone on production's admin (Directory → the account → Badges; admin-granted only, and it
+starts hidden on their profile until they choose to show it), and they can use dev.everstats.app. The two sites have
+separate databases, so dev asks production one question after each sign-in: "does the account linked to this
+Battle.net account id / Discord user id hold Dev Tester?" (`POST https://everstats.app/api/internal/dev-tester`,
+`server/devgate/`). Production answers `{ "tester": true }` or `{ "tester": false }` and nothing else; a banned account
+or a revoked badge is `false`. Dev keeps each answer 3 minutes, so revoking the badge locks the person out within that.
+Dev's own admin always gets in.
+
+**The secret.** The question is authenticated by `DEV_TESTER_SECRET`, a shared secret used for nothing else:
+
+1. `npm run gen-key devtester` (on your PC) prints one `DEV_TESTER_SECRET=…` line (43 characters; at least 32 are required).
+2. Add that SAME line to production's `.env` and to dev's `.env` (the host, each deploy folder). It is the one value the
+   two `.env` files share on purpose: the dev deploy's key-reuse check compares only the root key, the database password
+   and the Blizzard / Discord client ids, never this one, and it never prints any value.
+3. Both stacks read it through `env_file: .env` (docker-compose.yml, docker-compose.dev.yml). Push to deploy as usual.
+   The deploy fails if `.env` changed DURING a run, so edit `.env` between deploys.
+
+Without the secret production's endpoint is a plain 404, as if it didn't exist (a wrong secret gets the same 404), and
+dev, with the gate on, lets nobody but its admin in. Never put the value in the repository, a Gitea variable, a log or
+a chat. To change it, generate a new one and replace it in both `.env` files.
+
+**Switching it on.** Production's endpoint only exists once 0.11.0 is released, so on dev the gate starts OFF (dev's
+admin → Features → "Dev tester gate"). Turn it on only after production runs 0.11.0+ with the secret set; otherwise
+dev says "production couldn't be asked" to everyone but the admin (it fails closed).
+
+**What stays open while the gate is on:** the sign-in pages and what they need (`/sign-in`, `/sign-in/2fa`, `/auth/…`
+callbacks, `/api/auth/…`, `/api/session`, `/api/theme-boot.js`), `/api/dev-gate` (the client's "may I?"), static files
+(`/assets`, `/licenses`, fonts), `/api/health`, and the admin's own sign-in and enrolment. Every other page is the plain
+shell (no character, guild or player name in its link preview) and shows "This is Everstats' private test site";
+every other API answers 403 `dev_gate`.
+
+**Health checks.** Cloudflare Access's own paths (`/cdn-cgi/access/…`) are answered at Cloudflare's edge and never
+reach the app, and cloudflared's tunnel health checks don't reach the app either. The only origin health path is
+`/api/health` (the deploy, the container healthcheck), and the gate never closes it.
+
+**Cloudflare Access after 0.11.0** (Zero Trust → Access → Applications → the dev.everstats.app application):
+
+- **A. Keep Access as it is (owner + invited emails) and add the gate: two locks.** Most private. A tester still needs
+  their email added to the Access policy AND the badge. Change nothing in Cloudflare.
+- **B. Access lets anyone with an email in, the gate decides.** In the application's Allow policy, replace the email
+  list with the selector "Everyone" (Include → Everyone), keeping the One-time PIN login method. Anyone can reach
+  dev's sign-in page after proving an email address to Cloudflare; Cloudflare sees each tester's email at its login
+  (Everstats still sees nothing extra), and bots never reach the app. You no longer add emails by hand.
+- **C. No Access at all, only the gate.** Change the application's policy action to Bypass for Everyone (or delete
+  the application). No Cloudflare login; the dev site's sign-in page, `/api/health`, the static files and the sign-in
+  API are public to the internet, and every other page and API is closed by the gate. Anyone can start a Battle.net or
+  Discord sign-in on dev (rate-limited like production: 30 starts per network per 15 minutes); a sign-in by a
+  non-tester creates an account in dev's database (dev's data is test data) and reads that Battle.net account's
+  character list with dev's Blizzard client, so dev's request budget is exposed to sign-in attempts. Keep `noindex`
+  (it stays: dev is never indexed).

@@ -835,3 +835,37 @@
   --es-env-stripe: rgba(255, 255, 255, 0.12);
   --es-env-edge: #ff5fa2;
 }
+
+/* ---- design/v5-admin tokens/admin.css, appended VERBATIM (0.10.3) ---- */
+/* Everstats admin — additive tokens. Load after v1/tokens/themes.css. Colours reference theme tokens. */
+:root {
+  --es-adm-sidebar-w: 244px;
+  --es-adm-sidebar-w-collapsed: 64px;
+  --es-adm-topbar-h: 60px;
+  --es-adm-content-max: 1180px;
+  --es-adm-nav-item-h: 38px;
+  --es-adm-badge-h: 20px;
+  --es-adm-row-pad-y: 8px;
+  --es-adm-row-pad-x: 12px;
+  --es-adm-card-basis: 300px;
+  --es-adm-card-basis-wide: 560px;
+  --es-adm-card-min-h: 188px;
+  --es-adm-spark-h: 40px;
+  --es-adm-chart-h: 120px;
+  --es-adm-progress-h: 3px;
+  --es-adm-list-w: 340px;
+  --es-adm-setting-label-w: 300px;
+  --es-adm-search-w: 360px;
+  --es-adm-dialog-w: 520px;
+  --es-adm-sidebar-bg: var(--es-bg-2);
+  --es-adm-topbar-bg: var(--es-topbar-bg);
+  --es-adm-nav-active: color-mix(in oklab, var(--es-accent) 14%, transparent);
+  --es-adm-count-bg: var(--es-accent);
+  --es-adm-count-ink: var(--es-accent-ink);
+  --es-adm-progress: var(--es-accent);
+  --es-adm-stale-edge: var(--es-warning);
+  --es-adm-error-edge: var(--es-danger);
+  --es-adm-drop: var(--es-focus);
+  --es-adm-player-visible: var(--es-c2);
+  --es-adm-loading-opacity: 0.55;
+}

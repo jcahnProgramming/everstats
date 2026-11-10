@@ -1,0 +1,134 @@
+{
+  "$description": "Admin tokens (additive to v1).",
+  "size": {
+    "adm-sidebar-w": {
+      "$type": "dimension",
+      "$value": "244px"
+    },
+    "adm-sidebar-w-collapsed": {
+      "$type": "dimension",
+      "$value": "64px"
+    },
+    "adm-topbar-h": {
+      "$type": "dimension",
+      "$value": "60px"
+    },
+    "adm-content-max": {
+      "$type": "dimension",
+      "$value": "1180px"
+    },
+    "adm-nav-item-h": {
+      "$type": "dimension",
+      "$value": "38px"
+    },
+    "adm-badge-h": {
+      "$type": "dimension",
+      "$value": "20px"
+    },
+    "adm-row-pad-y": {
+      "$type": "dimension",
+      "$value": "8px"
+    },
+    "adm-row-pad-x": {
+      "$type": "dimension",
+      "$value": "12px"
+    },
+    "adm-card-basis": {
+      "$type": "dimension",
+      "$value": "300px"
+    },
+    "adm-card-basis-wide": {
+      "$type": "dimension",
+      "$value": "560px"
+    },
+    "adm-card-min-h": {
+      "$type": "dimension",
+      "$value": "188px"
+    },
+    "adm-spark-h": {
+      "$type": "dimension",
+      "$value": "40px"
+    },
+    "adm-chart-h": {
+      "$type": "dimension",
+      "$value": "120px"
+    },
+    "adm-progress-h": {
+      "$type": "dimension",
+      "$value": "3px"
+    },
+    "adm-list-w": {
+      "$type": "dimension",
+      "$value": "340px"
+    },
+    "adm-setting-label-w": {
+      "$type": "dimension",
+      "$value": "300px"
+    },
+    "adm-search-w": {
+      "$type": "dimension",
+      "$value": "360px"
+    },
+    "adm-dialog-w": {
+      "$type": "dimension",
+      "$value": "520px"
+    }
+  },
+  "role": {
+    "adm-sidebar-bg": {
+      "$type": "color",
+      "$value": "var(--es-bg-2)",
+      "$description": "Sidebar background."
+    },
+    "adm-topbar-bg": {
+      "$type": "color",
+      "$value": "var(--es-topbar-bg)",
+      "$description": "Admin top bar background."
+    },
+    "adm-nav-active": {
+      "$type": "color",
+      "$value": "color-mix(in oklab, var(--es-accent) 14%, transparent)",
+      "$description": "Active nav item fill (plus an accent edge and aria-current)."
+    },
+    "adm-count-bg": {
+      "$type": "color",
+      "$value": "var(--es-accent)",
+      "$description": "Nav count badge fill (needs-you counts)."
+    },
+    "adm-count-ink": {
+      "$type": "color",
+      "$value": "var(--es-accent-ink)",
+      "$description": "Nav count badge text."
+    },
+    "adm-progress": {
+      "$type": "color",
+      "$value": "var(--es-accent)",
+      "$description": "Refresh progress line on panels and the top bar."
+    },
+    "adm-stale-edge": {
+      "$type": "color",
+      "$value": "var(--es-warning)",
+      "$description": "Edge of a panel showing stale data (with the Stale chip)."
+    },
+    "adm-error-edge": {
+      "$type": "color",
+      "$value": "var(--es-danger)",
+      "$description": "Edge of a panel that failed to load (with inline error text)."
+    },
+    "adm-drop": {
+      "$type": "color",
+      "$value": "var(--es-focus)",
+      "$description": "Drop target outline while reordering dashboard cards."
+    },
+    "adm-player-visible": {
+      "$type": "color",
+      "$value": "var(--es-c2)",
+      "$description": "Marker for switches that affect visitors (\"Visible to players\", always with text)."
+    },
+    "adm-loading-opacity": {
+      "$type": "number",
+      "$value": "0.55",
+      "$description": "Content opacity while a panel refreshes (layout never changes)."
+    }
+  }
+}

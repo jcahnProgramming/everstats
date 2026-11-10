@@ -72,7 +72,7 @@ export async function publicStatus(db, id) {
 
 export const listPublic = (db) => Promise.all(CREDENTIALS.map((c) => publicStatus(db, c.id)));
 
-export async function saveCredential(db, id, input) {
+export async function saveCredential(db, id, input, { reason = null } = {}) {
   const def = getCredential(id);
   if (!def) throw new HttpError(404, 'Unknown credential');
   const values = {};
@@ -93,17 +93,20 @@ export async function saveCredential(db, id, input) {
         [id, f.name, s.ciphertext, s.iv, s.authTag, s.keyFp],
       );
     }
-    await q.query("INSERT INTO admin_events (type, detail) VALUES ('credential.saved', $1)", [{ provider: id, change: had ? 'replaced' : 'added' }]);
+    await q.query("INSERT INTO admin_events (type, detail) VALUES ('credential.saved', $1)", [{ provider: id, change: had ? 'replaced' : 'added', ...why(reason) }]);
   });
   return publicStatus(db, id);
 }
 
+// 0.10.3: the admin's reason for a key change goes in the log (the Audit log shows it). Never a key value.
+const why = (reason) => (typeof reason === 'string' && reason.trim() ? { reason: reason.trim().slice(0, 500) } : {});
+
 /** Removes the stored keys. A .env fallback, if there is one, applies again afterwards. */
-export async function removeCredential(db, id) {
+export async function removeCredential(db, id, { reason = null } = {}) {
   if (!getCredential(id)) throw new HttpError(404, 'Unknown credential');
   await db.tx(async (q) => {
     await q.query('DELETE FROM credentials WHERE provider = $1', [id]);
-    await q.query("INSERT INTO admin_events (type, detail) VALUES ('credential.removed', $1)", [{ provider: id }]);
+    await q.query("INSERT INTO admin_events (type, detail) VALUES ('credential.removed', $1)", [{ provider: id, ...why(reason) }]);
   });
   return publicStatus(db, id);
 }

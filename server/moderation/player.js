@@ -8,6 +8,11 @@ import { resolveProfileName } from '../accounts/usernames.js';
 import { parseGuildSlug } from '../stats/slug.js';
 import { activeBan, banNotice } from './bans.js';
 import { noticeView } from './notices.js';
+import { featureOn } from '../features/registry.js';
+
+// 0.10.3: the Player reports switch (features/registry.js 'reports'). Off: new reports are refused in plain words; the
+// queue and its decisions stay. (Guild-link reports: guilds/manage.js, same switch.)
+export const REPORTS_OFF = 'Reporting is switched off for now.';
 
 /**
  * The player's side of moderation (0.8.2), under /api:
@@ -115,6 +120,7 @@ export function createModerationPlayerRouter({ db, limits, networkOf }) {
 
   // ---- Reports
   r.post('/users/:username/report', route(async (req, res) => {
+    if (!(await featureOn(db, 'reports'))) throw new HttpError(503, REPORTS_OFF, 'feature_off');
     const body = req.body ?? {};
     if (typeof body.website === 'string' && body.website.trim() !== '') return res.json({ ok: true });
     const what = Object.hasOwn(REPORT_WHAT, body.what) ? body.what : null;
@@ -146,6 +152,7 @@ export function createModerationPlayerRouter({ db, limits, networkOf }) {
   }));
 
   r.post('/guilds/:slug/report', route(async (req, res) => {
+    if (!(await featureOn(db, 'reports'))) throw new HttpError(503, REPORTS_OFF, 'feature_off');
     const body = req.body ?? {};
     if (typeof body.website === 'string' && body.website.trim() !== '') return res.json({ ok: true });
     const note = cleanNote(body.note);

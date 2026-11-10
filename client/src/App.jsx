@@ -1,13 +1,7 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { AdminEnrollPage, AdminPage, AdminSignInPage } from './admin/AdminPages.jsx';
-import { DiscoveryPage } from './admin/DiscoveryPage.jsx';
-import { TiersAdminPage } from './admin/TiersAdminPage.jsx';
-import { BadgesAdminPage } from './admin/BadgesAdminPage.jsx';
-import { GuildLinksAdminPage } from './admin/GuildLinksAdminPage.jsx';
+import { AdminEnrollPage, AdminSignInPage } from './admin/AdminSignIn.jsx';
 import { BadgePage } from './pages/BadgePage.jsx';
-import { GuildBadgesAdminPage } from './admin/GuildBadgesAdminPage.jsx';
-import { FeedbackAdminPage } from './admin/FeedbackAdminPage.jsx';
-import { AccountAdminPage, AccountsAdminPage, ReportsAdminPage } from './admin/ModerationPages.jsx';
 import { BannedPage } from './moderation/Moderation.jsx';
 import { GuildBadgePage, GuildBadgesIndexPage } from './guildBadges/GuildBadgePages.jsx';
 import { ManageBadgesPage } from './guildBadges/ManageBadgesPage.jsx';
@@ -33,6 +27,9 @@ import { SessionProvider } from './session.jsx';
 import { MergePage } from './settings/MergePage.jsx';
 import { SettingsPage } from './settings/SettingsPage.jsx';
 import { CardMakerPage } from './share/CardMaker.jsx';
+
+// 0.10.3: the admin (design/v5-admin) is its own chunk with its own frame, loaded only when an /admin address opens.
+const AdminApp = lazy(() => import('./admin/AdminApp.jsx'));
 
 // Every 1.0 page has its route. Pages for features that aren't built say so ("Coming soon"), with no sample data.
 // Signed in, the home route is the player's dashboard (HomePage → DashboardPage).
@@ -80,21 +77,12 @@ export function App() {
             <Route path="privacy" element={<PrivacyPage />} />
             <Route path="u/:username" element={<ProfilePage />} />
             <Route path="badges/:id" element={<BadgePage />} />
-            <Route path="admin" element={<AdminPage />} />
-            <Route path="admin/discovery" element={<DiscoveryPage />} />
-            <Route path="admin/tiers" element={<TiersAdminPage />} />
-            <Route path="admin/badges" element={<BadgesAdminPage />} />
-            <Route path="admin/guild-links" element={<GuildLinksAdminPage />} />
-            <Route path="admin/guild-badges" element={<GuildBadgesAdminPage />} />
-            <Route path="admin/feedback" element={<FeedbackAdminPage />} />
-            <Route path="admin/accounts" element={<AccountsAdminPage />} />
-            <Route path="admin/accounts/:id" element={<AccountAdminPage />} />
-            <Route path="admin/reports" element={<ReportsAdminPage />} />
             <Route path="banned" element={<BannedPage />} />
             <Route path="admin/sign-in" element={<AdminSignInPage />} />
             <Route path="admin/enroll" element={<AdminEnrollPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
+          <Route path="admin/*" element={<Suspense fallback={<div className="es adm-loading" role="status">Opening the admin…</div>}><AdminApp /></Suspense>} />
         </Routes>
       </BrowserRouter>
     </SessionProvider>

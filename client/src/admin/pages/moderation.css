@@ -1,0 +1,46 @@
+/* Inbox, Directory and Badges pages (0.10.3, design/v5-admin). Tokens only. Everything else comes from theme/admin.css
+   (verbatim) and the shell's admin-app.css. */
+.mod-filters { display: flex; flex-wrap: wrap; gap: var(--es-space-8) var(--es-space-12); align-items: center; padding: var(--es-space-8) var(--es-space-12); border-bottom: var(--es-border-1) solid var(--es-line); }
+.mod-filters .flab { font-size: var(--es-fs-11-5); color: var(--es-muted); font-weight: var(--es-weight-semibold); }
+.mod-filters .fgroup { display: inline-flex; align-items: center; gap: var(--es-space-6); flex-wrap: wrap; min-width: 0; }
+.mod-filters .inp.narrow { width: var(--es-space-72); height: var(--es-size-control-sm); }
+.mod-filters .inp.mid { width: var(--es-size-col-min-xs); max-width: 100%; height: var(--es-size-control-sm); }
+.tbar form.search-form { display: contents; }
+.mod-note { margin: var(--es-space-10) var(--es-space-12) 0; }
+.mod-pad { padding: var(--es-space-12) var(--es-space-16); }
+.mod-stack { display: flex; flex-direction: column; gap: var(--es-space-12); }
+.mod-row { display: flex; flex-wrap: wrap; gap: var(--es-space-8); align-items: flex-end; }
+.mod-row > .field { flex: 1 1 var(--es-size-col-min-xs); min-width: 0; }
+.mod-av { width: var(--es-space-24); height: var(--es-space-24); }
+.mod-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.mod-choice { display: flex; flex-direction: column; gap: var(--es-space-6); }
+.mod-choice > button { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: var(--es-space-10); text-align: left; height: auto; padding: var(--es-space-8) var(--es-space-10); }
+.mod-choice > button .v { color: var(--es-text-2); font-size: var(--es-fs-12-5); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pane-scroll { overflow-y: auto; }
+.pane .msgs .msg.note-msg { align-self: stretch; max-width: 100%; border-style: dashed; }
+.thr-btn { all: unset; box-sizing: border-box; cursor: pointer; display: grid; }
+.thr-list { flex: 1; overflow-y: auto; }
+.thr .m .xsmall { color: var(--es-muted); }
+.list .mod-filters { border-bottom: var(--es-border-1) solid var(--es-line); }
+.rgroup .rlist .note { color: var(--es-text-2); }
+.redact-names { display: flex; flex-direction: column; gap: var(--es-space-4); }
+.bthumb .bdg, .bthumb .gbdg { width: 100%; height: 100%; }
+.mod-preview3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--es-space-10); }
+.mod-preview3 > div { display: flex; flex-direction: column; align-items: center; gap: var(--es-space-8); padding: var(--es-space-12); border-radius: var(--es-radius-md); background: var(--es-bg); color: var(--es-text); border: var(--es-border-1) solid var(--es-line); }
+.mod-thr { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--es-space-8); }
+.mod-levels { display: flex; flex-direction: column; gap: var(--es-space-6); }
+.mod-levels > div { display: grid; grid-template-columns: var(--es-space-32) minmax(0, 1fr) auto; gap: var(--es-space-10); align-items: center; font-size: var(--es-fs-12-5); }
+.mod-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--es-space-16); align-items: start; }
+.mod-pills { display: flex; flex-wrap: wrap; gap: var(--es-space-6); }
+.mod-code { font-family: var(--es-font-mono); font-size: var(--es-fs-13); padding: var(--es-space-2) var(--es-space-8); border-radius: var(--es-radius-sm); background: var(--es-sunken); color: var(--es-text); border: var(--es-border-1) solid var(--es-line); }
+@media (max-width: 719px) {
+  .mod-preview3, .mod-split { grid-template-columns: minmax(0, 1fr); }
+  .mod-thr { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mod-filters .fgroup { flex: 1 1 100%; }
+}
+.seg a.seg-link { min-height: var(--es-size-control-md); padding: 0 var(--es-space-14); border-radius: var(--es-radius-md); color: var(--es-text-2); font: var(--es-weight-medium) var(--es-fs-13) var(--es-font-body); display: inline-flex; align-items: center; white-space: nowrap; text-decoration: none; }
+.seg a.seg-link:hover { color: var(--es-text); background: color-mix(in oklab, var(--es-raised) 60%, transparent); }
+.flush-rlist { margin: 0; }
+.mod-filters .seg button { min-height: var(--es-size-control-sm); padding: 0 var(--es-space-10); font-size: var(--es-fs-12-5); }
+.twopane .ap.flat-panel { border: 0; border-radius: 0; background: none; box-shadow: none; flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.twopane .ap.flat-panel > .bd { flex: 1; }

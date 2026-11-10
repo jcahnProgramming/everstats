@@ -10,6 +10,7 @@ import { EmptyState } from '../components/EmptyState.jsx';
 import { Spinner } from '../components/Stats.jsx';
 import { passkeySignIn, passkeysSupported, wasCancelled } from '../passkeyClient.js';
 import { useSession } from '../session.jsx';
+import { OFF_WORDS, providerUsable } from '../features.js';
 
 /** Starts an OAuth round trip: the server answers the provider's URL and the page goes there. */
 export async function startProvider(providerId, intent, returnTo) {
@@ -129,14 +130,14 @@ export function SignInPage() {
 
       <div className="stack gap-10">
         {providers.map((p) => (
-          p.configured ? (
+          providerUsable(p) ? (
             <Button key={p.id} className="lg left" loading={busy === p.id} disabled={busy !== null && busy !== p.id} onClick={() => go(p.id)}>
               <Icon name="provider-account" size="md" />
               <span className="flex-fill left-text">Continue with {p.label}</span>
             </Button>
           ) : (
             <button key={p.id} type="button" className="btn lg between" disabled>
-              <span>Continue with {p.label}</span><span className="muted xsmall">Not configured</span>
+              <span>Continue with {p.label}</span><span className="muted xsmall">{p.configured ? OFF_WORDS.discord : 'Not configured'}</span>
             </button>
           )
         ))}
