@@ -543,10 +543,13 @@ li.verified-mark .mono { text-transform: none; letter-spacing: 0; color: var(--e
 /* 0.9.0 Collections (design/v4-collections; its CSS is theme/collections.css, verbatim). App additions only:
    the character page tabs, the collections sub-navigation (links that look like the segmented control), a tracker with
    no slot picker (pets: grid | detail pane), and small helpers the screens use. */
-.char-tabs { display: flex; gap: var(--es-space-4); border-bottom: var(--es-border-1) solid var(--es-line); overflow-x: auto; }
-.char-tabs a { padding: var(--es-space-10) var(--es-space-14); color: var(--es-text-2); text-decoration: none; font-weight: var(--es-weight-semibold); font-size: var(--es-fs-14); border-bottom: var(--es-border-2) solid transparent; margin-bottom: calc(var(--es-border-1) * -1); white-space: nowrap; }
+/* 0.9.1: the tab bar never scrolls (two tabs fit at 390 px; they wrap if they ever don't). The current tab's underline is an
+   inset shadow inside the link, not a border pulled 1px over the bar's own border: that negative margin made the content
+   1px taller than the bar, and overflow-x: auto turned it into a one-pixel scrollbar. */
+.char-tabs { display: flex; flex-wrap: wrap; gap: var(--es-space-4); border-bottom: var(--es-border-1) solid var(--es-line); }
+.char-tabs a { padding: var(--es-space-10) var(--es-space-14); color: var(--es-text-2); text-decoration: none; font-weight: var(--es-weight-semibold); font-size: var(--es-fs-14); white-space: nowrap; }
 .char-tabs a:hover { color: var(--es-text); }
-.char-tabs a[aria-current="page"] { color: var(--es-text); border-bottom-color: var(--es-accent); }
+.char-tabs a[aria-current="page"] { color: var(--es-text); box-shadow: inset 0 calc(var(--es-border-2) * -1) 0 var(--es-accent); }
 .char-tabs a .muted { margin-left: var(--es-space-6); font-weight: var(--es-weight-medium); }
 .coll-nav .seg { max-width: 100%; }
 .seg .seg-link { min-height: var(--es-size-control-md); padding: 0 var(--es-space-14); border-radius: var(--es-radius-md); color: var(--es-text-2); font: var(--es-weight-medium) var(--es-fs-13) var(--es-font-body); display: inline-flex; align-items: center; white-space: nowrap; text-decoration: none; }
@@ -570,3 +573,8 @@ details.panel > summary { cursor: pointer; font-weight: var(--es-weight-semibold
 .gold-panel .kvgrid .cell b { white-space: nowrap; }
 .gold-panel .kvgrid { grid-template-columns: repeat(auto-fill, minmax(min(var(--es-size-col-min-sm), 100%), 1fr)); }
 .tm-allslots { flex: 1 1 var(--es-size-col-min); min-width: 0; }
+
+/* 0.9.1: scroll strips that are MEANT to scroll sideways on a phone (the gear icon strips, the collections sub-navigation,
+   segmented controls marked phone-scroll) scroll by touch or trackpad with no scrollbar track drawn. */
+.seg.phone-scroll, .armory-col, .armory-bottom { scrollbar-width: none; }
+.seg.phone-scroll::-webkit-scrollbar, .armory-col::-webkit-scrollbar, .armory-bottom::-webkit-scrollbar { display: none; }

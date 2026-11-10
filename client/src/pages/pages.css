@@ -46,7 +46,10 @@
 .char-line { font-size: var(--es-fs-16); }
 .char-tier { flex-wrap: nowrap; }
 .char-tier-text { align-items: flex-end; text-align: right; }
-.sheet-body { align-items: start; }
+/* 0.9.1: children stretch to the sheet's full width. align-items: start shrank the gear block to its content (689 of
+   1134 px at 1920 with renders paused, the render frame being the narrowest thing in it). */
+.sheet-body { align-items: stretch; }
+.sheet-body > .muted { align-self: start; }
 .stats-title { font-size: var(--es-fs-28); }
 
 /* ---------------------------------------------------------------- leaderboards, guild */
@@ -251,12 +254,12 @@ ol.codes { margin: 0; list-style: none; }
 
 /* ---------------------------------------------------------------- 0.4.1: Armory gear (components/GearSheet.jsx) */
 .armory { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(var(--es-size-col-min-sm), 1.1fr) minmax(0, 1fr); grid-template-areas: "left render right" "bottom bottom bottom"; gap: var(--es-space-14); align-items: start; }
-.armory-col { display: flex; flex-direction: column; gap: var(--es-space-6); min-width: 0; }
+.armory-col { display: flex; flex-direction: column; gap: var(--es-space-6); min-width: 0; position: relative; }
 .armory-col.left { grid-area: left; }
 .armory-col.right { grid-area: right; }
 .armory-render { grid-area: render; align-self: stretch; display: flex; }
 .armory-render .render { flex: 1; }
-.armory-bottom { grid-area: bottom; display: flex; justify-content: center; gap: var(--es-space-10); flex-wrap: wrap; }
+.armory-bottom { grid-area: bottom; display: flex; justify-content: center; gap: var(--es-space-10); flex-wrap: wrap; position: relative; min-width: 0; }
 .armory-bottom .armory-slot { flex: 0 1 var(--es-size-col-min); }
 button.armory-slot { font: inherit; cursor: pointer; width: 100%; text-align: left; }
 button.armory-slot.right { text-align: right; }
@@ -421,3 +424,14 @@ button.armory-slot[aria-expanded="true"] { border-color: var(--qc, var(--es-line
 /* 0.8.0: /admin/tiers pinned weights: the label is for screen readers (the table header names the column). */
 .weight-pin > label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .weight-pin .inp { max-width: 9em; }
+/* 0.9.1: the roster's eight columns were all nowrap (the design's table default), so at 720–1100 px it was 821px of
+   table in a ~660px box and scrolled sideways on a desktop. Headers and the long text cells wrap now; the table only
+   scrolls below its minimum width (phones), with no scrollbar track drawn. */
+.guild-roster .tbl th, .guild-roster .tbl td { white-space: normal; }
+.guild-roster .tbl th button { white-space: normal; }
+.guild-roster .tbl td:first-child { min-width: var(--es-space-120); }
+.guild-roster { scrollbar-width: none; }
+.guild-roster::-webkit-scrollbar { display: none; }
+.slotpick { scrollbar-width: none; }
+.slotpick::-webkit-scrollbar { display: none; }
+@media (max-width: 1099px) { .guild-roster .tbl th, .guild-roster .tbl td { padding-left: var(--es-space-8); padding-right: var(--es-space-8); } }
