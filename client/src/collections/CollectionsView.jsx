@@ -38,7 +38,7 @@ const SCREENS = [
 ];
 // Which screen a section header opens, and the glyph each kind wears.
 const SCREEN_OF = { transmog: 'transmog', mounts: 'mounts', pets: 'pets', 'hunter-pets': 'pets', toys: 'toys', heirlooms: 'heirlooms', titles: 'titles', achievements: 'achievements', reputations: 'reputations', professions: 'professions', dungeons: 'dungeons-raids', raids: 'dungeons-raids', quests: 'quests', 'quests-completed': 'quests', pvp: 'pvp' };
-const GLYPH_OF = { appearances: 'transmog', exalted: 'reputations', quests: 'quests', legacy: 'legacy', 'quests-completed': 'quests', raids: 'dungeons' };
+const GLYPH_OF = { appearances: 'transmog', exalted: 'reputations', revered: 'reputations', 'pets-rare': 'pets', 'boss-kills': 'dungeons', quests: 'quests', legacy: 'legacy', 'quests-completed': 'quests', raids: 'dungeons' };
 const glyphFor = (k) => GLYPH_OF[k] ?? k;
 const POLL_MS = 3000;
 const POLL_MAX = 40;
@@ -191,11 +191,12 @@ function Overview({ data, base, character: c, onReload }) {
         <div className="ccounts">
           {data.counts.map((k) => (
             <CountCard key={k.key} count={k} glyph={glyphFor(k.key)} pinned={pins ? pins.includes(k.id) : null} onPin={pins ? () => toggle(k.id, k.name) : null}
-              boardTo={c.ruleset ? `/leaderboards/${c.ruleset.id}/${k.id}` : null} />
+              boardTo={c.ruleset && k.board ? `/leaderboards/${c.ruleset.id}/${k.id}` : null} />
           ))}
         </div>
         {data.counts.some((k) => k.shared) && <p className="muted xsmall"><AccountMarker shared={{ how: 'detected' }} /> appears only where it is known: Blizzard says so, or every character Everstats has fetched on the owner’s account has the identical collection.</p>}
       </section>
+      <FamilyBoards boards={data.familyBoards ?? []} ruleset={c.ruleset?.id ?? null} />
       <GoldPanel gold={data.gold} character={c} onChange={onReload} />
       <section className="stack gap-10" aria-labelledby="bycoll-h">
         <div className="row gap-12 wrap-row">
@@ -208,6 +209,44 @@ function Overview({ data, base, character: c, onReload }) {
         {data.legacy && <LegacyRow legacy={data.legacy} open={open.has('legacy')} onToggle={() => flip('legacy')} base={base} />}
       </section>
     </>
+  );
+}
+
+/**
+ * 0.9.1: every other collection board this character is on: one per achievement category, transmog slot, instance and
+ * PvP field Blizzard returned for it (only values above zero), grouped, each linked to its board. Collapsed by default.
+ */
+const FAMILY_LABELS = { achcat: 'Achievements by category', slot: 'Appearances by slot', instance: 'Boss kills by instance', pvp: 'PvP summary' };
+function FamilyBoards({ boards, ruleset }) {
+  const [open, setOpen] = useState(false);
+  if (!boards.length || !ruleset) return null;
+  const groups = Object.keys(FAMILY_LABELS).map((f) => [f, boards.filter((b) => b.family === f)]).filter(([, l]) => l.length);
+  return (
+    <section className={`csec${open ? ' is-open' : ''}`} aria-labelledby="famb-h">
+      <button type="button" className="hd" aria-expanded={open} aria-controls="famb-body" onClick={() => setOpen(!open)}>
+        <Glyph name="category" />
+        <span className="tt"><span className="h3" id="famb-h">More collection leaderboards</span><span className="meta"><span>{formatNumber(boards.length)} boards: by achievement category, transmog slot, instance and PvP field</span></span></span>
+        <span className="side" />
+        <Icon name="chevron-down" size="sm" className="chev" />
+      </button>
+      {open && (
+        <div className="bd" id="famb-body">
+          {groups.map(([f, list]) => (
+            <div key={f} className="stack gap-6">
+              <h3 className="eyebrow">{FAMILY_LABELS[f]}</h3>
+              <div className="qlist panel">
+                {list.map((b) => (
+                  <div key={b.id} className="qrow">
+                    <Link className="nm" to={`/leaderboards/${ruleset}/${b.id}`}>{b.name}</Link>
+                    <span className="row gap-10"><b className="num">{formatNumber(b.value)}</b>{b.rank ? <span className="rankpill"><b>#{formatNumber(b.rank)}</b> of {formatNumber(b.withAny)}</span> : null}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

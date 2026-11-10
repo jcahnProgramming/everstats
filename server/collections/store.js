@@ -1,4 +1,4 @@
-import { COLLECTIONS_CATEGORY, COUNTS, DERIVED_BASE, KINDS, kindById } from './registry.js';
+import { COLLECTIONS_CATEGORY, COUNTS, DERIVED_BASE, DERIVED_DYNAMIC, DERIVED_MAX, FAMILIES, KINDS, kindById } from './registry.js';
 import { catalogMap } from './catalog.js';
 
 /**
@@ -39,7 +39,8 @@ export async function recordDerivedStatistics(q, { force = false } = {}) {
   // board, no Discovery row. It appears by itself once Blizzard's catalog lists some.
   const { catalogTotals } = await import('./catalog.js');
   const totals = await catalogTotals(q);
-  const list = COUNTS.filter((c) => !c.onlyWithCatalog || (totals[c.catalog] ?? 0) > 0);
+  // 0.9.1: a `lazy` count (boss kills, hunter pets) is registered only once a character has a value above zero.
+  const list = COUNTS.filter((c) => !c.lazy && (!c.onlyWithCatalog || (totals[c.catalog] ?? 0) > 0));
   await q.query(
     `INSERT INTO statistics (id, name, category_path, derived)
      SELECT v.id, v.name, $3::jsonb, v.key FROM unnest($1::bigint[], $2::text[], $4::text[]) AS v(id, name, key)
@@ -62,18 +63,73 @@ export async function achievementCatalog(q) {
   return catalogMap(q, 'achievement', { limit: 20_000 });
 }
 
+const CATEGORY_PATH = JSON.stringify([{ id: null, name: COLLECTIONS_CATEGORY }]);
+
+/**
+ * The statistic id of a derived key (0.9.1): a fixed count's own id, else the one allocated to it, else a new one from
+ * DERIVED_DYNAMIC on (under an advisory lock, so two crawler items can't take the same id). Its name is refreshed, and
+ * its last_seen_at: a family name is built from Blizzard's names, so it ages out with the window like Blizzard's.
+ */
+export async function ensureDerivedId(q, { key, name, id = null }) {
+  const found = await q.one('SELECT id, name FROM statistics WHERE derived = $1', [key]);
+  if (found) {
+    await q.query("UPDATE statistics SET name = $2, last_seen_at = now() WHERE id = $1 AND (name IS DISTINCT FROM $2 OR last_seen_at < now() - interval '1 hour')", [found.id, name]);
+    return Number(found.id);
+  }
+  await q.query("SELECT pg_advisory_xact_lock(hashtext('everstats.derived_ids'))");
+  const again = await q.one('SELECT id FROM statistics WHERE derived = $1', [key]);
+  if (again) return Number(again.id);
+  const next = id ?? Number((await q.one('SELECT coalesce(max(id), $1) + 1 AS n FROM statistics WHERE id >= $1 AND id < $2', [DERIVED_DYNAMIC, DERIVED_MAX])).n);
+  await q.query('INSERT INTO statistics (id, name, category_path, derived) VALUES ($1, $2, $3::jsonb, $4) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, derived = EXCLUDED.derived, last_seen_at = now()', [next, name, CATEGORY_PATH, key]);
+  const { clearCatalogCache } = await import('../stats/catalog.js');
+  clearCatalogCache();
+  return next;
+}
+
+async function writeValue(q, ch, characterId, statisticId, value, fetchedAt) {
+  if (value > 0) {
+    await q.query(
+      `INSERT INTO character_statistics (character_id, statistic_id, ruleset_id, hidden, value, text, blizzard_updated_at, fetched_at)
+       VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6)
+       ON CONFLICT (character_id, statistic_id) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, hidden = EXCLUDED.hidden, value = EXCLUDED.value, fetched_at = EXCLUDED.fetched_at`,
+      [characterId, statisticId, ch.ruleset_id, ch.hidden, value, fetchedAt],
+    );
+  } else {
+    await q.query('DELETE FROM character_statistics WHERE character_id = $1 AND statistic_id = $2', [characterId, statisticId]);
+  }
+}
+
 export async function deriveCounts(q, characterId) {
   const ch = await q.one('SELECT ruleset_id, hidden FROM characters WHERE id = $1', [characterId]);
   if (!ch || ch.ruleset_id === null) return 0;
   await recordDerivedStatistics(q);
   const rows = await collectionsOf(q, characterId);
-  const ctx = { achievementCatalog: rows.has('achievements') ? await achievementCatalog(q) : null };
+  const ctx = { achievementCatalog: rows.has('achievements') ? await achievementCatalog(q) : null, rows };
   let written = 0;
+  // 0.9.1: every family (a board per achievement category, transmog slot, instance, PvP field). Keys above zero get an
+  // id and a value; this character's rows for keys of a family it no longer has are deleted (zero has no row).
+  for (const f of FAMILIES) {
+    const row = rows.get(f.kind);
+    if (!row?.data || !row.fetchedAt) continue;
+    const entries = f.entries(row.data, ctx).filter((e) => Number.isFinite(e.value));
+    const keep = [];
+    for (const e of entries.filter((x) => x.value > 0)) {
+      const id = await ensureDerivedId(q, e);
+      await writeValue(q, ch, characterId, id, e.value, row.fetchedAt);
+      keep.push(id);
+      written += 1;
+    }
+    await q.query(
+      `DELETE FROM character_statistics cs USING statistics s WHERE cs.character_id = $1 AND s.id = cs.statistic_id AND s.derived LIKE $2 AND NOT (cs.statistic_id = ANY($3::bigint[]))`,
+      [characterId, `${f.family}:%`, keep],
+    );
+  }
   for (const c of COUNTS) {
     const row = rows.get(c.kind);
     if (!row?.data || !row.fetchedAt) continue; // never returned: nothing to count from
     const value = c.count(row.data, ctx);
     if (value === null || !Number.isFinite(value)) continue;
+    if (c.lazy && value > 0) await ensureDerivedId(q, { key: c.key, name: c.name, id: c.id });
     if (value > 0) {
       await q.query(
         `INSERT INTO character_statistics (character_id, statistic_id, ruleset_id, hidden, value, text, blizzard_updated_at, fetched_at)

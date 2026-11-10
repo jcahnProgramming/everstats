@@ -1,7 +1,7 @@
 import { rankOn } from '../stats/boards.js';
 import { catalogMap, catalogTotals } from './catalog.js';
 import { legacyAccountWide, legacyOf, legacyPointsOf } from './legacy.js';
-import { COUNTS, KINDS, kindById } from './registry.js';
+import { COUNTS, KINDS, familyOf, kindById } from './registry.js';
 import { achievementCatalog, collectionsOf, sharedKindsOf, sharingEvidence } from './store.js';
 
 /**
@@ -37,9 +37,13 @@ export async function collectionsOverview(db, ch) {
   const legacyWide = achCat.size ? legacyAccountWide(achCat) : null;
   const ranked = ch.ruleset_id !== null && !ch.hidden;
   const values = new Map((await db.query('SELECT statistic_id, value FROM character_statistics WHERE character_id = $1 AND statistic_id = ANY($2::bigint[])', [ch.id, COUNTS.map((c) => c.id)])).map((r) => [Number(r.statistic_id), r.value]));
+  const registered = new Set((await db.query('SELECT id FROM statistics WHERE id = ANY($1::bigint[]) AND name IS NOT NULL', [COUNTS.map((c) => c.id)])).map((r) => Number(r.id)));
   const counts = [];
   for (const c of COUNTS) {
     const row = rows.get(c.kind);
+    // 0.9.1: hunter pets only for hunters; a lazy count (boss kills) only once its board exists (someone has one).
+    if (c.population === 'hunters' && ch.class !== 'Hunter') continue;
+    if (c.lazy && !registered.has(c.id)) continue;
     // A collection Blizzard has no catalog for and nobody has (heirlooms on Forever) isn't a count at all.
     if (c.catalog && totals[c.catalog] === 0 && !row?.data) continue;
     if (c.kind === 'heirlooms' && !(totals.heirloom > 0) && !row?.data) continue;
@@ -48,7 +52,7 @@ export async function collectionsOverview(db, ch) {
     const rk = ranked && known && value > 0 ? await rankOn(db, { characterId: ch.id, statisticId: c.id, rulesetId: ch.ruleset_id }) : null;
     counts.push({
       key: c.key, id: c.id, name: c.name, short: c.short, kind: c.kind, value, total: c.catalog ? totals[c.catalog] ?? null : null,
-      rank: rk?.rank ?? null, withAny: rk?.withAny ?? null, fetchedAt: row?.fetchedAt ?? null,
+      rank: rk?.rank ?? null, withAny: rk?.withAny ?? null, fetchedAt: row?.fetchedAt ?? null, board: registered.has(c.id),
       shared: sharedFor(c, { sharedKinds, achievements: earned, legacyWide }),
     });
   }
@@ -56,8 +60,19 @@ export async function collectionsOverview(db, ch) {
     .filter((k) => k.id !== 'hunter-pets' || ch.class === 'Hunter')
     .map((k) => ({ id: k.id, label: k.label, ...sectionState(rows.get(k.id)), summary: summarise(k.id, rows.get(k.id)?.data, totals), shared: kindById.get(k.id).detect ? sharedKinds.has(k.id) : false }));
   const legacy = rows.get('achievements')?.data && achCat.size ? legacyOf(earned, achCat) : null;
+  // 0.9.1: this character's boards per achievement category, transmog slot, instance and PvP field (values above zero).
+  const fam = await db.query(
+    `SELECT s.id, s.name, s.derived, cs.value FROM character_statistics cs JOIN statistics s ON s.id = cs.statistic_id
+      WHERE cs.character_id = $1 AND s.derived LIKE '%:%' AND s.name IS NOT NULL ORDER BY s.name LIMIT 300`,
+    [ch.id],
+  );
+  const familyBoards = [];
+  for (const f of fam) {
+    const rk = ranked ? await rankOn(db, { characterId: ch.id, statisticId: Number(f.id), rulesetId: ch.ruleset_id }) : null;
+    familyBoards.push({ id: Number(f.id), name: f.name, family: String(f.derived).split(':')[0], value: f.value, rank: rk?.rank ?? null, withAny: rk?.withAny ?? null });
+  }
   return {
-    fetchedAt: ch.collections_fetched_at, catalogs: totals, counts, sections, ranked,
+    fetchedAt: ch.collections_fetched_at, catalogs: totals, counts, sections, ranked, familyBoards,
     legacy: legacy ? { points: legacy.points, achievements: legacy.earning.length, accountWide: legacyWide } : null,
   };
 }
@@ -292,11 +307,19 @@ async function qualities(db, ids) {
 
 /** For a collection board's header: how account-wide it is known to be, in words-ready numbers. */
 export async function boardSharing(db, statisticId) {
-  const c = COUNTS.find((x) => x.id === Number(statisticId));
+  // 0.9.1: a fixed count, or a family board (per achievement category, transmog slot, instance, PvP field).
+  const key = (await db.one('SELECT derived FROM statistics WHERE id = $1', [Number(statisticId)]))?.derived ?? null;
+  const fam = key ? familyOf(key) : null;
+  const c = COUNTS.find((x) => x.id === Number(statisticId)) ?? (fam ? { key, kind: fam.kind, shared: fam.shared, family: fam.family } : null);
   if (!c) return null;
+  const extra = { population: c.population ?? null, family: c.family ?? null };
   if (c.shared === 'detected') {
     const ev = (await sharingEvidence(db))[c.kind] ?? { accounts: 0, shared: 0 };
-    return { key: c.key, how: 'detected', accounts: ev.accounts, shared: ev.shared };
+    return { key: c.key, how: 'detected', accounts: ev.accounts, shared: ev.shared, ...extra };
+  }
+  if (c.family === 'achcat') {
+    const cat = [...(await achievementCatalog(db)).values()].filter((a) => `achcat:${a.categoryId}` === key);
+    return { key, how: 'stated', partial: true, wide: cat.filter((a) => a.accountWide === true).length, total: cat.length, ...extra };
   }
   if (c.key === 'legacy') {
     const cat = await achievementCatalog(db);
@@ -307,5 +330,5 @@ export async function boardSharing(db, statisticId) {
     const wide = [...cat.values()].filter((a) => a.accountWide === true).length;
     return { key: c.key, how: 'stated', partial: true, wide, total: cat.size };
   }
-  return { key: c.key, how: null };
+  return { key: c.key, how: null, ...extra };
 }

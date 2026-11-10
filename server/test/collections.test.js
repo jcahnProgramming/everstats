@@ -206,9 +206,9 @@ test('collection counts are statistics: boards, zero never ranked, and a stats r
   assert.equal(await val('legacy'), 0);
   // Every count is in the statistics table under the Collections category.
   const st = await t.db.query('SELECT id, derived FROM statistics WHERE derived IS NOT NULL ORDER BY id');
-  // Heirlooms aren't registered while Blizzard's heirloom catalog has none.
-  assert.equal(st.length, COUNTS.length - 1);
-  assert.ok(!st.some((s) => s.derived === 'heirlooms'));
+  // Heirlooms aren't registered while Blizzard's heirloom catalog has none; boss kills not until someone has one (0.9.1).
+  const fixed = st.filter((x) => !String(x.derived).includes(':')).map((x) => x.derived);
+  assert.deepEqual(fixed.sort(), COUNTS.filter((c) => c.key !== 'heirlooms' && c.key !== 'boss-kills').map((c) => c.key).sort());
   // A board: both characters have one mount → tied at #1; a statistics refresh (storeDetails) leaves the counts alone.
   await fetchChar('alpha-coll');
   assert.equal(await val('mounts'), 1);
@@ -422,4 +422,48 @@ test('the Collections share card carries real counts only, and the account glyph
   // A character without collections yet can't have one.
   const none = await buildCard(t.db, 'collections', { c: 'hunt-coll' }, cleanOptions('collections', {}));
   assert.ok(['ok', 'unavailable'].includes(none.status));
+});
+
+test('0.9.1: a board for every collection: per achievement category, per transmog slot, per PvP field; hunters ranked among hunters', async () => {
+  // The catalogs are built by now (achievement categories come from them); refresh to count with them.
+  await fetchColl('alpha-coll');
+  await fetchColl('hunt-coll');
+  const keys = new Map((await t.db.query('SELECT id, derived, name FROM statistics WHERE derived IS NOT NULL')).map((r) => [r.derived, r]));
+  // One board per transmog slot Blizzard returned, named from Blizzard's slot names.
+  assert.equal(keys.get('slot:HEAD').name, 'Appearances collected: Head');
+  assert.ok(keys.has('slot:CHEST'));
+  // Achievements per category: 62041 and 62043 are earned, both in "Ranks".
+  assert.equal(keys.get('achcat:15597').name, 'Achievements earned: Ranks');
+  const v = async (key, cid = 7001) => (await t.db.one('SELECT value FROM character_statistics WHERE character_id = $1 AND statistic_id = $2', [cid, keys.get(key).id]))?.value ?? 0;
+  assert.equal(await v('achcat:15597'), 2);
+  assert.equal(await v('slot:HEAD'), 2);
+  // Every PvP summary number Blizzard returns above zero gets a board; pvp_rank is 0 for everyone: no board.
+  assert.equal(await v('pvp:honorable_kills'), 4);
+  assert.ok(!keys.has('pvp:pvp_rank'));
+  // No encounter data on Forever so far: no boss-kill boards at all.
+  assert.ok(!keys.has('boss-kills'));
+  assert.ok(![...keys.keys()].some((k) => k.startsWith('instance:')));
+  // Ids are stable per key and above the fixed range.
+  const { DERIVED_DYNAMIC } = await import('../collections/registry.js');
+  assert.ok(Number(keys.get('slot:HEAD').id) > DERIVED_DYNAMIC);
+  await fetchColl('alpha-coll');
+  assert.equal(Number((await t.db.one("SELECT id FROM statistics WHERE derived = 'slot:HEAD'")).id), Number(keys.get('slot:HEAD').id));
+  // Hunter pets: registered once a hunter has one; the board's population is hunters only.
+  const hp = keys.get('hunter-pets');
+  assert.ok(hp);
+  const board = (await t.client().get(`/api/leaderboards/2/${hp.id}`)).json;
+  assert.equal(board.nonzero, 1);
+  assert.equal(board.population, 1);
+  // The tab lists the character's family boards, linked by id.
+  const tab = (await t.client({ ip: '198.51.100.70' }).get('/api/characters/alpha-coll/collections')).json;
+  assert.ok(tab.familyBoards.some((b) => b.name === 'Appearances collected: Head' && b.rank === 1));
+  assert.ok(!tab.counts.some((k) => k.key === 'hunter-pets'), 'hunter pets: hunters only');
+  // Leaderboards index: the Collections group carries the gold boards too.
+  const idx = (await t.client().get('/api/leaderboards?ruleset=2')).json;
+  assert.equal(idx.categories.find((c) => c.label === 'Collections').extra, 'gold');
+  // Family boards are listed in Discovery like any statistic, and count toward no tier.
+  const { loadCatalogFresh } = await import('../stats/catalog.js');
+  const s = (await loadCatalogFresh(t.db)).statistics.get(Number(keys.get('slot:HEAD').id));
+  assert.equal(s.category, 'Collections');
+  assert.equal(s.tierRole, 'undecided');
 });

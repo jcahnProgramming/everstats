@@ -27,7 +27,11 @@ import {
  */
 export const DERIVED_BASE = 2_000_000_000;
 export const derivedId = (n) => DERIVED_BASE + n;
-export const isDerivedId = (id) => Number(id) > DERIVED_BASE && Number(id) < DERIVED_BASE + 1000;
+// 0.9.1: ids DERIVED_BASE + 1 … + 999 are the fixed COUNTS; from DERIVED_DYNAMIC on, ids are allocated as FAMILIES boards
+// first appear (a new achievement category, a transmog slot, an instance, a PvP field), and stay with their key.
+export const DERIVED_DYNAMIC = DERIVED_BASE + 1000;
+export const DERIVED_MAX = DERIVED_BASE + 100_000_000;
+export const isDerivedId = (id) => Number(id) > DERIVED_BASE && Number(id) < DERIVED_MAX;
 export const COLLECTIONS_CATEGORY = 'Collections';
 
 const has = (d) => Array.isArray(d?.items) && d.items.length > 0;
@@ -65,9 +69,61 @@ export const COUNTS = Object.freeze([
   { key: 'exalted', short: 'Exalted', n: 6, name: 'Exalted reputations', kind: 'reputations', count: (d) => d.items.filter((r) => r.standing === 'Exalted').length },
   // Named apart from Blizzard's own "Quests completed" statistic: this one counts Blizzard's completed-quest list.
   { key: 'quests', short: 'Quests', n: 8, name: 'Completed quests (quest log)', kind: 'quests-completed', count: (d) => d.items.length },
+  // 0.9.1. Blizzard's own quality type; a pet species counted once (its best copy).
+  { key: 'pets-rare', short: 'Rare+ pets', n: 11, name: 'Rare or better pets', kind: 'pets', shared: 'detected', count: (d) => new Set(d.items.filter((p) => ['rare', 'epic', 'legendary'].includes(p.quality)).map((p) => p.speciesId)).size },
+  { key: 'revered', short: 'Revered+', n: 12, name: 'Reputations at Revered or higher', kind: 'reputations', count: (d) => d.items.filter((r) => r.standing === 'Revered' || r.standing === 'Exalted').length },
+  // Registered only once someone has a kill: Blizzard's encounter lists were empty in every Forever sample so far.
+  { key: 'boss-kills', short: 'Boss kills', n: 13, lazy: true, name: 'Dungeon and raid boss kills', kind: 'dungeons', count: (d, ctx) => ['dungeons', 'raids'].reduce((n, k) => n + (ctx.rows?.get(k)?.data?.items ?? []).reduce((m, i) => m + i.modes.reduce((x, md) => x + md.bosses.reduce((y, b) => y + (b.kills ?? 0), 0), 0), 0), 0) },
+  // Hunters only, ranked among hunters (board population: characters of Blizzard's class "Hunter").
+  { key: 'hunter-pets', short: 'Hunter pets', n: 14, lazy: true, population: 'hunters', name: 'Hunter pets owned', kind: 'hunter-pets', count: (d) => d.items.length },
   { key: 'legacy', short: 'Legacy Points', n: 9, name: 'Legacy Points', kind: 'achievements', shared: 'stated', count: (d, ctx) => (ctx.achievementCatalog?.size ? legacyOf(d.items, ctx.achievementCatalog).points : null) },
 ].map((c) => Object.freeze({ ...c, id: derivedId(c.n) })));
 export const countById = new Map(COUNTS.map((c) => [c.id, c]));
+
+/**
+ * 0.9.1 FAMILIES: one board per thing Blizzard returns (an achievement category, a transmog slot, an instance, a PvP
+ * summary field). entries(data, ctx) → [{ key, name, value }]; a key's id is allocated the first time any character
+ * has a value above zero for it (collections/store.js ensureDerivedId), so a board exists only for what Blizzard really
+ * returns on Forever. Names are built from Blizzard's own names (so they age out with the window like Blizzard's).
+ */
+const PVP_LABELS = { honorable_kills: 'Honorable kills', pvp_rank: 'PvP rank', honor_level: 'Honor level' };
+const pretty = (k) => k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+export const FAMILIES = Object.freeze([
+  {
+    family: 'achcat', kind: 'achievements', shared: 'stated', label: 'Achievements earned, per category',
+    entries: (d, ctx) => {
+      if (!ctx.achievementCatalog?.size) return [];
+      const by = new Map();
+      for (const a of d.items) {
+        if (!a.completedAt) continue;
+        const c = ctx.achievementCatalog.get(a.id);
+        if (!c?.categoryId || !c.category) continue;
+        const e = by.get(c.categoryId) ?? { key: `achcat:${c.categoryId}`, name: `Achievements earned: ${c.category}`, value: 0 };
+        e.value += 1;
+        by.set(c.categoryId, e);
+      }
+      return [...by.values()];
+    },
+  },
+  {
+    family: 'slot', kind: 'transmog', shared: 'detected', label: 'Appearances collected, per slot',
+    entries: (d) => d.slots.filter((s) => /^[A-Z0-9_]{1,30}$/.test(s.type)).map((s) => ({ key: `slot:${s.type}`, name: `Appearances collected: ${s.name}`, value: new Set(s.ids).size })),
+  },
+  {
+    family: 'instance', kind: 'dungeons', label: 'Boss kills, per instance',
+    entries: (d, ctx) => ['dungeons', 'raids'].flatMap((k) => (ctx.rows?.get(k)?.data?.items ?? []).map((i) => ({
+      key: `instance:${i.id}`, name: `${i.name ?? `Instance ${i.id}`} boss kills`,
+      value: i.modes.reduce((x, md) => x + md.bosses.reduce((y, b) => y + (b.kills ?? 0), 0), 0),
+    }))),
+  },
+  {
+    family: 'pvp', kind: 'pvp', label: 'PvP summary fields',
+    entries: (d) => Object.entries(d.fields).filter(([k, v]) => /^[a-z_]{1,40}$/.test(k) && Number.isFinite(v)).map(([k, v]) => ({ key: `pvp:${k}`, name: `${PVP_LABELS[k] ?? pretty(k)} (PvP summary)`, value: v })),
+  },
+]);
+export const familyOf = (key) => FAMILIES.find((f) => String(key ?? '').startsWith(`${f.family}:`)) ?? null;
+/** The fixed count or family a derived key belongs to → { kind, shared, population } (for boards and notes). */
+export const derivedInfo = (key) => countByKey.get(key) ?? familyOf(key);
 export const countByKey = new Map(COUNTS.map((c) => [c.key, c]));
 
 /** How a statistic Everstats counts says where it came from (provenance lines, the Discovery page). */

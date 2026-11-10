@@ -1,6 +1,9 @@
 import { pageLimit } from '../core/db.js';
 import { periodStart } from './periods.js';
-import { isDerivedId } from '../collections/registry.js';
+import { countById, isDerivedId } from '../collections/registry.js';
+
+// 0.9.1: board populations a collection count can ask for (registry COUNTS `population`), as fixed SQL, never input.
+const POPULATIONS = { hunters: " AND class = 'Hunter'" };
 
 /**
  * Leaderboards: one per statistic per ruleset, in three periods.
@@ -34,11 +37,11 @@ const startOf = (period, now) => (period === 'overall' ? null : periodStart(peri
 const params = (period, now, ...rest) => (period === 'overall' ? rest : [...rest, startOf(period, now)]);
 
 /** Tracked characters on a ruleset (overall), or with a baseline in the current period. */
-export async function populationOf(db, rulesetId, period = 'overall', { now = Date.now, derived = false } = {}) {
+export async function populationOf(db, rulesetId, period = 'overall', { now = Date.now, derived = false, population = null } = {}) {
   if (period === 'overall') {
     // 0.9.0: a collection count's board counts only characters whose collections Everstats has fetched (the rest aren't
     // "at zero", they're unknown).
-    const extra = derived ? ' AND collections_fetched_at IS NOT NULL' : '';
+    const extra = (derived ? ' AND collections_fetched_at IS NOT NULL' : '') + (POPULATIONS[population] ?? '');
     return (await db.one(`SELECT count(*)::int AS n FROM characters WHERE ruleset_id = $1 AND stats_fetched_at IS NOT NULL AND NOT hidden${extra}`, [rulesetId])).n;
   }
   return (await db.one('SELECT count(*)::int AS n FROM period_baselines WHERE period = $1 AND period_start = $2 AND ruleset_id = $3 AND NOT hidden', [period, startOf(period, now), rulesetId])).n;
@@ -64,7 +67,7 @@ export async function statCounts(db, { statisticId, rulesetId, period = 'overall
       WHERE statistic_id = $1 AND ruleset_id = $2 AND NOT hidden AND ${s.col} > 0 ${s.where}`,
     params(period, now, statisticId, rulesetId),
   );
-  return { population: await populationOf(db, rulesetId, period, { now, derived: isDerivedId(statisticId) }), nonzero: row.nonzero, max: row.max, min: row.min };
+  return { population: await populationOf(db, rulesetId, period, { now, derived: isDerivedId(statisticId), population: countById.get(Number(statisticId))?.population ?? null }), nonzero: row.nonzero, max: row.max, min: row.min };
 }
 
 /** "Everyone's tied": two or more characters have any, and all of them have the same value. Zeros don't count. */

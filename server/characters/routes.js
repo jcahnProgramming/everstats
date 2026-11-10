@@ -21,6 +21,7 @@ import { badgeContext, publicBadgesOf } from '../badges/store.js';
 import { CREATOR_BADGE, creatorLines, verifiedHandles } from '../badges/creators.js';
 import { renderSwitch } from './renders.js';
 import { boardSharing } from '../collections/view.js';
+import { COLLECTIONS_CATEGORY } from '../collections/registry.js';
 import { countActivity, looksAutomated } from '../activity/count.js';
 import { whySignIn } from '../signin/benefits.js';
 import { PROVIDERS } from '../auth/providers.js';
@@ -303,6 +304,8 @@ export function createPublicRouter({ db, limits, networkOf }) {
       periods: await periodsInfo(db),
       categories: categories.map((c) => ({
         label: c.label, key: categoryKey(c.label), farmable: c.farmable, graded: c.graded, tierCounted: c.tierCounted ?? 0, inOverall: Boolean(c.inOverall),
+        // 0.9.1: the Collections group also holds the gold boards (opt-in only; their own API).
+        extra: c.label === COLLECTIONS_CATEGORY ? 'gold' : null,
         boards: c.statisticIds.map((id) => {
           const s = statistics.get(id);
           const list = byStat.get(id) ?? [];

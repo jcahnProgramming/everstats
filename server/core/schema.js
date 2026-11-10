@@ -1722,4 +1722,12 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.9.1: a board for every collection (collections/registry.js FAMILIES): derived statistic ids are allocated per key
+    // (an achievement category, a transmog slot, an instance, a PvP field) as they first appear, one id per key.
+    id: '024_collection_boards',
+    async up(q) {
+      await q.query('CREATE UNIQUE INDEX statistics_derived ON statistics (derived) WHERE derived IS NOT NULL');
+    },
+  },
 ];

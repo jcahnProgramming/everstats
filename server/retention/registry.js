@@ -204,7 +204,7 @@ export const BLIZZARD = [
     table: 'statistics', holds: 'Statistic names and Blizzard’s category names (the ids, and the owner’s decisions on them, are ours)', fetched: 'last_seen_at',
     sweep: async (q, cutoff) => n(await q.query(
       // 0.9.0: a statistic Everstats counts (derived) has OUR name and category, never Blizzard's: it keeps them.
-      `UPDATE statistics SET name = NULL, category_path = '[]', named_example = NULL WHERE name IS NOT NULL AND derived IS NULL AND last_seen_at < $1 RETURNING 1`,
+      `UPDATE statistics SET name = NULL, category_path = '[]', named_example = NULL WHERE name IS NOT NULL AND (derived IS NULL OR derived LIKE '%:%') AND last_seen_at < $1 RETURNING 1`,
       [cutoff],
     )),
   },

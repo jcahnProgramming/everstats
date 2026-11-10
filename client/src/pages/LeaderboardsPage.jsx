@@ -155,6 +155,7 @@ export function LeaderboardsPage() {
                     {cat.boards.map((b) => (guilds ? <MiniGuildBoard key={b.id} board={b} ruleset={rs} minMembers={data.minMembers} /> : <MiniBoard key={b.id} board={b} ruleset={rs} population={data.population} />))}
                   </div>
                 )}
+                {isOpen && cat.extra === 'gold' && !guilds && rs && <GoldBoardsSection ruleset={rs.id} />}
               </section>
             );
           })}
@@ -167,8 +168,6 @@ export function LeaderboardsPage() {
         </EmptyState>
       )}
 
-      {/* 0.9.0: gold boards (opt-in only). Characters view only: guilds have no gold. */}
-      {!guilds && rs && <GoldBoardsSection ruleset={rs.id} />}
 
       <section className="panel pad-24 stack gap-16" aria-labelledby="grading-h">
         <h2 className="h2 h2-panel" id="grading-h">Tiers</h2>
