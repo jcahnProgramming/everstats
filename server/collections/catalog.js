@@ -23,6 +23,8 @@ import { indexOf, mediaAsset, parseAchievementDetail, parseAppearanceDetail, par
  */
 export const REFRESH_DAYS = 14;
 export const DETAIL_CHUNK = 30;
+/** The attempt on which a row that keeps failing (429 / 5xx / no answer) is skipped and recorded instead of retried. */
+export const ROW_GIVE_UP = 3;
 const ITEM_SEARCH_MAX_PAGES = 400;
 
 export const CATALOGS = Object.freeze([
@@ -108,16 +110,33 @@ async function tally(db, kind, requests, bytes) {
 /** Which catalogs are due (never built, or older than REFRESH_DAYS, or stuck for a day): queued at the lowest priority. */
 export async function queueDueCatalogs(db) {
   if (!(await staticNamespace(db))) return { queued: 0, why: 'waiting for a character fetch to name the static namespace' };
-  const states = new Map((await db.query("SELECT kind, state, started_at, fetched_at FROM collection_catalog_state WHERE kind <> 'namespace' LIMIT 50")).map((r) => [r.kind, r]));
+  const states = new Map((await db.query("SELECT kind, state, started_at, finished_at, fetched_at FROM collection_catalog_state WHERE kind <> 'namespace' LIMIT 50")).map((r) => [r.kind, r]));
   let queued = 0;
   for (const c of CATALOGS) {
     const s = states.get(c.kind);
     const day = 24 * 60 * 60 * 1000;
     const stale = !s || !s.fetched_at || Date.now() - new Date(s.fetched_at).getTime() > REFRESH_DAYS * day;
-    const stuck = s && (s.state === 'queued' || s.state === 'building') && s.started_at && Date.now() - new Date(s.started_at).getTime() > day;
-    const busy = s && (s.state === 'queued' || s.state === 'building') && !stuck;
-    if (busy || !(stale || stuck || s?.state === 'failed')) continue;
-    if (s?.state === 'failed' && !stale && s.started_at && Date.now() - new Date(s.started_at).getTime() < 6 * 60 * 60 * 1000) continue;
+    // 0.9.2: a build is busy while one of its crawl items is queued or running (a worker restart puts a running item
+    // back in the queue, so the chain carries on where it was). Stuck = building with no item left.
+    const pending = await db.one("SELECT 1 AS x FROM crawl_queue WHERE kind = 'catalog' AND key LIKE $1 AND state IN ('queued', 'running') LIMIT 1", [`catalog:${c.kind}:%`]);
+    const building = s && (s.state === 'queued' || s.state === 'building');
+    if (building && pending) continue;
+    const started = s?.started_at ? new Date(s.started_at).getTime() : 0;
+    // RESUME (never start over) a build that stopped part-way: stuck, or failed (a step gave up), still inside its
+    // refresh age. Its rows refreshed so far keep their fetched_at; the detail steps pick up the rest.
+    const resumable = c.detail && s && (building || s.state === 'failed') && started && Date.now() - started < REFRESH_DAYS * day
+      && (await db.one('SELECT count(*)::int AS n FROM collection_catalog WHERE kind = $1', [c.kind])).n > 0;
+    if (resumable) {
+      if (s.state === 'failed' && s.finished_at && Date.now() - new Date(s.finished_at).getTime() < 60 * 60 * 1000) continue; // an hour's rest
+      await setState(db, c.kind, { state: 'building', detail: null });
+      await enqueue(db, { kind: 'catalog', key: `catalog:${c.kind}:details:0`, priority: PRIORITY.roster });
+      queued += 1;
+      continue;
+    }
+    if (building && !pending && !stale) {
+      // An index step that never ran: start it again.
+    } else if (!stale && s?.state !== 'failed') continue;
+    if (s?.state === 'failed' && !stale && s.finished_at && Date.now() - new Date(s.finished_at).getTime() < 6 * 60 * 60 * 1000) continue;
     await setState(db, c.kind, { state: 'queued', started_at: new Date(), requests: 0, bytes: 0, detail: null });
     await enqueue(db, { kind: 'catalog', key: `catalog:${c.kind}:index`, priority: PRIORITY.roster });
     queued += 1;
@@ -145,6 +164,7 @@ export async function fetchCatalogStep({ db, client }, item) {
   };
   try {
     if (step === 'index') return await indexStep(db, c, ask, item);
+    if (step === 'ids' && c.kind === 'appearance') return await resolveCollected(db, c, ask, item, Number(n));
     return await detailStep(db, c, ask, item, Number(n) || 0);
   } catch (err) {
     if (err instanceof RetryableError && item.attempts < 5) throw err;
@@ -219,15 +239,27 @@ async function detailStep(db, c, ask, item, n) {
     'SELECT id, data FROM collection_catalog WHERE kind = $1 AND fetched_at < $2 ORDER BY id LIMIT $3',
     [c.kind, st.started_at, DETAIL_CHUNK],
   );
+  // 0.9.2: a 429 / 5xx / no answer retries the chunk (the crawler waits 30 s, 60 s, 120 s…, and the endpoint's own
+  // back-off doubles); rows finished so far are saved one by one, so a retry resumes. A row that still fails on the
+  // ROW_GIVE_UP-th attempt is recorded as unavailable (with the status) and SKIPPED: one bad id never fails the whole
+  // catalog or loops; the next refresh asks for it again.
+  const bad = (x) => x.status === 429 || x.status === null || x.status >= 500;
+  let skipped = 0;
   for (const row of rows) {
     const r = await ask(c.detail.path(row.id));
-    if (r.status === 429 || r.status === null || r.status >= 500) throw new RetryableError(`${c.kind} detail: ${r.status ?? 'no answer'}`, 'blizzard');
+    if (bad(r)) {
+      if ((item.attempts ?? 1) < ROW_GIVE_UP) throw new RetryableError(`${c.kind} detail: ${r.status ?? 'no answer'}`, 'blizzard');
+      await db.query("UPDATE collection_catalog SET data = data || jsonb_build_object('unavailable', $3::int), fetched_at = now() WHERE kind = $1 AND id = $2", [c.kind, row.id, r.status ?? 0]);
+      skipped += 1;
+      continue;
+    }
     const data = r.status === 200 && r.json ? { ...row.data, ...c.detail.parse(r.json, row) } : { ...row.data, missing: true };
+    delete data.unavailable;
     if (c.media && r.status === 200) {
       const p = c.media.path(data);
       if (p) {
         const m = await ask(p);
-        if (m.status === 429 || m.status === null || m.status >= 500) throw new RetryableError(`${c.kind} media: ${m.status ?? 'no answer'}`, 'blizzard');
+        if (bad(m) && (item.attempts ?? 1) < ROW_GIVE_UP) throw new RetryableError(`${c.kind} media: ${m.status ?? 'no answer'}`, 'blizzard');
         data.icon = m.status === 200 ? mediaAsset(m.json, c.media.key) : null;
       }
     }
@@ -239,9 +271,10 @@ async function detailStep(db, c, ask, item, n) {
     );
   }
   const left = (await db.one('SELECT count(*)::int AS n FROM collection_catalog WHERE kind = $1 AND fetched_at < $2', [c.kind, st.started_at])).n;
+  if (skipped) await db.query("UPDATE collection_catalog_state SET detail = left(coalesce(detail || ' · ', '') || $2, 300) WHERE kind = $1", [c.kind, `${skipped} skipped after repeated Blizzard errors`]);
   if (left && rows.length) {
     await enqueue(db, { kind: 'catalog', key: `catalog:${c.kind}:details:${n + 1}`, priority: item.priority });
-    return `${c.kind}: ${rows.length} details, ${left} left`;
+    return `${c.kind}: ${rows.length} details, ${left} left${skipped ? `, ${skipped} skipped` : ''}`;
   }
   await setState(db, c.kind, { state: 'ok', finished_at: new Date(), fetched_at: new Date() });
   return `${c.kind}: done`;
@@ -280,6 +313,40 @@ async function itemSearch(db, c, ask) {
   const detail = stalled ? 'Blizzard’s item search stopped paging by id: qualities cover the items read so far' : null;
   await setState(db, c.kind, { state: rows.length ? 'ok' : 'empty', total: rows.length, finished_at: new Date(), fetched_at: new Date(), detail });
   return `items: ${rows.length} with appearances, ${pages} pages${stalled ? ' (stalled)' : ''}`;
+}
+
+/**
+ * 0.9.2: a character's collected appearances that the FINISHED catalog doesn't list (Blizzard's slot lists leave some
+ * out): each one's item-appearance detail and icon, so the tracker can name it. At most RESOLVE_MAX per item; an id
+ * Blizzard answers nothing for is recorded as unavailable (the page keeps its id), never asked again until the refresh.
+ */
+export const RESOLVE_MAX = 60;
+export async function unresolvedAppearances(db, characterId) {
+  const row = await db.one("SELECT data FROM character_collections WHERE character_id = $1 AND kind = 'transmog'", [characterId]);
+  const ids = [...new Set((row?.data?.slots ?? []).flatMap((s) => s.ids))];
+  if (!ids.length) return [];
+  const have = new Set((await db.query("SELECT id FROM collection_catalog WHERE kind = 'appearance' AND id = ANY($1::bigint[]) LIMIT 20000", [ids])).map((r) => Number(r.id)));
+  return ids.filter((id) => !have.has(id));
+}
+async function resolveCollected(db, c, ask, item, characterId) {
+  const ids = (await unresolvedAppearances(db, characterId)).slice(0, RESOLVE_MAX);
+  let named = 0;
+  for (const id of ids) {
+    const r = await ask(c.detail.path(id));
+    if (r.status === 429 || r.status === null || r.status >= 500) throw new RetryableError(`appearance ${id}: ${r.status ?? 'no answer'}`, 'blizzard');
+    const data = r.status === 200 && r.json ? c.detail.parse(r.json) : { unavailable: r.status };
+    if (r.status === 200 && c.media.path(data)) {
+      const m = await ask(c.media.path(data));
+      data.icon = m.status === 200 ? mediaAsset(m.json, c.media.key) : null;
+    }
+    if (data.items?.length) named += 1;
+    await db.query(
+      `INSERT INTO collection_catalog (kind, id, name, data, fetched_at) VALUES ('appearance', $1, $2, $3::jsonb, now())
+       ON CONFLICT (kind, id) DO UPDATE SET name = EXCLUDED.name, data = EXCLUDED.data, fetched_at = now()`,
+      [id, data.items?.[0]?.name ?? null, JSON.stringify(data)],
+    );
+  }
+  return `appearances for ${characterId}: ${named} of ${ids.length} named`;
 }
 
 // ---- reading

@@ -32,7 +32,11 @@ export async function queueCollections(q, slug, priority) {
 export async function maybeQueueCollections(db, characterId, slug, priority) {
   const row = await db.one('SELECT collections_fetched_at, level FROM characters WHERE id = $1', [characterId]);
   if (!row || (row.level ?? 0) < MIN_TRACKED_LEVEL) return false;
-  const due = !row.collections_fetched_at || Date.now() - new Date(row.collections_fetched_at).getTime() > COLLECTIONS_EVERY_DAYS * 86_400_000;
+  // 0.9.2: the WEEKLY refresh, for characters that have collections. A first fetch is the backfill's (collections/
+  // backfill.js, capped per day) or a person's (lookup, sign-in, the Collections tab): queued here behind every daily
+  // check, first fetches sat at the back of the queue and the boards stayed empty for a day.
+  if (!row.collections_fetched_at) return false;
+  const due = Date.now() - new Date(row.collections_fetched_at).getTime() > COLLECTIONS_EVERY_DAYS * 86_400_000;
   if (!due) return false;
   // A lookup's full fetch doesn't make anyone wait for collections: they go in behind it, at daily priority, and the
   // Collections tab raises them to lookup priority if someone opens it.
@@ -78,5 +82,10 @@ export async function fetchCollections({ db, client }, item) {
     if (ch.owner_account_id) await detectSharing(q, ch.owner_account_id);
   });
   if (ns) await recordStaticNamespace(db, ns);
+  // 0.9.2: once the appearance catalog is complete, any collected appearance it doesn't list is looked up on its own.
+  if ((await catalogTotals(db)).appearance > 0) {
+    const { unresolvedAppearances } = await import('./catalog.js');
+    if ((await unresolvedAppearances(db, ch.id)).length) await enqueue(db, { kind: 'catalog', key: `catalog:appearance:ids:${ch.id}`, priority: PRIORITY.roster });
+  }
   return `collections: ${returned} of ${kinds.length} returned, ${Math.round(bytes / 1024)} KB`;
 }

@@ -78,12 +78,13 @@ export function ActivitySection() {
       </div>
 
       <div className="grid-auto col-xs gap-10">
-        <Kpi label="Player accounts" value={data.accounts.total} change={delta(data.accounts.new)} since={sinceWords} />
-        <Kpi label="Character searches" value={sum(charSearches, 'total')} change={data.since === null ? null : delta(sum(charSearches, 'since'))} since={sinceWords} note={searchNote ?? 'Search box, pages that asked Blizzard, and sign-ins'} />
-        <Kpi label="New characters" value={allChars} change={delta(data.since === null ? null : newChars)} since={sinceWords} note="All known now; Blizzard data older than 30 days has left" />
-        <Kpi label="Guild searches" value={sum(guildSearches, 'total')} change={data.since === null ? null : delta(sum(guildSearches, 'since'))} since={sinceWords} note={searchNote ?? 'Guild search and the search page'} />
-        <Kpi label="Guild page views" value={k['guild.view'].total} change={data.since === null ? null : delta(k['guild.view'].since)} since={sinceWords} note={searchNote} />
-        <Kpi label="Guilds known" value={data.guilds.total} change={delta(data.guilds.new)} since={sinceWords} />
+        {/* 0.9.2: every card says what its big number is (a total) and what the change beside it counts. */}
+        <Kpi label="Player accounts, total" value={data.accounts.total} change={delta(data.accounts.new)} changeWords="new" since={sinceWords} />
+        <Kpi label="Character searches, all counted" changeWords="more" value={sum(charSearches, 'total')} change={data.since === null ? null : delta(sum(charSearches, 'since'))} since={sinceWords} note={searchNote ?? 'Search box, pages that asked Blizzard, and sign-ins'} />
+        <Kpi label="Characters known, total" value={allChars} change={delta(data.since === null ? null : newChars)} changeWords="new" since={sinceWords} note="Characters Blizzard hasn’t returned for 30 days have left" />
+        <Kpi label="Guild searches, all counted" changeWords="more" value={sum(guildSearches, 'total')} change={data.since === null ? null : delta(sum(guildSearches, 'since'))} since={sinceWords} note={searchNote ?? 'Guild search and the search page'} />
+        <Kpi label="Guild page views, all counted" changeWords="more" value={k['guild.view'].total} change={data.since === null ? null : delta(k['guild.view'].since)} since={sinceWords} note={searchNote} />
+        <Kpi label="Guilds known, total" value={data.guilds.total} change={delta(data.guilds.new)} changeWords="new" since={sinceWords} />
       </div>
 
       <div className="split-even gap-18">
@@ -157,11 +158,11 @@ export function ActivitySection() {
   );
 }
 
-function Kpi({ label, value, change, since, note = null }) {
+function Kpi({ label, value, change, since, note = null, changeWords = '' }) {
   return (
     <div className="raised pad-12 stack gap-2">
       <span className="eyebrow">{label}</span>
-      <span className="row gap-8 baseline"><b className="big-num">{formatNumber(value)}</b>{change && <span className="kpi-delta">{change}</span>}</span>
+      <span className="row gap-8 baseline"><b className="big-num">{formatNumber(value)}</b>{change && <span className="kpi-delta">{change}{changeWords ? ` ${changeWords}` : ''}</span>}</span>
       <span className="muted xsmall">{change ? since : ''}{note ? `${change ? ' · ' : ''}${note}` : ''}</span>
     </div>
   );

@@ -49,7 +49,7 @@ export const CREDENTIALS = [
   {
     id: 'blizzard',
     label: 'Blizzard (Battle.net) API client',
-    unlocks: 'Battle.net sign-in now; character lookups, statistics, leaderboards and the crawler once they are built',
+    unlocks: 'Battle.net sign-in, character lookups, statistics, leaderboards, collections, guild pages and the crawler',
     obtain: {
       url: 'https://develop.battle.net/access/clients',
       steps: [

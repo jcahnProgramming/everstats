@@ -10,7 +10,9 @@ export const TICK_MS = 30_000;
 export function createLoop({ db, jobs, workerId, version, now = Date.now, tickMs = TICK_MS }) {
   const startedAt = new Date(now());
   const status = { state: 'starting', ticks: 0, lastTickAt: null, lastError: null };
-  const runs = new Map(jobs.map((j) => [j.id, { lastStartedAt: null, lastFinishedAt: null, lastOutcome: null, lastSummary: null }]));
+  // 0.9.2: lastWorkAt = when the job last DID its work (a backup made, characters queued), separate from when it last
+  // checked (lastStartedAt): a job reports it with { worked: true } or an exact { lastWorkAt }.
+  const runs = new Map(jobs.map((j) => [j.id, { lastStartedAt: null, lastFinishedAt: null, lastOutcome: null, lastSummary: null, lastWorkAt: null }]));
   let timer = null;
   let stopping = false;
 
@@ -37,6 +39,8 @@ export function createLoop({ db, jobs, workerId, version, now = Date.now, tickMs
         const result = await job.run({ db, now });
         run.lastOutcome = 'ok';
         run.lastSummary = result?.summary ?? null;
+        if (result?.lastWorkAt) run.lastWorkAt = new Date(result.lastWorkAt).toISOString();
+        else if (result?.worked) run.lastWorkAt = run.lastStartedAt;
       } catch (err) {
         run.lastOutcome = 'failed';
         run.lastSummary = `${err?.name ?? 'Error'}${err?.code ? ` (${err.code})` : ''}`;

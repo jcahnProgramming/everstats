@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { parseGuildSlug } from '../../../server/stats/slug.js';
 import { api } from '../api.js';
+import { useSession } from '../session.jsx';
 import { viaSearchOnce } from '../activity.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Segmented } from '../components/Controls.jsx';
@@ -213,6 +214,17 @@ function SignUpCall({ guild }) {
 
 /** guild-no-gm: nobody on Everstats owns the rank-0 character, so the badges show automatically and nobody can edit. */
 function NoGuildMaster({ guild }) {
+  // 0.9.2: signed in, Sign in is no help: say who can manage the page (the Guild Master's Battle.net account; officers
+  // are added by the Guild Master once they have).
+  const session = useSession();
+  if (session.signedIn) {
+    return (
+      <div className="note small" role="note">
+        <Icon name="info" />
+        <span className="flex-fill">Only the Guild Master’s Battle.net account can manage {guild.name}’s page (and then add officers). If that’s one of your accounts, sign in with it, or link it in Settings. Until then its badges are shown automatically.</span>
+      </div>
+    );
+  }
   return (
     <div className="note small" role="note">
       <Icon name="info" />

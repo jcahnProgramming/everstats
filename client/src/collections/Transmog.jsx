@@ -81,16 +81,17 @@ export function TransmogTracker({ slug, count, ruleset, refreshing, onRetry }) {
         <AccountMarker shared={count?.shared} tagged />
         {sec.total ? <div className="tm-allslots"><CompletionBar label="All slots" have={sec.have} total={sec.total} large /></div> : null}
       </div>
-      {!sec.catalog && <div className="note small"><Icon name="info" /><span>Blizzard’s full appearance list isn’t available right now, so this shows collected appearances only: no missing tiles, no percentages.</span></div>}
+      {/* 0.9.2: until Blizzard's appearance list has been read in full, collected only (no Missing filter or key). */}
+      {!sec.catalog && <div className="note small"><Icon name="info" /><span>{sec.catalogState === 'building' || sec.catalogState === 'queued' ? 'Everstats is still reading Blizzard’s full appearance list' : 'Blizzard’s full appearance list isn’t available right now'}, so this shows collected appearances only: no missing tiles, no percentages. {formatNumber(sec.resolved)} of {formatNumber(sec.have)} are named so far.</span></div>}
       <div className={`tracker${sel ? '' : ' no-detail'}`}>
         <nav className="panel picker slotpick" aria-label="Slots">
-          {[...groups.entries()].filter(([, l]) => l.length).map(([g, list2]) => (
+          {[...groups.entries()].filter(([, l]) => l.length).map(([g, list2], _, all) => (
             <div key={g} className="stack gap-2 slot-group">
-              <span className="grp">{g}</span>
+              {all.filter(([, l]) => l.length).length > 1 && <span className="grp">{g}</span>}
               {list2.map((s) => (
                 <button key={s.type} type="button" className={`spi${s.total && s.have >= s.total ? ' done' : ''}`} aria-current={s.type === sec.slot ? 'true' : undefined} onClick={() => setSlot(s.type)}>
                   <Glyph name={`slot:${s.type}`} />
-                  <span className="n">{s.name}{sec.slots.filter((x) => x.name === s.name).length > 1 ? <span className="muted"> · {s.type.toLowerCase()}</span> : null}</span>
+                  <span className="n">{s.name}</span>
                   <span className="c">{formatNumber(s.have)}{s.total ? ` / ${formatNumber(s.total)}` : ''}</span>
                   {s.total ? <span className="bar" aria-hidden="true"><span style={{ width: `${pct(s.have, s.total)}%` }} /></span> : null}
                 </button>
@@ -101,7 +102,7 @@ export function TransmogTracker({ slug, count, ruleset, refreshing, onRetry }) {
         <div className="center">
           <div className="fbar">
             <label className="search"><Icon name="search" size="sm" /><input className="inp" type="search" placeholder="Search appearances" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search appearances or items" data-edit-guard="off" /></label>
-            <Segmented label="Show" value={show} onChange={setShow} scroll={false} options={[{ id: 'all', label: 'All' }, { id: 'collected', label: 'Collected' }, ...(sec.catalog ? [{ id: 'missing', label: 'Missing' }] : [])]} />
+            {sec.catalog && <Segmented label="Show" value={show} onChange={setShow} scroll={false} options={[{ id: 'all', label: 'All' }, { id: 'collected', label: 'Collected' }, { id: 'missing', label: 'Missing' }]} />}
           </div>
           {armours.length > 1 && <div className="row gap-8 wrap-row"><span className="eyebrow">Armour type</span><Segmented label="Armour type" value={armour} onChange={setArmour} options={[{ id: 'any', label: 'Any' }, ...armours.map((a) => ({ id: a, label: a }))]} /></div>}
           {sec.qualityKnown && qualities.length > 1 && <div className="row gap-8 wrap-row"><span className="eyebrow">Quality</span><Segmented label="Quality" value={quality} onChange={setQuality} options={[{ id: 'any', label: 'Any' }, ...qualities.map((x) => ({ id: x, label: x[0].toUpperCase() + x.slice(1) }))]} /></div>}
@@ -113,7 +114,7 @@ export function TransmogTracker({ slug, count, ruleset, refreshing, onRetry }) {
           )}
           <div className="panel stack gap-14 pad-16">
             {current && <CompletionBar label={current.name} have={current.have} total={current.total} />}
-            <Legend />
+            <Legend missing={sec.catalog} />
             {list.length ? (
               <div className="cgrid" role="list">
                 {list.slice(0, limit).map((t) => <Tile key={t.id} item={t} glyph={`slot:${sec.slot}`} onSelect={setSel} selected={sel?.id === t.id} />)}
@@ -176,7 +177,7 @@ function Detail({ tile, slotName, onClose }) {
           </div>
           <span className="muted xsmall">{tile.collected ? 'Collected: any one of these items unlocked it.' : 'Getting any one of these items unlocks the appearance.'}</span>
         </>
-      ) : <span className="small t2">Blizzard’s catalog doesn’t name an item for this appearance.</span>}
+      ) : <span className="small t2">{tile.unresolved ? `Blizzard hasn’t returned details for appearance #${tile.id} yet, so Everstats can’t name it or link the item.` : 'Blizzard’s catalog doesn’t name an item for this appearance.'}</span>}
       <button type="button" className="btn ghost sm self-start" onClick={onClose}>Close</button>
     </aside>
   );

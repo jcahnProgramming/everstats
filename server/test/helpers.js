@@ -12,6 +12,34 @@ export const ORIGIN = process.env.PUBLIC_ORIGIN;
 
 let nextPort = 15_400 + Math.floor(Math.random() * 2000);
 
+/**
+ * 0.9.2: makes every connection's extended-query sequence reach PGlite in ONE piece. PGlite is a single Postgres session
+ * behind the socket server, whose queue runs each protocol MESSAGE exclusively and keeps a connection's messages
+ * together only inside an explicit transaction. Outside one, two pooled connections (say the running crawler and a
+ * test's own queries) could interleave Parse / Bind / Execute, and one connection's Bind met the other's unnamed
+ * statement ("bind message supplies 1 parameters, but prepared statement "" requires 2"), at random: the guild-fetch
+ * test's intermittent failure. Here each connection's messages are held until its Sync (or a simple Query, Flush,
+ * Terminate, or a non-typed startup message) and handed over together; the earlier ones resolve at once with nothing
+ * written, and PGlite's answers go to the socket through the last message's writer, which is the same socket.
+ */
+const BOUNDARY = new Set(['S', 'Q', 'H', 'X', 'p'].map((c) => c.charCodeAt(0)));
+function wholeSequences(queue) {
+  if (!queue || typeof queue.enqueue !== 'function') throw new Error('pglite-socket changed: no queryQueue.enqueue to wrap');
+  const original = queue.enqueue.bind(queue);
+  const held = new Map(); // handler id → Buffer of messages waiting for their Sync
+  queue.enqueue = (id, message, onData) => {
+    const type = message[0];
+    const typed = type >= 0x41 && type <= 0x7a; // a startup / SSL / cancel message starts with its length, not a letter
+    const buf = held.has(id) ? Buffer.concat([held.get(id), Buffer.from(message)]) : Buffer.from(message);
+    if (typed && !BOUNDARY.has(type)) {
+      held.set(id, buf);
+      return Promise.resolve(0);
+    }
+    held.delete(id);
+    return original(id, new Uint8Array(buf), onData);
+  };
+}
+
 /** A fresh, migrated database: { db, close }. */
 export async function startDb() {
   const { createDb } = await import('../core/db.js');
@@ -30,6 +58,7 @@ export async function startDb() {
       if (err?.code !== 'EADDRINUSE' || attempt >= 10) throw err;
     }
   }
+  wholeSequences(server.queryQueue);
   const db = createDb({ url: `postgres://postgres@127.0.0.1:${port}/postgres`, max: 4 });
   await prepareDatabase(db, { processName: 'test', production: false });
   return {

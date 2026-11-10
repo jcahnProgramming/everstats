@@ -26,6 +26,7 @@ export function backupJob({ dir = config.backupDir, databaseUrl = config.databas
     everyMs: 5 * 60 * 1000,
     async run({ db, now = Date.now }) {
       if (!dir) return { summary: 'Off: BACKUP_DIR is not set' };
+      const lastWorkAt = (await db.one("SELECT max(finished_at) AS t FROM backup_runs WHERE outcome = 'ok'").catch(() => null))?.t ?? null;
       if (running) return { summary: 'Backup in progress' };
       const lastFailure = await db.one("SELECT finished_at FROM backup_runs WHERE outcome = 'failed' AND trigger = 'nightly' ORDER BY started_at DESC LIMIT 1");
       let backups;
@@ -39,12 +40,12 @@ export function backupJob({ dir = config.backupDir, databaseUrl = config.databas
         return { summary: `Backup folder unreadable (${err.code ?? err.name})` };
       }
       if (!isDue({ now: now(), backups, lastFailureAt: lastFailure?.finished_at?.toISOString?.() ?? null })) {
-        return { summary: `Next after ${String(BACKUP_HOUR_UTC).padStart(2, '0')}:00 UTC` };
+        return { summary: `Next after ${String(BACKUP_HOUR_UTC).padStart(2, '0')}:00 UTC`, lastWorkAt };
       }
       running = recordedBackup({ db, dir, databaseUrl, trigger: 'nightly', now, exec, log }).finally(() => {
         running = null;
       });
-      return { summary: 'Backup started' };
+      return { summary: 'Backup started', lastWorkAt };
     },
     /** For tests and shutdown: the backup in flight, if any. */
     inFlight: () => running,
@@ -110,7 +111,7 @@ export function refreshJob() {
         [String(REFRESH_EVERY_MS), REFRESH_BATCH],
       );
       const n = await enqueueMany(db, due.map((c) => ({ key: c.slug, mode: 'check', priority: PRIORITY.daily })));
-      return { summary: n ? `Queued ${n} for their daily check` : 'Every tracked character checked in the last day' };
+      return { summary: n ? `Queued ${n} for their daily check` : 'Every tracked character checked in the last day', worked: n > 0 };
     },
   };
 }
@@ -391,9 +392,23 @@ export function catalogsJob() {
       if (await getSetting(db, 'crawler.paused')) return { summary: 'Paused' };
       const { queueDueCatalogs } = await import('../collections/catalog.js');
       const r = await queueDueCatalogs(db);
-      return { summary: r.why ? `Waiting: ${r.why}` : r.queued ? `Queued ${r.queued} catalog(s)` : 'Every catalog is fresh' };
+      return { summary: r.why ? `Waiting: ${r.why}` : r.queued ? `Queued ${r.queued} catalog(s)` : 'Every catalog is fresh', worked: r.queued > 0 };
     },
   };
 }
 
-export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob(), guildFetchJob(), tiersJob(), badgesJob(), guildBadgesJob(), catalogsJob()]);
+/** 0.9.2: the gradual first collections fetch (collections/backfill.js), every 10 minutes up to the daily cap. */
+export function collectionsBackfillJob() {
+  return {
+    id: 'collections-backfill',
+    label: 'First collections fetch for tracked characters',
+    everyMs: 10 * 60 * 1000,
+    async run({ db }) {
+      const { runBackfill } = await import('../collections/backfill.js');
+      const summary = await runBackfill(db);
+      return { summary, worked: summary.startsWith('Queued') };
+    },
+  };
+}
+
+export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob(), guildFetchJob(), tiersJob(), badgesJob(), guildBadgesJob(), catalogsJob(), collectionsBackfillJob()]);

@@ -78,9 +78,10 @@ export function AdminPage() {
       )}
       <ActivitySection />
       <KeysSection credentials={state.credentials} onSaved={load} />
-      <div className="grid-auto col-xl gap-24 align-start-grid">
+      {/* 0.9.2: two columns that flow (CSS columns), so a tall panel no longer leaves a hole beside it; one column on phones. */}
+      <div className="admin-flow">
         <GradingSection settings={state.settings} onSaved={(settings) => setState((s) => ({ ...s, settings }))} />
-        <CrawlerSection crawler={state.crawler} settings={state.settings} onSaved={(settings) => setState((st) => ({ ...st, settings }))} onRefresh={load} />
+        <CrawlerSection crawler={state.crawler} backfill={state.collectionsBackfill} settings={state.settings} onSaved={(settings) => setState((st) => ({ ...st, settings }))} onRefresh={load} />
         <BetaSection beta={state.beta} settings={state.settings} onBeta={(beta) => setState((st) => ({ ...st, beta }))} onSaved={(settings) => setState((st) => ({ ...st, settings }))} />
         <RetentionSection retention={state.retention} setting={state.settings.find((st) => st.key === 'retention.window')} onSaved={load} />
         <RendersSection settings={state.settings} onSaved={(settings) => setState((st) => ({ ...st, settings }))} />
@@ -334,7 +335,7 @@ const PRIORITY_NAMES = {
   [PRIORITY.roster]: 'Guild rosters',
 };
 
-function CrawlerSection({ crawler, settings, onSaved, onRefresh }) {
+function CrawlerSection({ crawler, settings, onSaved, onRefresh, backfill = null }) {
   const worker = crawler.workers[0];
   const c = crawler.crawler;
   const tag = !c ? { cls: '', text: 'Not started' }
@@ -383,19 +384,26 @@ function CrawlerSection({ crawler, settings, onSaved, onRefresh }) {
         </>
       )}
       {settings.filter((st) => st.section === 'crawler').map((st) => <SettingRow key={st.key} setting={st} onSaved={onSaved} />)}
+      {backfill && (
+        <p className="small t2" role="status">
+          <b className="strong-text">First collections fetch:</b> {backfill.on ? 'on' : 'off'} · {backfill.withCollections.toLocaleString('en-US')} of {backfill.tracked.toLocaleString('en-US')} tracked characters have collections · {backfill.queuedToday.toLocaleString('en-US')} of {backfill.perDay.toLocaleString('en-US')} queued today
+          {backfill.left > 0 && backfill.on ? ` · ${backfill.left.toLocaleString('en-US')} to go: about ${backfill.requestsLeft.toLocaleString('en-US')} requests (${backfill.perCharacter} each), ${backfill.daysLeft} day${backfill.daysLeft === 1 ? '' : 's'} at this cap` : ''}
+        </p>
+      )}
       {worker && (
         <details className="stack gap-10">
           <summary className="small">Worker jobs</summary>
           <span className="muted xsmall">{worker.id} · v{worker.version} · started {formatDateTime(worker.startedAt)} · last heartbeat <Fresh at={worker.lastTickAt} staleAfterMs={3 * 60 * 1000} /></span>
           <div className="tblbox listbox">
             <table className="tbl">
-              <thead><tr><th scope="col">Job</th><th scope="col">Last run</th><th scope="col">Result</th></tr></thead>
+              <thead><tr><th scope="col">Job</th><th scope="col">Checked</th><th scope="col">Last did its work</th><th scope="col">Result</th></tr></thead>
               <tbody>
                 {worker.jobs.map((j) => (
                   <tr key={j.id}>
                     <td><b>{j.label}</b></td>
                     <td className="t2">{j.lastStartedAt ? timeAgo(j.lastStartedAt) : 'not yet'}</td>
-                    <td><span className={j.lastOutcome === 'failed' ? 'down' : 't2'}>{j.lastOutcome === 'failed' ? 'Failed: ' : ''}{j.lastSummary ?? '—'}</span></td>
+                    <td className="t2">{j.lastWorkAt ? timeAgo(j.lastWorkAt) : '—'}</td>
+                    <td className="job-result" title={j.lastSummary ?? undefined}><span className={j.lastOutcome === 'failed' ? 'down' : 't2'}>{j.lastOutcome === 'failed' ? 'Failed: ' : ''}{j.lastSummary ?? '—'}</span></td>
                   </tr>
                 ))}
               </tbody>

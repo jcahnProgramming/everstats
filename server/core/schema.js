@@ -1751,4 +1751,12 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.9.2: the gradual first collections fetch (collections/backfill.js) counts what it queued per UTC day, for its
+    // daily cap and the admin's progress line. Counts only (ours).
+    id: '026_collections_backfill',
+    async up(q) {
+      await q.query('CREATE TABLE collection_backfill_days (day date PRIMARY KEY, queued integer NOT NULL DEFAULT 0)');
+    },
+  },
 ];

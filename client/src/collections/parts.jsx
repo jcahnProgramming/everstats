@@ -78,11 +78,12 @@ export function Tile({ item, glyph, onSelect = null, selected = false, size = ''
   return <button type="button" className={cls} aria-pressed={selected} aria-label={label} onClick={() => onSelect(item)}>{body}</button>;
 }
 
-export function Legend() {
+/** missing: false while there is no complete catalog (no missing tiles can be drawn, so the key leaves them out). */
+export function Legend({ missing = true }) {
   return (
     <div className="legend" aria-label="How to read the tiles">
       <span className="ctile static"><span className="ic"><span className="mk" aria-hidden="true"><svg viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: GLYPHS.check }} /></span></span><span>Collected: solid edge, full icon, check</span></span>
-      <span className="ctile static is-missing"><span className="ic"><span className="mk" aria-hidden="true" /></span><span>Missing: dashed edge, faded icon, hollow ring</span></span>
+      {missing && <span className="ctile static is-missing"><span className="ic"><span className="mk" aria-hidden="true" /></span><span>Missing: dashed edge, faded icon, hollow ring</span></span>}
     </div>
   );
 }

@@ -77,7 +77,9 @@ export const BLIZZARD = [
     // Counts and the static namespace string read from Blizzard's links; a state row with nothing fresh behind it goes
     // (the catalogs job starts that catalog again).
     table: 'collection_catalog_state', holds: 'Each catalog’s size and refresh progress; the static namespace Blizzard’s links name', fetched: 'fetched_at',
-    sweep: async (q, cutoff) => n(await q.query("DELETE FROM collection_catalog_state WHERE fetched_at < $1 AND state NOT IN ('queued', 'building') RETURNING 1", [cutoff])),
+    // 0.9.2: no exemption for a build in progress: a state row past the window goes whatever it says (the catalogs
+    // job starts that catalog again), so nothing outlives the window plus one sweep interval.
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM collection_catalog_state WHERE coalesce(fetched_at, started_at) < $1 RETURNING 1', [cutoff])),
   },
   {
     table: 'collection_sharing', holds: 'Whether an account’s characters have identical collections (derived from collections)', fetched: 'computed_at',
@@ -310,6 +312,7 @@ export const OURS = {
   account_bans: 'Bans: temporary or permanent, the reason, the message to the player, and how each was lifted (0.8.2)',
   ban_identities: 'The sign-in identities and passkey ids a banned account had when its ban started (ban evasion) (0.8.2)',
   moderation_actions: 'Moderation log: warnings, forced renames, field resets, bans, unbans, role changes, reveals, report decisions (0.8.2)',
+  collection_backfill_days: 'How many first collections fetches the backfill queued each day (counts) (0.9.2)',
   account_guilds: 'Guilds a player follows on their dashboard, own guilds they hid from it, and the order (Blizzard guild ids only) (0.9.1)',
   character_gold_public: 'The owner’s “Show my gold stats publicly” choice per character (character id, account id, since) (0.9.0)',
   reports: 'Player reports about profiles and guild descriptions: what, an optional note, the reported text as it was; no reporter (0.8.2)',
@@ -339,7 +342,8 @@ export const OLDEST = [
   ['tier_rulesets', 'SELECT min(computed_at) AS t FROM tier_rulesets'],
   ['rulesets', 'SELECT min(updated_at) AS t FROM rulesets'],
   ['statistics (names)', 'SELECT min(last_seen_at) AS t FROM statistics WHERE name IS NOT NULL AND derived IS NULL'],
-  ['pin_rank_history', 'SELECT min(day)::timestamptz AS t FROM pin_rank_history'],
+  // A calendar (UTC) day, so its age is counted from that day's start: up to a day older-looking than an exact time.
+  ['pin_rank_history (by UTC day)', "SELECT (min(day)::timestamp AT TIME ZONE 'UTC') AS t FROM pin_rank_history"],
   ['account_character_checks', 'SELECT min(checked_at) AS t FROM account_character_checks'],
   ['discovery_runs', 'SELECT min(requested_at) AS t FROM discovery_runs'],
   ['crawl_queue', 'SELECT min(enqueued_at) AS t FROM crawl_queue'],

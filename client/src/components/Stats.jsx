@@ -259,7 +259,7 @@ export function ChartContainer({ title, label, points = [], kpis = null, control
       {plot ?? (
         <div className="empty-box chart-empty">
           <span className="h3">Not enough history yet</span>
-          <span className="t2 small">A chart needs at least two daily snapshots. Everstats keeps one a day for every tracked character, forever.</span>
+          <span className="t2 small">A chart needs at least two daily snapshots. Everstats keeps one a day for every tracked character, for the last few weeks only (Blizzard’s 30-day rule).</span>
         </div>
       )}
     </section>

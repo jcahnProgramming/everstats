@@ -111,6 +111,8 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
       credentials: await listPublic(db),
       settings: await listSettings(db),
       crawler: await crawlerStatus(db),
+      // 0.9.2: the gradual first collections fetch's progress (collections/backfill.js).
+      collectionsBackfill: await (await import('../collections/backfill.js')).backfillStatus(db),
       // Where CF-Connecting-IP has arrived from since this web process started (core/network.js): connection
       // addresses only, never a visitor's address. For choosing TRUSTED_PROXIES.
       proxies: proxies(),

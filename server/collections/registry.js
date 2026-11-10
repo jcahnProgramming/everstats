@@ -34,6 +34,29 @@ export const DERIVED_MAX = DERIVED_BASE + 100_000_000;
 export const isDerivedId = (id) => Number(id) > DERIVED_BASE && Number(id) < DERIVED_MAX;
 export const COLLECTIONS_CATEGORY = 'Collections';
 
+/**
+ * 0.9.2: transmog slots. Blizzard's slot TYPES (its item-appearance slot index) sorted into Armour and Weapons for the
+ * tracker's picker when the appearance catalog can't say from item classes yet; anything else is Other.
+ */
+export const SLOT_GROUPS = Object.freeze({
+  Armor: ['HEAD', 'SHOULDER', 'CLOAK', 'CHEST', 'ROBE', 'BODY', 'TABARD', 'WRIST', 'HAND', 'WAIST', 'LEGS', 'FEET'],
+  Weapon: ['WEAPON', 'WEAPONMAINHAND', 'WEAPONOFFHAND', 'TWOHWEAPON', 'RANGED', 'RANGEDRIGHT', 'THROWN', 'SHIELD', 'HOLDABLE'],
+});
+export const slotGroup = (type) => Object.entries(SLOT_GROUPS).find(([, l]) => l.includes(type))?.[0] ?? null;
+/**
+ * Blizzard names two slots "Chest" (CHEST and ROBE). A name two slots share keeps it plain for the slot whose type IS
+ * that name and adds the type in brackets to the other: "Chest" and "Chest (robe)". → Map(type → label)
+ */
+export function slotLabels(slots) {
+  const out = new Map();
+  for (const s of slots) {
+    const twins = slots.filter((x) => x.name === s.name);
+    const plain = twins.length < 2 || String(s.type).toLowerCase() === String(s.name).toLowerCase();
+    out.set(s.type, plain ? s.name : `${s.name} (${String(s.type).toLowerCase()})`);
+  }
+  return out;
+}
+
 const has = (d) => Array.isArray(d?.items) && d.items.length > 0;
 
 export const KINDS = Object.freeze([
@@ -107,11 +130,11 @@ export const FAMILIES = Object.freeze([
   },
   {
     family: 'slot', kind: 'transmog', shared: 'detected', label: 'Appearances collected, per slot',
-    // Blizzard names two slots "Chest" (CHEST and ROBE): a name two slots share gets the slot type after it.
-    entries: (d) => d.slots.filter((s) => /^[A-Z0-9_]{1,30}$/.test(s.type)).map((s, _, all) => ({
-      key: `slot:${s.type}`, value: new Set(s.ids).size,
-      name: `Appearances collected: ${s.name}${all.filter((x) => x.name === s.name).length > 1 ? ` (${s.type.toLowerCase()})` : ''}`,
-    })),
+    entries: (d) => {
+      const slots = d.slots.filter((s) => /^[A-Z0-9_]{1,30}$/.test(s.type));
+      const labels = slotLabels(slots);
+      return slots.map((s) => ({ key: `slot:${s.type}`, name: `Appearances collected: ${labels.get(s.type)}`, value: new Set(s.ids).size }));
+    },
   },
   {
     family: 'instance', kind: 'dungeons', label: 'Boss kills, per instance',

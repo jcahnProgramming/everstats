@@ -588,3 +588,10 @@ details.panel > summary { cursor: pointer; font-weight: var(--es-weight-semibold
 .yg-name { overflow-wrap: anywhere; text-decoration: none; }
 .yg-actions { margin-top: auto; }
 .yg-list { display: grid; gap: var(--es-space-14); grid-template-columns: repeat(auto-fill, minmax(min(var(--es-size-col-min-md), 100%), 1fr)); }
+
+/* 0.9.2 admin: panels flow in two columns (a tall panel no longer leaves a hole beside it), reading down each column; one
+   column below the minimum width. The worker jobs table wraps its results instead of scrolling sideways. */
+.admin-flow { column-width: var(--es-size-col-min-xl); column-count: 2; column-gap: var(--es-space-24); }
+.admin-flow > * { break-inside: avoid; margin-bottom: var(--es-space-24); }
+.tbl td.job-result { white-space: normal; min-width: 12em; overflow-wrap: anywhere; }
+.listbox .tbl td, .listbox .tbl th { white-space: normal; }

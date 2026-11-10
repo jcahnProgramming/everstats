@@ -41,9 +41,9 @@ export function RetentionSection({ retention: r, setting, onSaved }) {
         <span className={`tag ${over ? 'err' : 'ok'}`}>{over ? 'Over the window' : 'Within the window'}</span>
       </div>
       <p className="t2 small">
-        Blizzard’s API terms: “a maximum 30-day TTL (time-to-live) policy for all Data”. The database keeps Blizzard data
-        {' '}<b className="strong-text">{r.keepDays} days</b>; {r.safetyDays} day is slack for a late sweep, so nothing Blizzard sent is ever older than
-        {' '}{r.windowDays} days. Backups hold none of it (0.5.0): only Everstats’ own data, kept {r.backups?.nightly ?? 14} nightly plus the first of each month.
+        Blizzard’s API terms: “a maximum 30-day TTL (time-to-live) policy for all Data”. The limit below is that maximum, <b className="strong-text">{r.windowDays} days</b>.
+        Everstats deletes Blizzard data once it is <b className="strong-text">{r.keepDays} days</b> old ({r.safetyDays} day sooner than the limit), and checks every hour, so the oldest
+        it can ever hold is {r.keepDays} days and 1 hour. Share-card images go after 6 hours at most, finished crawl work orders after 1 hour. Backups hold none of it (0.5.0): only Everstats’ own data, kept {r.backups?.nightly ?? 14} nightly plus the first of each month.
         Backups from before 0.5.0 did hold Blizzard data and are still deleted {r.backups?.legacyKeepDays ?? 3} days after they were taken. The sweep runs hourly in both the web app and the worker.
       </p>
       <div className="kv"><span className="t2">Oldest Blizzard data stored</span><span className={over ? 'down' : ''}>{r.oldestAt ? `${ageDays.toFixed(1)} days (${formatDateTime(r.oldestAt)})` : 'none stored'}</span></div>
@@ -58,9 +58,10 @@ export function RetentionSection({ retention: r, setting, onSaved }) {
         </details>
       )}
       <details>
-        <summary className="small">Oldest per kind of data</summary>
+        <summary className="small">Oldest per kind of data (oldest first)</summary>
+        {/* 0.9.2: sorted oldest first, so the top row is the "Oldest Blizzard data stored" figure above. */}
         <table className="tbl retention-table">
-          <tbody>{Object.entries(r.oldest).map(([k, v]) => <tr key={k}><td>{k}</td><td className="r">{v ? `${((Date.now() - Date.parse(v)) / DAY).toFixed(1)} days` : '—'}</td></tr>)}</tbody>
+          <tbody>{Object.entries(r.oldest).sort(([, a], [, b]) => (a ? Date.parse(a) : Infinity) - (b ? Date.parse(b) : Infinity)).map(([k, v]) => <tr key={k}><td>{k}</td><td className="r">{v ? `${((Date.now() - Date.parse(v)) / DAY).toFixed(1)} days` : '—'}</td></tr>)}</tbody>
         </table>
       </details>
       <form className="stack gap-8" onSubmit={save}>

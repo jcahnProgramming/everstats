@@ -191,7 +191,8 @@ function CharacterSheet({ data, onReload, tab = 'stats', screen = '' }) {
       <section className="panel chart" aria-labelledby="progress-h">
         <div className="row gap-16"><h2 className="h2" id="progress-h">Progress</h2></div>
         <EmptyState kind="soon" compact title="Charts from the daily snapshots">
-          <span>Everstats keeps a snapshot of {c.name}'s statistics every day, forever (tracked since {formatDateTime(c.trackedSince)}). The charts that draw them come in a later build.</span>
+          {/* 0.9.2: was "every day, forever". Blizzard's 30-day rule: keepDays comes from the retention policy, never typed in. */}
+          <span>Everstats keeps a daily snapshot of {c.name}'s statistics{data.keepDays ? ` for the last ${data.keepDays} days` : ' for the last few weeks'} (Blizzard's 30-day rule; tracked since {formatDateTime(c.trackedSince)}). The charts that draw them come in a later build.</span>
         </EmptyState>
       </section>
       </>}
@@ -273,11 +274,14 @@ function CoreStats({ attributes, equipment }) {
  */
 function categorySummary(cat, tier) {
   let head;
-  if (tier) head = tier.letter ?? (tier.provisional ? `≈ ${tier.provisional} (provisional)` : 'Unranked');
+  // 0.9.2: a category with nothing above zero has no provisional letter (nothing to go on, by design) and says so in
+  // player terms, not "Unranked · No ranks yet".
+  const empty = tier && !tier.letter && !tier.provisional && (tier.nonzero ?? 0) === 0;
+  if (tier) head = tier.letter ?? (tier.provisional ? `≈ ${tier.provisional} (provisional)` : empty ? 'No letter yet' : 'Unranked');
   else if (tier === undefined) head = 'No graded stats yet';
   else head = cat.graded ? 'No letter' : 'Not graded';
   const ranked = cat.statistics.filter((s) => s.rank !== null).sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
-  const best = ranked[0] ? `Best: #${formatNumber(ranked[0].rank)} ${ranked[0].name}` : 'No ranks yet';
+  const best = ranked[0] ? `Best: #${formatNumber(ranked[0].rank)} ${ranked[0].name}` : `No ${cat.label} statistics above zero yet`;
   return `${head} · ${cat.statistics.length} statistic${cat.statistics.length === 1 ? '' : 's'} · ${best}`;
 }
 

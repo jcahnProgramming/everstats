@@ -170,11 +170,30 @@ export const SETTINGS = [
     default: true,
   },
   {
+    // 0.9.2: the gradual first collections fetch (collections/backfill.js).
+    key: 'collections.backfill',
+    section: 'crawler',
+    label: 'First collections fetch for tracked characters',
+    help: 'On: characters tracked before collections existed get their first collections fetch a batch at a time, behind everyone waiting, up to the daily cap below. Off: they get one only when someone looks them up, signs in or opens their Collections tab.',
+    type: 'boolean',
+    default: true,
+  },
+  {
+    key: 'collections.backfillPerDay',
+    section: 'crawler',
+    label: 'First collections fetches per day',
+    help: 'How many characters the first collections fetch queues each UTC day. Each is about 13 requests to Blizzard, through the shared request budget.',
+    type: 'integer',
+    min: 50,
+    max: 20000,
+    default: 1000,
+  },
+  {
     // 0.9.1: "Your guilds" on the home page (guilds/follow.js).
     key: 'dashboard.maxPinnedGuilds',
     section: 'crawler',
     label: 'Guilds a player can pin to their dashboard',
-    help: 'How many guilds a player can follow with “Pin to dashboard” on a guild page. Their own characters’ guilds don’t count toward it. Lowering it unpins nothing; it only stops new pins. Default 10.',
+    help: 'How many guilds a player can follow with “Pin to dashboard” on a guild page. Their own characters’ guilds don’t count toward it. Lowering it unpins nothing; it only stops new pins.',
     type: 'integer',
     min: 1,
     max: 50,
@@ -205,8 +224,9 @@ export const SETTINGS = [
     // Blizzard's 30-day rule (retention/policy.js). Above 30 only with a written-permission note, which is logged.
     key: 'retention.window',
     section: 'retention',
-    label: 'Blizzard data retention window (days)',
-    help: 'Blizzard’s API terms require a maximum 30-day lifespan for all data from the API. Raise this only if Blizzard has given written permission, and record that permission here.',
+    // 0.9.2: relabelled. This is Blizzard's MAXIMUM age; the database deletes one day earlier (retention/policy.js).
+    label: 'Blizzard’s maximum data age (days): Everstats deletes 1 day sooner',
+    help: 'Blizzard’s API terms allow at most 30 days. Everstats deletes Blizzard data one day before this limit (29 days at 30), checking every hour. Raise it only if Blizzard has given written permission, and record that permission here.',
     type: 'retention',
     default: { days: 30, note: null },
   },

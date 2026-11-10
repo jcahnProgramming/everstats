@@ -118,6 +118,7 @@ async function fakeFetch(url, opts = {}) {
     const items = [1100, 1200, 1300, 2100, 2200].filter((id) => id >= from).map((id) => ({ data: { id, name: { en_US: `Item ${id / 100}` }, quality: { type: id === 1300 ? 'EPIC' : 'RARE' }, appearances: [{ id: id / 100 }] } }));
     return json(200, { page: 1, pageCount: 1, results: items });
   }
+  if (FAILING.has(u.pathname)) return json(500, {});
   if (CATALOG[u.pathname]) {
     if (!u.searchParams.get('namespace')?.startsWith('static-')) return json(404, {});
     return json(200, { _links: { self: { href: href(u.pathname) } }, ...CATALOG[u.pathname] });
@@ -129,6 +130,7 @@ async function fakeFetch(url, opts = {}) {
   return body ? json(200, body) : json(404, {});
 }
 
+const FAILING = new Set();
 let t;
 let client;
 before(async () => {
@@ -160,7 +162,15 @@ async function buildCatalogs() {
   for (let i = 0; i < 200; i++) {
     const item = await t.db.one("UPDATE crawl_queue SET state = 'running', attempts = attempts + 1 WHERE id = (SELECT id FROM crawl_queue WHERE kind = 'catalog' AND state = 'queued' ORDER BY id LIMIT 1) RETURNING *");
     if (!item) return;
-    const out = await fetchCatalogStep(ctx(), item);
+    let out;
+    try {
+      out = await fetchCatalogStep(ctx(), item);
+    } catch (err) {
+      // What the crawler does with a RetryableError: the same item, queued again (its attempts count goes up).
+      if (err?.code !== 'blizzard') throw err;
+      await t.db.query("UPDATE crawl_queue SET state = 'queued' WHERE id = $1", [item.id]);
+      continue;
+    }
     await t.db.query("UPDATE crawl_queue SET state = 'done', outcome = $2, finished_at = now() WHERE id = $1", [item.id, out]);
   }
   throw new Error('catalog build did not finish');
@@ -466,4 +476,31 @@ test('0.9.1: a board for every collection: per achievement category, per transmo
   const s = (await loadCatalogFresh(t.db)).statistics.get(Number(keys.get('slot:HEAD').id));
   assert.equal(s.category, 'Collections');
   assert.equal(s.tierRole, 'undecided');
+});
+
+test('0.9.2: a catalog row Blizzard keeps failing is skipped after 3 tries, never failing the build; a stopped build resumes', async () => {
+  // A fresh appearance build where one appearance always answers 500.
+  await t.db.query("UPDATE collection_catalog_state SET fetched_at = now() - interval '20 days' WHERE kind = 'appearance'");
+  FAILING.add('/data/wow/item-appearance/12');
+  const mark = calls.length;
+  await buildCatalogs();
+  const st = await t.db.one("SELECT state, detail FROM collection_catalog_state WHERE kind = 'appearance'");
+  assert.equal(st.state, 'ok');
+  assert.match(st.detail, /1 skipped/);
+  assert.equal((await t.db.one("SELECT data->>'unavailable' AS u FROM collection_catalog WHERE kind = 'appearance' AND id = 12")).u, '500');
+  // Exactly 3 tries for the bad one, no loop.
+  assert.equal(calls.slice(mark).filter((x) => x === '/data/wow/item-appearance/12').length, 3);
+  FAILING.clear();
+
+  // A build that stopped part-way (2 of 5 rows refreshed, no crawl item left, e.g. it failed or the worker went away):
+  // the hourly job RESUMES it from the detail steps, with the same start time, asking only for the 3 rows left.
+  const started = new Date(Date.now() - 60 * 60 * 1000);
+  await t.db.query("UPDATE collection_catalog_state SET state = 'building', started_at = $1, finished_at = NULL WHERE kind = 'appearance'", [started]);
+  await t.db.query("UPDATE collection_catalog SET fetched_at = $1::timestamptz - interval '1 second' WHERE kind = 'appearance' AND id IN (13, 21, 22)", [started]);
+  await t.db.query("DELETE FROM crawl_queue WHERE kind = 'catalog'");
+  const before = calls.length;
+  await buildCatalogs();
+  const asked = calls.slice(before).filter((x) => x.startsWith('/data/wow/item-appearance/'));
+  assert.deepEqual(asked.sort(), ['/data/wow/item-appearance/13', '/data/wow/item-appearance/21', '/data/wow/item-appearance/22']);
+  assert.equal((await t.db.one("SELECT state FROM collection_catalog_state WHERE kind = 'appearance'")).state, 'ok');
 });

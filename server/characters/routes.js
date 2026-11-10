@@ -274,6 +274,8 @@ export function createPublicRouter({ db, limits, networkOf }) {
       statistics: await characterStatistics(db, row),
       // 0.6.0: the overall tier, every category's, and what fed each letter (null for a hidden character).
       tiers: await characterTierView(db, row),
+      // 0.9.2: how many days of daily snapshots Everstats keeps (the Progress section says it; retention/policy.js).
+      keepDays: (await retentionPolicy(db)).keepDays,
     });
   }));
 

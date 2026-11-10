@@ -1,7 +1,7 @@
 import { rankOn } from '../stats/boards.js';
 import { catalogMap, catalogTotals } from './catalog.js';
 import { legacyAccountWide, legacyOf, legacyPointsOf } from './legacy.js';
-import { COUNTS, KINDS, familyOf, kindById } from './registry.js';
+import { COUNTS, KINDS, SLOT_GROUPS, familyOf, kindById, slotGroup, slotLabels } from './registry.js';
 import { achievementCatalog, collectionsOf, sharedKindsOf, sharingEvidence } from './store.js';
 
 /**
@@ -250,50 +250,65 @@ const QUALITY_ORDER = ['poor', 'common', 'uncommon', 'rare', 'epic', 'legendary'
 async function transmogView(db, ch, d, { slot = null } = {}) {
   const collected = new Map();
   for (const s of d.slots) for (const id of s.ids) if (!collected.has(id)) collected.set(id, s.type);
-  const cat = (await catalogTotals(db)).appearance > 0 ? await catalogMap(db, 'appearance', { limit: 60_000 }) : null;
-  const slotOf = (id) => cat?.get(id)?.slot ?? collected.get(id) ?? null;
+  const totals = await catalogTotals(db);
+  // 0.9.2: the COMPLETE appearance catalog (a build that finished) gives totals and missing tiles; until then the
+  // tracker is collected-only. Names, items and icons come from whatever catalog rows exist already, complete or not.
+  const complete = totals.appearance > 0;
+  const cat = complete ? await catalogMap(db, 'appearance', { limit: 60_000 }) : null;
+  const known = cat ?? await catalogMap(db, 'appearance', { ids: [...collected.keys()], limit: 20_000 });
+  const look = (id) => known.get(id) ?? null;
+  const slotOf = (id) => look(id)?.slot ?? collected.get(id) ?? null;
   const slotNames = new Map(d.slots.map((s) => [s.type, s.name]));
   if (cat) for (const a of cat.values()) if (a.slot && a.slotName && !slotNames.has(a.slot)) slotNames.set(a.slot, a.slotName);
-  // Per slot: have / total. Armour or weapon by what Blizzard's catalog says the slot's appearances are (item class).
+  const labels = slotLabels([...slotNames.entries()].map(([type, name]) => ({ type, name })));
+  // Per slot: have / total. Armour or weapon by what Blizzard's catalog says the slot's appearances are (item class),
+  // else by Blizzard's slot type.
   const per = new Map();
   const bump = (s, key) => {
     if (!s) return;
-    if (!per.has(s)) per.set(s, { type: s, name: slotNames.get(s) ?? s, have: 0, total: 0, classes: new Map() });
+    if (!per.has(s)) per.set(s, { type: s, name: labels.get(s) ?? slotNames.get(s) ?? s, have: 0, total: 0, classes: new Map() });
     per.get(s)[key] += 1;
   };
   for (const id of collected.keys()) bump(slotOf(id), 'have');
+  for (const a of known.values()) if (a.slot && a.itemClass && per.has(a.slot)) per.get(a.slot).classes.set(a.itemClass, (per.get(a.slot).classes.get(a.itemClass) ?? 0) + 1);
   if (cat) {
     for (const a of cat.values()) {
       bump(a.slot, 'total');
       if (a.slot && a.itemClass) per.get(a.slot).classes.set(a.itemClass, (per.get(a.slot).classes.get(a.itemClass) ?? 0) + 1);
     }
   }
+  const order = [...SLOT_GROUPS.Armor, ...SLOT_GROUPS.Weapon];
   const slots = [...per.values()].map((s) => ({
     type: s.type, name: s.name, have: s.have, total: cat ? s.total : null,
-    group: [...s.classes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
-  }));
+    group: [...s.classes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? slotGroup(s.type),
+  })).sort((a, b) => (order.indexOf(a.type) + 1 || 999) - (order.indexOf(b.type) + 1 || 999));
   const current = slots.find((s) => s.type === slot) ?? slots.find((s) => s.have > 0) ?? slots[0] ?? null;
   let tiles = [];
   if (current) {
     const ids = new Set([...collected.keys()].filter((id) => slotOf(id) === current.type));
     if (cat) for (const a of cat.values()) if (a.slot === current.type) ids.add(a.id);
-    const items = await qualities(db, [...ids].flatMap((id) => (cat?.get(id)?.items ?? []).map((i) => i.id)));
+    const items = await qualities(db, [...ids].flatMap((id) => (look(id)?.items ?? []).map((i) => i.id)));
     tiles = [...ids].map((id) => {
-      const a = cat?.get(id);
+      const a = look(id);
       const q = (a?.items ?? []).map((i) => items.get(i.id)).filter(Boolean).sort((x, y) => QUALITY_ORDER.indexOf(y) - QUALITY_ORDER.indexOf(x))[0] ?? null;
       return {
         id, collected: collected.has(id), name: a?.name ?? null, icon: a?.icon ?? null, armour: a?.subclass ?? null, itemClass: a?.itemClass ?? null, quality: q,
         items: (a?.items ?? []).map((i) => ({ id: i.id, name: i.name, quality: items.get(i.id) ?? null })),
+        // Blizzard returned nothing for it (yet): the page keeps the id and says so.
+        unresolved: !a || (a.unavailable !== undefined && !a.items),
       };
     }).sort((x, y) => (y.collected - x.collected) || (x.name ?? '').localeCompare(y.name ?? '') || x.id - y.id);
   }
-  const sets = (await catalogTotals(db))['appearance-set'] > 0 ? [...(await catalogMap(db, 'appearance-set')).values()].map((s) => ({
+  const sets = totals['appearance-set'] > 0 ? [...(await catalogMap(db, 'appearance-set')).values()].map((s) => ({
     id: s.id, name: s.name, total: (s.appearances ?? []).length, have: (s.appearances ?? []).filter((x) => collected.has(x)).length,
   })) : [];
   const worn = await db.one('SELECT equipment FROM characters WHERE id = $1', [ch.id]);
+  const resolved = [...collected.keys()].filter((id) => look(id)?.items?.length).length;
   return {
     catalog: Boolean(cat), have: collected.size, total: cat ? cat.size : null, slots, slot: current?.type ?? null, tiles, sets,
-    qualityKnown: (await catalogTotals(db)).item > 0,
+    resolved,
+    catalogState: (await db.one("SELECT state FROM collection_catalog_state WHERE kind = 'appearance'"))?.state ?? null,
+    qualityKnown: totals.item > 0,
     worn: (Array.isArray(worn?.equipment) ? worn.equipment : []).map((e) => ({ slot: e.slot, slotName: e.slotName, item: e.name, transmog: e.transmog === undefined ? undefined : e.transmog ? e.transmog.name : null })),
   };
 }
