@@ -2,6 +2,7 @@ import { HttpError } from '../core/errors.js';
 import { DEFAULT_SHARES, TIER_LETTERS, sharesProblem } from '../stats/tiers.js';
 import { BETA_PERK_TEXT } from '../badges/catalog.js';
 import { GAME_VERSIONS, PRIMARY_VERSION, versionById } from '../core/gameVersions.js';
+import { environmentDefault } from '../core/environment.js';
 
 /**
  * The admin settings registry. Every setting declares itself here; the admin page renders whatever is declared and
@@ -411,7 +412,7 @@ export async function getSetting(db, key, { version = null } = {}) {
   const def = byKey.get(key);
   if (!def) throw new Error(`unknown setting ${key}`);
   const row = await db.one('SELECT value FROM settings WHERE key = $1', [storageKey(key, version)]);
-  return row ? row.value : def.default;
+  return row ? row.value : environmentDefault(def.key, def.default);
 }
 
 export async function listSettings(db, { version = null } = {}) {
@@ -427,9 +428,9 @@ export async function listSettings(db, { version = null } = {}) {
     type: def.type,
     min: def.min,
     max: def.max,
-    default: def.default,
+    default: environmentDefault(def.key, def.default),
     options: def.options,
-    value: stored.has(def.key) ? stored.get(def.key).value : def.default,
+    value: stored.has(def.key) ? stored.get(def.key).value : environmentDefault(def.key, def.default),
     updatedAt: stored.get(def.key)?.updated_at ?? null,
   }));
 }

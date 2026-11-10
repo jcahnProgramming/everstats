@@ -12,6 +12,7 @@ import { createNetworkResolver, logHeaderSources, trustedProxyCheck, trustedProx
 import { createLimits, limitBy } from './core/rateLimit.js';
 import { requireSameOrigin } from './core/sameOrigin.js';
 import { APP_VERSION } from './core/version.js';
+import { ENVIRONMENT } from './core/environment.js';
 import { createPublicRouter } from './characters/routes.js';
 import { createGuildRouter } from './guilds/routes.js';
 import { createGuildFetchRouter } from './guilds/fetchRoutes.js';
@@ -42,10 +43,20 @@ import { getSetting } from './admin/settings.js';
  *   and keep the list for the admin page, core/network.js)
  * @param {object} [opts.renderer] the share-card renderer (cards/render.js); tests pass a fake
  */
-export function createApp({ db, now = Date.now, fetch = globalThis.fetch, trustedProxies = process.env.TRUSTED_PROXIES, onHeader = logHeaderSources(), renderer = null } = {}) {
+export function createApp({ db, now = Date.now, fetch = globalThis.fetch, trustedProxies = process.env.TRUSTED_PROXIES, onHeader = logHeaderSources(), renderer = null, environment = ENVIRONMENT } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(securityHeaders({ hsts: config.secureCookies }));
+  // 0.10.2: the private test site is never indexed: every answer says so, robots.txt disallows everything and there is
+  // no sitemap. Production is unchanged.
+  if (environment.noindex) {
+    app.use((req, res, next) => {
+      res.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+      next();
+    });
+    app.get('/robots.txt', (req, res) => res.set('Cache-Control', 'no-cache').type('text/plain').send(['User-agent: *', 'Disallow: /', ''].join('\n')));
+    app.get('/sitemap.xml', (req, res) => res.status(404).type('text/plain').send('Not found'));
+  }
 
   const limits = createLimits({ now });
   const networkOf = createNetworkResolver({ trustedProxies, onHeader });
@@ -63,7 +74,8 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   app.use(express.json({ limit: '50kb' }));
 
   // The deploy probes this (and checks the version against CHANGELOG.json), as do the container healthcheck and
-  // anyone curious. Status, version and whether the database answers: nothing else, the app is public.
+  // anyone curious. Status, environment (0.10.2: production or dev), version and whether the database answers: nothing
+  // else, the app is public.
   app.get('/api/health', route(async (req, res) => {
     let database = 'ok';
     try {
@@ -72,7 +84,7 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
       database = 'unreachable';
     }
     res.set('Cache-Control', 'no-store');
-    res.status(database === 'ok' ? 200 : 503).json({ status: database === 'ok' ? 'ok' : 'degraded', service: 'web', version: APP_VERSION, database });
+    res.status(database === 'ok' ? 200 : 503).json({ status: database === 'ok' ? 'ok' : 'degraded', service: 'web', environment: environment.id, version: APP_VERSION, database });
   }));
 
   app.use('/api', (req, res, next) => {
@@ -92,7 +104,10 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
       const row = await db.one('SELECT theme FROM accounts WHERE id = $1', [req.session.accountId]);
       if (THEMES.includes(row?.theme)) theme = row.theme;
     }
-    res.type('application/javascript').send(`document.documentElement.setAttribute('data-theme','${theme}');\n`);
+    // 0.10.2: the environment marker (DEV) is set here too, before first paint, so it never flashes in late. The id comes
+    // from the registry (core/environment.js), never from a request.
+    const env = environment.marker ? `document.documentElement.setAttribute('data-es-env','${environment.id}');\n` : '';
+    res.type('application/javascript').send(`document.documentElement.setAttribute('data-theme','${theme}');\n${env}`);
   }));
 
   // Character lookups, leaderboards, the statistics catalog, coverage and the beta (characters/routes.js).

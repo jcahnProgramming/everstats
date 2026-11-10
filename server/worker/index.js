@@ -7,12 +7,15 @@ import { createDb } from '../core/db.js';
 import { prepareDatabase } from '../core/prepare.js';
 import { APP_VERSION } from '../core/version.js';
 import { requireRootKey } from '../credentials/crypto.js';
+import { assertEnvironment } from '../core/environment.js';
 import { BACKUP_HOUR_UTC, run } from '../core/backup.js';
 import { createWorkerApp } from './app.js';
 import { createCrawler } from '../crawler/service.js';
 import { createJobs } from './jobs.js';
 import { createLoop } from './loop.js';
 
+// 0.10.2: production or dev, and everything this process was given matches it (core/environment.js), or it stops here.
+assertEnvironment('worker');
 requireRootKey('worker');
 
 // Backups must exist before real data does (CLAUDE.md): production refuses to start without somewhere to write them.

@@ -695,7 +695,8 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   - **Nightly backups: the newest 14 plus the first of each month are kept; older ones are deleted** (0.5.0,
     `server/core/backup.js` planPrune; the hourly sweep and every good backup). Reason: they hold only our own data now,
     and a bounded set is enough to recover from. **A pre-0.5.0 dump (`everstats-YYYY-MM-DD.dump`) holds Blizzard data
-    and is deleted 3 days after it was taken** (30-day rule). The `backup_runs` log is kept.
+    and is deleted 3 days after it was taken** (30-day rule). The `backup_runs` log is kept. **The dev site keeps only
+    its newest 3 and no monthly copies** (0.10.2, owner's decision, `core/environment.js`): its data is test data.
   - **Turning "Show my gold stats publicly" off** deletes that `character_gold_public` row (0.9.0). Reason: the owner
     asked; the account's history logs it (`gold.public_off`).
   - **A guild fetch's work list** (`guild_fetch_members`) is deleted when the fetch ends (0.9.0). Reason: a work order;
@@ -802,8 +803,8 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   (Unraid's shfs FUSE layer and database locking don't mix); the deploy refuses `/mnt/user` paths.
 - **Only the web app is in the tunnel**: `everstats.app` → port 3260 on `BIND_IP`. The worker port is for the deploy
   and healthchecks only; never add it to the tunnel.
-- `/api/health` on both returns `{ status, service, version, database }` (worker adds `loop`), 503 when the
-  database is unreachable or the worker loop has stalled. Nothing else: it is public.
+- `/api/health` on both returns `{ status, service, environment, version, database }` (worker adds `loop`), 503 when
+  the database is unreachable or the worker loop has stalled. Nothing else: it is public. (`environment`: 0.10.2.)
 - **Security headers** (`server/core/headers.js`): CSP `'self'` only (no inline script or style; the theme boot is a
   served file; images also from `https://render.worldofwarcraft.com`, Blizzard's character renders), `nosniff`, `Referrer-Policy: same-origin`, HSTS over HTTPS, and a Permissions-Policy that denies
   every device feature **except `publickey-credentials-get/create` for this origin** (next-up denies them, which
@@ -829,6 +830,33 @@ the host checkout from Gitea's internal URL (refuses a checkout with local edits
 until all are healthy (~2 min), fail on any restart in the next 15 s (crash loop), fail unless both app containers
 report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. Gitea variables: `DEPLOY_DIR`,
 `INTERNAL_GIT_URL`, `BIND_IP`, `PG_DATA_DIR`, `PG_SNAPSHOT_DIR`, `BACKUP_DIR` (optional `WEB_PORT`, `WORKER_PORT`).
+
+## Environments: production and the dev site (0.10.2, RELEASING.md)
+
+- **Two sites, one image.** `main` → production (everstats.app, `docker-compose.yml`, project `everstats`,
+  `deploy.yml`); `dev` → the private test site (dev.everstats.app behind Cloudflare Access, `docker-compose.dev.yml`,
+  project `everstats-dev`, `deploy-dev.yml`). Feature branches come from `dev` and merge into `dev`; `ci.yml` builds and
+  tests every other push and every pull request, never deploys. Hotfixes branch from `main` and merge back into `dev`.
+- **`server/core/environment.js` is the ONE place** the environments are described (origin, database host/name/user,
+  marker, noindex, backups kept, admin-setting defaults). In Docker `ENVIRONMENT=production|dev` is required and a
+  process refuses to start unless its origin and database match. `environment_marker` (one row, ours) records which
+  environment a database belongs to; the other refuses it before migrations, and a deployed dev database with no
+  marker must be empty. Outside Docker it is `local` (no checks; the marker always says local).
+- **Dev is never production's data:** its own empty database, its own `.env`, root key, Blizzard client ("Everstats
+  Dev") and Discord application. Until its keys are entered, the background crawl starts paused at 2 requests/s
+  (`settingDefaults`; a saved setting wins). The 30-day rule, the sweeps and every privacy rule apply unchanged.
+- **Dev is marked everywhere and never indexed:** the striped DEV bar (`AppShell.jsx EnvBar`, tokens `--es-env-*`, set
+  before first paint by `/api/theme-boot.js` as `data-es-env`; production never renders it), `X-Robots-Tag: noindex`,
+  a disallow-all `/robots.txt`, no sitemap, "[DEV]" link previews and a DEV stamp on share cards.
+- **Versions:** dev builds are patches (`"kind": "dev"`, "In testing", dev's changelog only); `scripts/release.js` on
+  `dev` rolls them into the next minor (`"kind": "release"`, the builds kept in `tested`); hotfixes are patches on main
+  (`"kind": "hotfix"`). `check-changelog.js` with `CHANGELOG_TARGET=production` (main's deploy, its image build, CI for
+  pull requests into main) refuses a dev build left in. Production's changelog shows releases and hotfixes only.
+- **Guards in the deploys:** each refuses the other's folders (variables AND live container mounts, Unraid's
+  /mnt/user|cache|diskN views treated as one), ports, subnet, a wrong `ENVIRONMENT` line, and dev refuses a `.env`
+  reusing production's keys. Builds happen before restarts; a failed health check restores the `:previous` image.
+  Dev's containers are capped (cpus, memory, pids, cpu_shares 256, oom_score_adj 500, small Postgres settings).
+  `server/test/compose-guard.test.js` and `environments.test.js` hold all of this in place.
 
 ## Credentials
 
@@ -934,6 +962,9 @@ runs before the build, so a malformed entry fails the build and the deploy.
 Newest first; omit sections that don't apply. **`date` is the day the release is committed, never ahead:** `check-changelog.js` refuses a date later than
 today (today = the latest calendar date anywhere, UTC+14, so a same-day release never fails in any time zone).
 
+- **0.10.2 onward, the owner's version rule (RELEASING.md):** every build merged into `dev` is a PATCH on dev only
+  (`"kind": "dev"`); promoting dev → main is a release, the next MINOR, made by `node scripts/release.js` (it rolls the
+  dev builds up and keeps them under `"tested"`); a hotfix is a PATCH straight to main (`"kind": "hotfix"`).
 - **PATCH** (0.x.1) for fixes, small additions, refinements. The default.
 - **MINOR** (0.x.0) for a genuinely new feature or major capability.
 - **1.0.0 is reserved for the public US launch** on everstats.app with character pages, per-statistic leaderboards,

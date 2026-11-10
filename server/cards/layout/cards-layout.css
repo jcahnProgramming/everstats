@@ -78,3 +78,9 @@
 .t-guild .ctierwrap { grid-area: d; align-self: end; }
 .ctierbar > span { white-space: nowrap; flex: none; }
 .ctierunr { font: var(--es-weight-semibold) calc(var(--c-meta) * 0.8) var(--es-font-body); color: var(--es-text-2); }
+
+/* 0.10.2: a card drawn on the dev site carries a DEV stamp (cards/render.js adds it only there), so a dev card can't
+   pass for a real one. The dev site's own marker colour (client tokens --es-env-*); never drawn on production. */
+.es-env-stamp { position: absolute; top: 0; right: 0; z-index: 50; padding: 0.35em 1.1em; border-bottom-left-radius: 0.6em;
+  font: 700 calc(var(--c-meta, 16px) * 1.1) var(--es-font-body, sans-serif); letter-spacing: 0.18em;
+  background: #a3124f; color: #ffffff; }

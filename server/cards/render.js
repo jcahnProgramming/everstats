@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { CARD_TYPES, FORMATS, templateRoot } from './catalog.js';
+import { ENVIRONMENT } from '../core/environment.js';
 
 /**
  * The share-card renderer (0.8.0): headless Chromium (playwright-core + Playwright's chromium headless shell) at
@@ -82,7 +83,7 @@ const UNSAFE = new RegExp(`[<${String.fromCharCode(0x2028)}${String.fromCharCode
 const escapeChar = (c) => `${BACKSLASH}u${c.charCodeAt(0).toString(16).padStart(4, '0')}`;
 export const dataScript = (data) => `window.CARD_DATA = ${JSON.stringify(data).replace(UNSAFE, escapeChar)};`;
 
-export function createCardRenderer({ maxConcurrent = () => 2, maxQueue = 8, launch = null, log = console, now = Date.now } = {}) {
+export function createCardRenderer({ maxConcurrent = () => 2, maxQueue = 8, launch = null, log = console, now = Date.now, environment = ENVIRONMENT } = {}) {
   let browser = null;
   let launching = null;
   let idleTimer = null;
@@ -166,6 +167,18 @@ export function createCardRenderer({ maxConcurrent = () => 2, maxQueue = 8, laun
       await page.goto(`${CARD_ORIGIN}/${templateRoot(type)}/${template}`, { timeout: RENDER_TIMEOUT_MS, waitUntil: 'load' });
       await page.waitForSelector('html[data-ready="1"]', { timeout: RENDER_TIMEOUT_MS, state: 'attached' });
       if (!(await page.evaluate(() => typeof window.everstatsLayout === 'function' && window.everstatsLayout()))) throw new Error('the layout pass did not run');
+      // 0.10.2: the dev site stamps every card DEV (styled in layout/cards-layout.css); production never does.
+      if (environment.marker) {
+        await page.evaluate((text) => {
+          const card = document.querySelector('[data-card]');
+          if (!card) return;
+          if (getComputedStyle(card).position === 'static') card.style.position = 'relative';
+          const stamp = document.createElement('div');
+          stamp.className = 'es-env-stamp';
+          stamp.textContent = text;
+          card.appendChild(stamp);
+        }, environment.marker);
+      }
       // The card's own box, as a page screenshot: no scrolling or 'stable element' waits (fill.js has finished by now).
       const box = await page.locator('[data-card]').boundingBox({ timeout: RENDER_TIMEOUT_MS });
       if (!box) throw new Error('the card has no box');

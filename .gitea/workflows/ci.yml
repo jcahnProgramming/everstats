@@ -1,0 +1,64 @@
+# Build and test only, never a deploy (0.10.2, RELEASING.md): every push to a feature branch, and every pull request.
+# `main` (deploy.yml) and `dev` (deploy-dev.yml) have their own workflows, which test or check before they deploy.
+#
+# The runner's job container sees the host's Docker daemon but not its filesystem (deploy.yml's header), so the code
+# comes from a throwaway clone of the pushed ref and the tests run in a throwaway node container with CPU and memory
+# caps: a test run must never starve production on the same host. Nothing here touches a deploy folder, a database,
+# or any .env.
+
+name: CI
+
+on:
+  push:
+    branches-ignore: [main, dev]
+  pull_request:
+
+env:
+  INTERNAL_GIT_URL: ${{ vars.INTERNAL_GIT_URL }}
+  GIT_IMAGE: alpine/git:latest
+  NODE_IMAGE: node:22-bookworm
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: docker:cli
+    defaults:
+      run:
+        shell: sh
+    timeout-minutes: 30
+    steps:
+      - name: Fetch the pushed commit (a throwaway clone)
+        env:
+          GIT_TOKEN: ${{ gitea.token }}
+          REPO_PATH: ${{ gitea.repository }}
+          REF: ${{ gitea.ref }}
+        run: |
+          set -eu
+          [ -n "$INTERNAL_GIT_URL" ] || { echo "::error::Missing Gitea Actions variable INTERNAL_GIT_URL."; exit 1; }
+          docker run --rm -e GIT_TOKEN -e REPO_PATH -e INTERNAL_GIT_URL -e REF --entrypoint sh "$GIT_IMAGE" -c '
+            set -eu
+            auth="Authorization: Basic $(printf "x-access-token:%s" "$GIT_TOKEN" | base64 | tr -d "\n")"
+            git init -q /w && cd /w
+            git -c http.extraHeader="$auth" fetch -q --depth 1 --no-tags "$INTERNAL_GIT_URL/$REPO_PATH.git" "$REF" >&2
+            git rev-parse FETCH_HEAD >&2
+            git archive --format=tar FETCH_HEAD
+          ' > /tmp/src.tar 2> /tmp/fetch.log
+          echo "Testing $REF at $(tail -n 1 /tmp/fetch.log)"
+
+      - name: Build and test (capped)
+        env:
+          # A pull request into main is checked as production's changelog, into dev as dev's; anything else either way.
+          BASE: ${{ gitea.base_ref }}
+        run: |
+          set -eu
+          case "$BASE" in
+            main) target=production ;;
+            dev) target=dev ;;
+            *) target=any ;;
+          esac
+          echo "Changelog target: $target"
+          docker run --rm -i --cpus 2 --memory 3g --memory-swap 3g --cpu-shares 256 -e TARGET="$target" "$NODE_IMAGE" sh -c '
+            set -eu
+            mkdir /w && cd /w && tar -xf - && sh scripts/ci-test.sh "$TARGET"
+          ' < /tmp/src.tar

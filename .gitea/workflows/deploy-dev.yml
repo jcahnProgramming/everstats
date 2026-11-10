@@ -1,0 +1,352 @@
+# Deploys the private test site (dev.everstats.app) on every push to the `dev` branch (0.10.2, RELEASING.md).
+# Production is deploy.yml (main); nothing here touches it. Same host, same runner, same helper-container approach as
+# deploy.yml (read its header first): the job container sees the host's Docker daemon but not its filesystem.
+#
+# Gitea Actions variables (repo Settings → Actions → Variables), never written here:
+#   DEV_DEPLOY_DIR       dev's own host checkout (on the dev branch), with dev's own .env. Never production's.
+#   DEV_PG_DATA_DIR      dev's database folder (direct disk/pool path, never /mnt/user), owned by 999:999
+#   DEV_PG_SNAPSHOT_DIR  dev's snapshot tablespace folder (never /mnt/user), owned by 999:999
+#   DEV_BACKUP_DIR       dev's backup folder, writable by uid 1000
+#   optional DEV_WEB_PORT / DEV_WORKER_PORT (default 3270 / 3271)
+#   shared with production: BIND_IP, INTERNAL_GIT_URL. Production's own (DEPLOY_DIR, PG_DATA_DIR, PG_SNAPSHOT_DIR,
+#   BACKUP_DIR, WEB_PORT, WORKER_PORT) are read only to REFUSE any dev value that matches them.
+# Gitea Actions secrets (Settings → Actions → Secrets):
+#   DEV_ACCESS_CLIENT_ID / DEV_ACCESS_CLIENT_SECRET  a Cloudflare Access service token, so this run can reach
+#   https://dev.everstats.app/api/health through Access (the site is private). Sent on stdin, never in a command line.
+#
+# Order: test the exact pushed commit → guards → deploy that commit → health (local and public) → or roll back.
+# A failed test or build changes nothing that runs. A failed health check puts the previous image back.
+
+name: Deploy dev
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+env:
+  DEV_DEPLOY_DIR: ${{ vars.DEV_DEPLOY_DIR }}
+  DEV_PG_DATA_DIR: ${{ vars.DEV_PG_DATA_DIR }}
+  DEV_PG_SNAPSHOT_DIR: ${{ vars.DEV_PG_SNAPSHOT_DIR }}
+  DEV_BACKUP_DIR: ${{ vars.DEV_BACKUP_DIR }}
+  DEV_WEB_PORT: ${{ vars.DEV_WEB_PORT || '3270' }}
+  DEV_WORKER_PORT: ${{ vars.DEV_WORKER_PORT || '3271' }}
+  BIND_IP: ${{ vars.BIND_IP }}
+  INTERNAL_GIT_URL: ${{ vars.INTERNAL_GIT_URL }}
+  # Production's, for the guards only.
+  PROD_DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+  PROD_PG_DATA_DIR: ${{ vars.PG_DATA_DIR }}
+  PROD_PG_SNAPSHOT_DIR: ${{ vars.PG_SNAPSHOT_DIR }}
+  PROD_BACKUP_DIR: ${{ vars.BACKUP_DIR }}
+  PROD_WEB_PORT: ${{ vars.WEB_PORT || '3260' }}
+  PROD_WORKER_PORT: ${{ vars.WORKER_PORT || '3261' }}
+  PUBLIC_URL: https://dev.everstats.app
+  COMPOSE_FILE_NAME: docker-compose.dev.yml
+  PROJECT: everstats-dev
+  WEB_CONTAINER: everstats-dev
+  WORKER_CONTAINER: everstats-dev-worker
+  DB_CONTAINER: everstats-dev-db
+  APP_IMAGE: everstats-dev:local
+  PREV_IMAGE: everstats-dev:previous
+  PROD_CONTAINERS: everstats everstats-worker everstats-db
+  PROD_PROJECT: everstats
+  GIT_IMAGE: alpine/git:latest
+  DOCKER_IMAGE: docker:cli
+  NODE_IMAGE: node:22-bookworm
+  CURL_IMAGE: curlimages/curl:8.11.1
+
+jobs:
+  deploy-dev:
+    runs-on: ubuntu-latest
+    container:
+      image: docker:cli
+    defaults:
+      run:
+        shell: sh
+    timeout-minutes: 40
+    steps:
+      - name: Fetch the pushed commit (a throwaway clone, no host folder)
+        env:
+          GIT_TOKEN: ${{ gitea.token }}
+          REPO_PATH: ${{ gitea.repository }}
+          REF: ${{ gitea.ref }}
+          PUSHED_SHA: ${{ gitea.sha }}
+        run: |
+          set -eu
+          [ -n "$INTERNAL_GIT_URL" ] || { echo "::error::Missing Gitea Actions variable INTERNAL_GIT_URL."; exit 1; }
+          docker run --rm -e GIT_TOKEN -e REPO_PATH -e INTERNAL_GIT_URL -e REF --entrypoint sh "$GIT_IMAGE" -c '
+            set -eu
+            auth="Authorization: Basic $(printf "x-access-token:%s" "$GIT_TOKEN" | base64 | tr -d "\n")"
+            git init -q /w && cd /w
+            git -c http.extraHeader="$auth" fetch -q --depth 1 --no-tags "$INTERNAL_GIT_URL/$REPO_PATH.git" "$REF" >&2
+            git rev-parse FETCH_HEAD > /dev/stderr
+            git archive --format=tar FETCH_HEAD
+          ' > /tmp/src.tar 2> /tmp/fetch.log
+          sha=$(tail -n 1 /tmp/fetch.log)
+          echo "$sha" > /tmp/tested.sha
+          echo "Testing commit $sha"
+          [ "$sha" = "$PUSHED_SHA" ] || echo "::warning::dev's tip ($sha) is newer than the pushed commit ($PUSHED_SHA); testing and deploying the tip."
+
+      - name: Build and test (capped, so production keeps its CPU and memory)
+        run: |
+          set -eu
+          docker run --rm -i --cpus 2 --memory 3g --memory-swap 3g --cpu-shares 256 "$NODE_IMAGE" sh -c '
+            set -eu
+            mkdir /w && cd /w && tar -xf - && sh scripts/ci-test.sh dev
+          ' < /tmp/src.tar
+
+      - name: Preflight and guards (dev may never touch production)
+        run: |
+          set -eu
+          missing=""
+          for v in DEV_DEPLOY_DIR DEV_PG_DATA_DIR DEV_PG_SNAPSHOT_DIR DEV_BACKUP_DIR BIND_IP; do
+            eval "val=\${$v:-}"
+            [ -n "$val" ] || missing="$missing $v"
+          done
+          [ -z "$missing" ] || { echo "::error::Missing Gitea Actions variables:$missing (RELEASING.md, one-time setup)."; exit 1; }
+          case "$DEV_PG_DATA_DIR$DEV_PG_SNAPSHOT_DIR" in
+            */mnt/user/*) echo "::error::DEV_PG_DATA_DIR and DEV_PG_SNAPSHOT_DIR must not be under /mnt/user (shfs). Use a /mnt/cache or /mnt/diskN path."; exit 1 ;;
+          esac
+
+          # Path guard. Unraid shows one folder under several roots (/mnt/user, /mnt/cache, /mnt/diskN, pools), so
+          # paths are compared with that root removed: /mnt/user/x and /mnt/cache/x count as the same folder. Two paths
+          # clash when they are equal or one is inside the other.
+          norm() { printf '%s' "$1" | sed -e 's#/*$##' -e 's#^/mnt/[^/]*/#/#'; }
+          clash() {
+            a=$(norm "$1"); b=$(norm "$2")
+            [ -n "$a" ] && [ -n "$b" ] || return 1
+            [ "$a" = "$b" ] && return 0
+            case "$a/" in "$b/"*) return 0 ;; esac
+            case "$b/" in "$a/"*) return 0 ;; esac
+            return 1
+          }
+          # Production's folders: from its Gitea variables AND from what its running containers actually mount (and
+          # the folder its compose project runs in), so a wrong or missing variable can't hide one.
+          prod_paths="$PROD_DEPLOY_DIR $PROD_PG_DATA_DIR $PROD_PG_SNAPSHOT_DIR $PROD_BACKUP_DIR"
+          for c in $PROD_CONTAINERS; do
+            if docker inspect "$c" >/dev/null 2>&1; then
+              prod_paths="$prod_paths $(docker inspect -f '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}} {{end}}{{end}}' "$c")"
+              prod_paths="$prod_paths $(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$c")"
+            fi
+          done
+          bad=0
+          for d in "$DEV_DEPLOY_DIR" "$DEV_PG_DATA_DIR" "$DEV_PG_SNAPSHOT_DIR" "$DEV_BACKUP_DIR"; do
+            for p in $prod_paths; do
+              if clash "$d" "$p"; then echo "::error::Dev folder $d is, contains or sits inside production's $p. Refusing to deploy."; bad=1; fi
+            done
+          done
+          # Dev's own four folders must be four different places too.
+          set -- "$DEV_DEPLOY_DIR" "$DEV_PG_DATA_DIR" "$DEV_PG_SNAPSHOT_DIR" "$DEV_BACKUP_DIR"
+          for a in "$@"; do for b in "$@"; do
+            [ "$a" = "$b" ] && continue
+            if clash "$a" "$b"; then echo "::error::Dev folders $a and $b overlap. Each needs its own folder."; bad=1; fi
+          done; done
+          for p in "$DEV_WEB_PORT" "$DEV_WORKER_PORT"; do
+            if [ "$p" = "$PROD_WEB_PORT" ] || [ "$p" = "$PROD_WORKER_PORT" ]; then echo "::error::Dev port $p is production's."; bad=1; fi
+          done
+          [ "$bad" = 0 ] || exit 1
+          echo "Folder and port guards OK."
+
+          # Containers of production's project must never be this project's, and the names must be free of it.
+          for c in $WEB_CONTAINER $WORKER_CONTAINER $DB_CONTAINER; do
+            proj=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$c" 2>/dev/null || true)
+            if [ -n "$proj" ] && [ "$proj" != "$PROJECT" ]; then echo "::error::Container $c belongs to compose project \"$proj\", not $PROJECT."; exit 1; fi
+          done
+
+          # The network: dev's subnet (from dev's .env) must not be production's. Docker also refuses overlapping ones.
+          docker run --rm --mount "type=bind,source=$DEV_DEPLOY_DIR,target=/dev-stack,readonly" --entrypoint sh "$GIT_IMAGE" \
+            -c 'grep -E "^EVERSTATS_DEV_SUBNET_PREFIX=" /dev-stack/.env | head -n 1 | cut -d= -f2-' > /tmp/dev-prefix || true
+          dev_prefix=$(tr -d '\r\n" ' < /tmp/dev-prefix)
+          [ -n "$dev_prefix" ] || { echo "::error::EVERSTATS_DEV_SUBNET_PREFIX is not set in dev's .env."; exit 1; }
+          prod_subnet=$(docker network inspect "${PROD_PROJECT}_default" -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null || true)
+          case " $prod_subnet" in
+            *" $dev_prefix.0/"*) echo "::error::Dev's subnet $dev_prefix.0/24 is production's network. Choose another prefix."; exit 1 ;;
+          esac
+          echo "Network guard OK (dev $dev_prefix.0/24; production ${prod_subnet:-not running})."
+
+          if ! docker version >/dev/null 2>&1; then echo "::error::No Docker daemon reachable from the job container."; exit 1; fi
+
+          # Dev's checkout and .env: present, on the dev branch, ENVIRONMENT=dev, its own keys. Production's .env is
+          # read here ONLY to compare fingerprints (sha256 of each value, never printed): dev must not reuse
+          # production's root key, database password or Blizzard / Discord client.
+          mounts="--mount type=bind,source=$DEV_DEPLOY_DIR,target=/dev-stack,readonly"
+          if [ -n "$PROD_DEPLOY_DIR" ] && docker run --rm --mount "type=bind,source=$PROD_DEPLOY_DIR,target=/p,readonly" --entrypoint true "$GIT_IMAGE" 2>/dev/null; then
+            mounts="$mounts --mount type=bind,source=$PROD_DEPLOY_DIR,target=/prod-stack,readonly"
+          fi
+          docker run --rm $mounts --entrypoint sh "$GIT_IMAGE" -c '
+            set -eu
+            cd /dev-stack
+            for f in .git docker-compose.dev.yml Dockerfile .env; do [ -e "$f" ] || { echo "::error::$f not found in the dev checkout"; exit 1; }; done
+            git config --global --add safe.directory /dev-stack
+            branch=$(git rev-parse --abbrev-ref HEAD)
+            [ "$branch" = dev ] || { echo "::error::The dev checkout is on branch \"$branch\", expected dev."; exit 1; }
+            grep -qx "ENVIRONMENT=dev" .env || { echo "::error::Dev'"'"'s .env must say ENVIRONMENT=dev (exactly)."; exit 1; }
+            grep -q "^EVERSTATS_ROOT_KEY=." .env || { echo "::error::EVERSTATS_ROOT_KEY is not set in dev'"'"'s .env"; exit 1; }
+            grep -q "^POSTGRES_PASSWORD=." .env || { echo "::error::POSTGRES_PASSWORD is not set in dev'"'"'s .env"; exit 1; }
+            value() { grep -E "^$1=" "$2" 2>/dev/null | head -n 1 | cut -d= -f2- | tr -d "\r"; }
+            fp() { v=$(value "$1" "$2"); [ -n "$v" ] && printf "%s" "$v" | sha256sum | cut -d" " -f1 || true; }
+            if [ -f /prod-stack/.env ]; then
+              grep -qx "ENVIRONMENT=dev" /prod-stack/.env && { echo "::error::Production'"'"'s .env says ENVIRONMENT=dev."; exit 1; }
+              for k in EVERSTATS_ROOT_KEY POSTGRES_PASSWORD BLIZZARD_CLIENT_ID DISCORD_CLIENT_ID; do
+                a=$(fp "$k" .env); b=$(fp "$k" /prod-stack/.env)
+                if [ -n "$a" ] && [ "$a" = "$b" ]; then echo "::error::Dev'"'"'s .env reuses production'"'"'s $k. Dev needs its own (RELEASING.md)."; exit 1; fi
+              done
+              echo "Dev'"'"'s .env shares no key with production'"'"'s."
+            else
+              echo "::warning::Production'"'"'s .env could not be read for comparison; the key-reuse check was skipped."
+            fi
+            echo "Dev checkout OK: branch dev, ENVIRONMENT=dev."
+          '
+
+          for d in "$DEV_PG_DATA_DIR" "$DEV_PG_SNAPSHOT_DIR"; do
+            docker run --rm --mount "type=bind,source=$d,target=/check,readonly" --entrypoint sh "$GIT_IMAGE" -c 'test -d /check' \
+              || { echo "::error::$d not found on host. Create it, owned by 999:999, before deploying."; exit 1; }
+          done
+          docker run --rm --user 1000:1000 --mount "type=bind,source=$DEV_BACKUP_DIR,target=/backups" --entrypoint sh "$GIT_IMAGE" \
+            -c 'touch /backups/.deploy-write-check && rm /backups/.deploy-write-check' \
+            || { echo "::error::$DEV_BACKUP_DIR must exist and be writable by uid 1000 (chown 1000:1000 it)."; exit 1; }
+          echo "Dev folders OK."
+
+      - name: Record dev .env fingerprint
+        run: |
+          set -eu
+          docker run --rm --mount "type=bind,source=$DEV_DEPLOY_DIR,target=$DEV_DEPLOY_DIR,readonly" \
+            -w "$DEV_DEPLOY_DIR" --entrypoint sh "$GIT_IMAGE" -c 'sha256sum .env | cut -d" " -f1' > /tmp/env.sha
+
+      - name: Move the dev checkout to the tested commit (fast-forward only)
+        env:
+          GIT_TOKEN: ${{ gitea.token }}
+          REPO_PATH: ${{ gitea.repository }}
+        run: |
+          set -eu
+          TESTED_SHA=$(cat /tmp/tested.sha)
+          docker run --rm \
+            --mount "type=bind,source=$DEV_DEPLOY_DIR,target=$DEV_DEPLOY_DIR" \
+            -w "$DEV_DEPLOY_DIR" -e GIT_TOKEN -e REPO_PATH -e INTERNAL_GIT_URL -e TESTED_SHA \
+            --entrypoint sh "$GIT_IMAGE" -c '
+              set -eu
+              git config --global --add safe.directory "$PWD"
+              auth="Authorization: Basic $(printf "x-access-token:%s" "$GIT_TOKEN" | base64 | tr -d "\n")"
+              if ! git diff --quiet || ! git diff --cached --quiet; then
+                echo "::error::The dev checkout has local modifications. Refusing to deploy:"; git status --short --untracked-files=no; exit 1
+              fi
+              before=$(git rev-parse HEAD)
+              git -c http.extraHeader="$auth" fetch --no-tags "$INTERNAL_GIT_URL/$REPO_PATH.git" dev
+              git merge --ff-only "$TESTED_SHA"
+              echo "Dev checkout: $before -> $(git rev-parse HEAD)"
+            '
+
+      - name: Build the dev image (nothing running changes yet)
+        run: |
+          set -eu
+          if docker image inspect "$APP_IMAGE" >/dev/null 2>&1; then
+            docker image tag "$APP_IMAGE" "$PREV_IMAGE"
+            echo yes > /tmp/can-rollback
+            echo "Kept the running image as $PREV_IMAGE for a rollback."
+          fi
+          docker run --rm \
+            --mount "type=bind,source=$DEV_DEPLOY_DIR,target=$DEV_DEPLOY_DIR" \
+            --mount "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock" \
+            -e BIND_IP -e DEV_PG_DATA_DIR -e DEV_PG_SNAPSHOT_DIR -e DEV_BACKUP_DIR -e DEV_WEB_PORT -e DEV_WORKER_PORT \
+            -w "$DEV_DEPLOY_DIR" "$DOCKER_IMAGE" \
+            docker compose -p "$PROJECT" -f "$COMPOSE_FILE_NAME" build
+
+      - name: Restart the dev stack on the new image
+        run: |
+          set -eu
+          touch /tmp/up-attempted
+          docker run --rm \
+            --mount "type=bind,source=$DEV_DEPLOY_DIR,target=$DEV_DEPLOY_DIR" \
+            --mount "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock" \
+            -e BIND_IP -e DEV_PG_DATA_DIR -e DEV_PG_SNAPSHOT_DIR -e DEV_BACKUP_DIR -e DEV_WEB_PORT -e DEV_WORKER_PORT \
+            -w "$DEV_DEPLOY_DIR" "$DOCKER_IMAGE" \
+            docker compose -p "$PROJECT" -f "$COMPOSE_FILE_NAME" up -d --no-build
+
+      - name: Verify dev is healthy, stable, on the new version, and reachable through Access
+        env:
+          ACCESS_ID: ${{ secrets.DEV_ACCESS_CLIENT_ID }}
+          ACCESS_SECRET: ${{ secrets.DEV_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -eu
+          web="http://$BIND_IP:$DEV_WEB_PORT"
+          worker="http://$BIND_IP:$DEV_WORKER_PORT"
+          probe() { docker run --rm --network host "$DOCKER_IMAGE" sh -c "wget -q -S -O /dev/null '$1' 2>&1 | grep -q 'HTTP/1.1 200'"; }
+          running() { [ "$(docker inspect -f '{{.State.Running}} {{.State.Restarting}}' "$1" 2>/dev/null)" = "true false" ]; }
+          db_healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' "$DB_CONTAINER" 2>/dev/null)" = "healthy" ]; }
+          ok=0
+          for i in $(seq 1 40); do
+            a=fail; b=fail; c=fail; d=fail
+            probe "$web/api/health" && a=ok || true
+            probe "$web/" && b=ok || true
+            probe "$worker/api/health" && c=ok || true
+            db_healthy && d=ok || true
+            echo "attempt $i: web /api/health=$a  web /=$b  worker /api/health=$c  db=$d"
+            if [ "$a$b$c$d" = okokokok ] && running "$WEB_CONTAINER" && running "$WORKER_CONTAINER" && running "$DB_CONTAINER"; then ok=1; break; fi
+            sleep 3
+          done
+          [ "$ok" = 1 ] || { echo "::error::Dev did not become healthy within ~2 minutes."; exit 1; }
+          counts() { for c in "$WEB_CONTAINER" "$WORKER_CONTAINER" "$DB_CONTAINER"; do printf '%s ' "$(docker inspect -f '{{.RestartCount}}' "$c")"; done; }
+          r1=$(counts); sleep 15; r2=$(counts)
+          [ "$r1" = "$r2" ] && running "$WEB_CONTAINER" && running "$WORKER_CONTAINER" || { echo "::error::A dev container restarted after coming up ($r1-> $r2)."; exit 1; }
+
+          expected=$(docker run --rm \
+            --mount "type=bind,source=$DEV_DEPLOY_DIR/CHANGELOG.json,target=/c.json,readonly" \
+            --entrypoint node "$APP_IMAGE" -p "JSON.parse(require('fs').readFileSync('/c.json','utf8')).releases[0].version")
+          for url in "$web/api/health" "$worker/api/health"; do
+            body=$(docker run --rm --network host "$DOCKER_IMAGE" wget -q -O - "$url")
+            case "$body" in
+              *'"environment":"dev"'*"\"version\":\"$expected\""*) echo "$url: dev $expected" ;;
+              *) echo "::error::$url answered $body, expected environment dev and version $expected."; exit 1 ;;
+            esac
+          done
+
+          # The public address, through Cloudflare Access with the service token (sent on stdin, never in argv).
+          [ -n "$ACCESS_ID" ] && [ -n "$ACCESS_SECRET" ] || { echo "::error::Secrets DEV_ACCESS_CLIENT_ID / DEV_ACCESS_CLIENT_SECRET are not set (RELEASING.md, Cloudflare Access)."; exit 1; }
+          ok=0
+          for i in $(seq 1 10); do
+            body=$(printf 'header = "CF-Access-Client-Id: %s"\nheader = "CF-Access-Client-Secret: %s"\n' "$ACCESS_ID" "$ACCESS_SECRET" \
+              | docker run --rm -i "$CURL_IMAGE" -fsS --max-time 15 -K - "$PUBLIC_URL/api/health" 2>/dev/null || true)
+            case "$body" in
+              *'"environment":"dev"'*"\"version\":\"$expected\""*) ok=1; break ;;
+            esac
+            echo "public attempt $i: ${body:-no answer}"
+            sleep 6
+          done
+          [ "$ok" = 1 ] || { echo "::error::$PUBLIC_URL/api/health did not answer environment dev, version $expected (tunnel hostname, Access policy, service token?)."; exit 1; }
+          echo "Deployed Everstats dev $expected: healthy, stable, and answering at $PUBLIC_URL."
+
+      - name: Roll back to the previous version
+        if: failure()
+        run: |
+          set -eu
+          if [ ! -f /tmp/up-attempted ]; then echo "Nothing running was replaced: the previous version is still up."; exit 0; fi
+          if [ ! -f /tmp/can-rollback ]; then echo "::error::No previous dev image to roll back to (this was the first dev deploy)."; exit 0; fi
+          docker image tag "$PREV_IMAGE" "$APP_IMAGE"
+          docker run --rm \
+            --mount "type=bind,source=$DEV_DEPLOY_DIR,target=$DEV_DEPLOY_DIR" \
+            --mount "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock" \
+            -e BIND_IP -e DEV_PG_DATA_DIR -e DEV_PG_SNAPSHOT_DIR -e DEV_BACKUP_DIR -e DEV_WEB_PORT -e DEV_WORKER_PORT \
+            -w "$DEV_DEPLOY_DIR" "$DOCKER_IMAGE" \
+            docker compose -p "$PROJECT" -f "$COMPOSE_FILE_NAME" up -d --no-build --force-recreate "$WEB_CONTAINER" "$WORKER_CONTAINER"
+          echo "::warning::Rolled the dev app containers back to the previous image. The run stays red. The dev checkout is still on the new commit; the database keeps any migration the new version ran (migrations only add)."
+
+      - name: Confirm dev .env untouched
+        if: always()
+        run: |
+          set -eu
+          [ -s /tmp/env.sha ] || { echo "No fingerprint recorded (an earlier step failed); skipping."; exit 0; }
+          now=$(docker run --rm --mount "type=bind,source=$DEV_DEPLOY_DIR,target=$DEV_DEPLOY_DIR,readonly" \
+            -w "$DEV_DEPLOY_DIR" --entrypoint sh "$GIT_IMAGE" -c 'sha256sum .env | cut -d" " -f1')
+          [ "$now" = "$(cat /tmp/env.sha)" ] || { echo "::error::Dev's .env changed during the deploy. This must never happen."; exit 1; }
+          echo "Dev .env unchanged."
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          [ -n "$DEV_DEPLOY_DIR" ] || exit 0
+          docker run --rm \
+            --mount "type=bind,source=$DEV_DEPLOY_DIR,target=$DEV_DEPLOY_DIR,readonly" \
+            --mount "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock" \
+            -e BIND_IP -e DEV_PG_DATA_DIR -e DEV_PG_SNAPSHOT_DIR -e DEV_BACKUP_DIR -e DEV_WEB_PORT -e DEV_WORKER_PORT \
+            -w "$DEV_DEPLOY_DIR" "$DOCKER_IMAGE" \
+            sh -c 'docker compose -p everstats-dev -f docker-compose.dev.yml ps -a; echo; docker compose -p everstats-dev -f docker-compose.dev.yml logs --no-color --tail=150' || true

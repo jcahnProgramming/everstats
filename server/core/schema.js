@@ -1932,4 +1932,18 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.10.2: which environment this database belongs to (core/environment.js, core/prepare.js): one row, written by
+    // the first process that starts on it, so a dev process can never run against production's database.
+    id: '029_environment_marker',
+    async up(q) {
+      await q.query(`
+        CREATE TABLE environment_marker (
+          singleton   boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+          environment text NOT NULL CHECK (environment IN ('production', 'dev', 'local')),
+          set_at      timestamptz NOT NULL DEFAULT now()
+        );
+      `);
+    },
+  },
 ];

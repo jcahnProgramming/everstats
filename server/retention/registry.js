@@ -259,6 +259,8 @@ export const BLIZZARD = [
 
 export const OURS = {
   _migrations: 'Which migrations ran',
+  // 0.10.2
+  environment_marker: 'Which environment (production or dev) this database belongs to, so the other one refuses it',
   // 0.10.0
   blizzard_ids: 'Everstats’ own id for a Blizzard id on a version other than the native one (numbers only: Blizzard’s terms let us keep an id), so a stub keeps the id it lives under',
   discovery_group_decisions: 'The owner’s tier choices per group and game version (counts / own letter only / doesn’t count)',

@@ -808,3 +808,30 @@
   --es-standing-revered: color-mix(in oklab, var(--es-success) 45%, var(--es-accent));
   --es-standing-exalted: var(--es-accent);
 }
+
+/* ==========================================================================================================
+   0.10.2: the environment marker (Everstats' own, not from a design handoff). The dev site (dev.everstats.app) shows
+   a thin striped bar at the top of every page (chrome/AppShell.jsx EnvBar). The same magenta in every theme on
+   purpose: no theme uses it, so the bar can never be read as part of the site's look. Ink on fill is 7.6:1.
+   Production never draws it.
+   ========================================================================================================== */
+:root, [data-theme="forever"] {
+  --es-env-fill: #a3124f;
+  --es-env-ink: #ffffff;
+  --es-env-stripe: rgba(255, 255, 255, 0.12);
+  --es-env-edge: #ff5fa2;
+}
+
+[data-theme="alliance"] {
+  --es-env-fill: #a3124f;
+  --es-env-ink: #ffffff;
+  --es-env-stripe: rgba(255, 255, 255, 0.12);
+  --es-env-edge: #ff5fa2;
+}
+
+[data-theme="horde"] {
+  --es-env-fill: #a3124f;
+  --es-env-ink: #ffffff;
+  --es-env-stripe: rgba(255, 255, 255, 0.12);
+  --es-env-edge: #ff5fa2;
+}

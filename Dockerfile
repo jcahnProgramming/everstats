@@ -7,7 +7,11 @@ COPY client/package.json client/
 RUN npm ci --no-audit --no-fund
 COPY . .
 # The build runs scripts/check-changelog.js first: a malformed CHANGELOG.json fails here, and so does the deploy.
-RUN npm run build && npm prune --omit=dev --no-audit --no-fund
+# 0.10.2: CHANGELOG_TARGET (production in docker-compose.yml, dev in docker-compose.dev.yml) also refuses dev builds
+# left in production's changelog, i.e. a dev → main promotion that skipped scripts/release.js. A failed build changes
+# nothing that is running.
+ARG CHANGELOG_TARGET=
+RUN CHANGELOG_TARGET="$CHANGELOG_TARGET" npm run build && npm prune --omit=dev --no-audit --no-fund
 
 # ---------- runtime: one image, two entrypoints (web + worker) ----------
 FROM node:22-bookworm-slim

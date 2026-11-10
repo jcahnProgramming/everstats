@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.10.2",
+      "date": "2026-11-10",
+      "title": "A test site behind the scenes",
+      "kind": "hotfix",
+      "sections": {
+        "Improved": [
+          "Behind the scenes: Everstats now has a separate, private test site, so updates are tried out there before they reach you. Nothing on everstats.app changes."
+        ]
+      }
+    },
+    {
       "version": "0.10.1",
       "date": "2026-11-09",
       "title": "Groundwork fixes for other WoW versions",

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { config, scopeSql } from '../core/config.js';
+import { ENVIRONMENT } from '../core/environment.js';
 import { parseGuildSlug, parseSlug } from '../stats/slug.js';
 import { loadCatalog } from '../stats/catalog.js';
 import { ogPath } from './routes.js';
@@ -116,13 +117,20 @@ async function profileMeta(db, username) {
   return { title: `${a.display_name ?? a.username} (@${a.username})`, description: `${a.display_name ?? a.username}'s Everstats profile: characters, pinned statistics and badges.`, image: null };
 }
 
-/** The tags for a preview, as HTML (for the head). */
-export function previewTags(p, pageUrl) {
+/**
+ * The tags for a preview, as HTML (for the head). 0.10.2: on the dev site every title and the site name say "DEV" and
+ * the page asks not to be indexed, so a dev link pasted somewhere can't pass for the real site.
+ */
+export function previewTags(raw, pageUrl, { environment = ENVIRONMENT } = {}) {
+  const marker = environment.marker;
+  const p = marker ? { ...raw, title: `[${marker}] ${raw.title}` } : raw;
+  const site = marker ? `Everstats ${marker}` : 'Everstats';
   const image = p.image ? `${config.publicOrigin}${p.image}` : null;
   const tags = [
-    `<title>${esc(p.title === SITE.title ? SITE.title : `${p.title} · Everstats`)}</title>`,
+    `<title>${esc(raw.title === SITE.title ? p.title : `${p.title} · Everstats`)}</title>`,
     `<meta name="description" content="${esc(p.description)}" />`,
-    '<meta property="og:site_name" content="Everstats" />',
+    ...(environment.noindex ? ['<meta name="robots" content="noindex, nofollow" />'] : []),
+    `<meta property="og:site_name" content="${esc(site)}" />`,
     '<meta property="og:type" content="website" />',
     `<meta property="og:title" content="${esc(p.title)}" />`,
     `<meta property="og:description" content="${esc(p.description)}" />`,

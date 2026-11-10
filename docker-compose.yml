@@ -25,9 +25,23 @@
 #
 # Room for later: an everstats-mcp container (read-only, its own port, LAN only) will join this file and connect
 # with a read-only Postgres role. Not built in 1.0.
+#
+# 0.10.2: this file is PRODUCTION (everstats.app, the main branch). The private test site (dev.everstats.app, the dev
+# branch) is docker-compose.dev.yml: its own project name, containers, image, network, ports, folders and .env, so
+# the two can't share anything (RELEASING.md). Required here as well:
+#   ENVIRONMENT        in .env: ENVIRONMENT=production. The app refuses to start unless its origin, database host,
+#                      database name and user are production's (server/core/environment.js), and the database itself
+#                      remembers it belongs to production (environment_marker).
+# The project name is pinned (it was already "everstats", the deploy folder's name), so a checkout in another folder
+# can never be mistaken for this stack.
+name: everstats
 
 x-app: &app
-  build: .
+  build:
+    context: .
+    args:
+      # 0.10.2: the build refuses a changelog with dev builds left in it (scripts/check-changelog.js, RELEASING.md).
+      CHANGELOG_TARGET: production
   image: everstats:local
   restart: unless-stopped
   env_file:
@@ -35,6 +49,7 @@ x-app: &app
       required: false
   environment: &app-env
     NODE_ENV: production
+    ENVIRONMENT: "${ENVIRONMENT:?Set ENVIRONMENT=production in .env (see docker-compose.yml)}"
     DATABASE_URL: "postgres://everstats:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see docker-compose.yml)}@everstats-db:5432/everstats"
     SNAPSHOT_TABLESPACE_DIR: /var/lib/postgresql/snapshots
     PUBLIC_ORIGIN: "${PUBLIC_ORIGIN:-https://everstats.app}"

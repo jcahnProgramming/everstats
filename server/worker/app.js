@@ -1,6 +1,7 @@
 import express from 'express';
 import { backupStatus } from '../core/backup.js';
-import { BACKUP_KEEP_NIGHTLY } from '../retention/policy.js';
+import { BACKUP_KEEP_MONTHLY, BACKUP_KEEP_NIGHTLY } from '../retention/policy.js';
+import { ENVIRONMENT } from '../core/environment.js';
 import { config } from '../core/config.js';
 import { createErrorHandler } from '../core/errors.js';
 import { securityHeaders } from '../core/headers.js';
@@ -31,8 +32,9 @@ export function createWorkerApp({ loop, db, backupDir = config.backupDir }) {
         failing: s.failing,
         running: s.running,
         // 0.5.0: dumps hold only Everstats' own data: the newest N nightly ones plus the first of each month are kept.
+        // 0.10.2: dev keeps the last 3 and no monthly copies (core/environment.js).
         keepNightly: BACKUP_KEEP_NIGHTLY,
-        monthly: true,
+        monthly: BACKUP_KEEP_MONTHLY,
       };
     } catch {
       database = 'unreachable';
@@ -42,6 +44,7 @@ export function createWorkerApp({ loop, db, backupDir = config.backupDir }) {
     res.status(ok ? 200 : 503).json({
       status: ok ? 'ok' : 'degraded',
       service: 'worker',
+      environment: ENVIRONMENT.id,
       version: APP_VERSION,
       database,
       loop: { state: h.state, ticks: h.ticks, lastTickAt: h.lastTickAt, jobs: h.jobs.length, problem: h.problem },

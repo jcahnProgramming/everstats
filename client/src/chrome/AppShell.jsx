@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import { api } from '../api.js';
-import { APP_VERSION } from '../release.js';
+import { APP_VERSION, SITE_ENVIRONMENT } from '../release.js';
 import { parseCharacterSearch } from '../search.js';
 import { useSession } from '../session.jsx';
 import { ToastProvider } from '../components/Toasts.jsx';
@@ -69,6 +69,25 @@ export function AppShell() {
   );
 }
 
+/**
+ * 0.10.2: the DEV bar. On the dev site (dev.everstats.app) a thin striped strip sits at the very top of every page,
+ * inside the sticky header so it never scrolls away, in the same magenta in every theme. Production never renders it:
+ * SITE_ENVIRONMENT comes from the server's theme boot, set from the server's own environment.
+ */
+function EnvBar() {
+  if (SITE_ENVIRONMENT !== 'dev') return null;
+  return (
+    <div className="env-bar" role="note" aria-label="Test site">
+      <div className="wrap in">
+        <b>DEV</b>
+        <span className="env-bar-text">
+          Test site<span className="env-bar-long">: not the real Everstats. Its accounts, characters and data are separate</span> · v{APP_VERSION}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /** 0.9.2: the browser-tab title from the shared table (server/core/pageTitles.js); unknown paths are "Not found". */
 function PageTitle({ pathname }) {
   useEffect(() => {
@@ -118,6 +137,7 @@ function TopBar() {
   // The sheet is a sibling of .topbar, not inside it: the design hides .topbar .search on phones.
   return (
     <div className="topbar-sticky" ref={sticky}>
+      <EnvBar />
       <header className="topbar">
         <div className="wrap in">
         <Link to="/" className="brand" aria-label="Everstats, home">

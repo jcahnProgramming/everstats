@@ -50,3 +50,113 @@ test('ports agree everywhere: config, Dockerfile, compose and deploy', async () 
     assert.ok(text.includes(String(DEFAULT_WORKER_PORT)));
   }
 });
+
+// 0.10.2: the private test site (docker-compose.dev.yml, deploy-dev.yml) shares nothing with production
+// (RELEASING.md "How the guards work").
+const devCompose = code(readFileSync(new URL('../../docker-compose.dev.yml', import.meta.url), 'utf8'));
+const devWorkflow = code(readFileSync(new URL('../../.gitea/workflows/deploy-dev.yml', import.meta.url), 'utf8'));
+const ciWorkflow = code(readFileSync(new URL('../../.gitea/workflows/ci.yml', import.meta.url), 'utf8'));
+
+test('production and dev have their own project names, containers and images', () => {
+  assert.match(compose, /^name: everstats$/m);
+  assert.match(devCompose, /^name: everstats-dev$/m);
+  const names = (text) => [...text.matchAll(/container_name: (\S+)/g)].map((m) => m[1]);
+  assert.deepEqual(names(compose), ['everstats-db', 'everstats', 'everstats-worker']);
+  assert.deepEqual(names(devCompose), ['everstats-dev-db', 'everstats-dev', 'everstats-dev-worker']);
+  assert.match(compose, /image: everstats:local/);
+  assert.match(devCompose, /image: everstats-dev:local/);
+  assert.doesNotMatch(devCompose, /everstats:local/);
+});
+
+test('each stack names exactly its own environment\'s origin and database (core/environment.js)', async () => {
+  const { ENVIRONMENTS } = await import('../core/environment.js');
+  const dbOf = (e) => `${e.database.user}:\${POSTGRES_PASSWORD`;
+  const { production: prod, dev } = ENVIRONMENTS;
+  assert.ok(compose.includes(`postgres://${dbOf(prod)}`) && compose.includes(`@${prod.database.host}:5432/${prod.database.name}"`));
+  assert.ok(devCompose.includes(`postgres://${dbOf(dev)}`) && devCompose.includes(`@${dev.database.host}:5432/${dev.database.name}"`));
+  assert.ok(devCompose.includes(`POSTGRES_USER: ${dev.database.user}`) && devCompose.includes(`POSTGRES_DB: ${dev.database.name}`));
+  assert.ok(devCompose.includes(`PUBLIC_ORIGIN: ${dev.origin}`));
+  assert.ok(compose.includes(prod.origin));
+  assert.doesNotMatch(devCompose, /@everstats-db:|everstats\.app"/);
+  assert.match(compose, /ENVIRONMENT: "\$\{ENVIRONMENT:\?/);
+  assert.match(devCompose, /ENVIRONMENT: "\$\{ENVIRONMENT:\?/);
+  assert.match(compose, /CHANGELOG_TARGET: production/);
+  assert.match(devCompose, /CHANGELOG_TARGET: dev/);
+});
+
+test('dev\'s folders, ports and subnet are its own variables, required, never production\'s', () => {
+  // Only DEV_-prefixed folder and port variables: production's, exported in a shell, can't leak in.
+  for (const v of ['PG_DATA_DIR', 'PG_SNAPSHOT_DIR', 'BACKUP_DIR', 'WEB_PORT', 'WORKER_PORT']) {
+    assert.ok(!devCompose.includes(`\${${v}:`) && !devCompose.includes(`\${${v}}`), `${v} must be DEV_${v} in docker-compose.dev.yml`);
+    assert.ok(devCompose.includes(`\${DEV_${v}`), `DEV_${v} is used`);
+  }
+  for (const v of ['DEV_PG_DATA_DIR', 'DEV_PG_SNAPSHOT_DIR', 'DEV_BACKUP_DIR']) assert.ok(devCompose.includes(`\${${v}:?`), `${v} is required`);
+  assert.equal((devCompose.match(/create_host_path: false/g) ?? []).length, 3);
+  const ports = [...devCompose.matchAll(/^\s+- "(.*:326[01])"$/gm)].map((m) => m[1]);
+  assert.deepEqual(ports, ['${BIND_IP:?Set BIND_IP to the host address to publish on (see docker-compose.dev.yml)}:${DEV_WEB_PORT:-3270}:3260', '${BIND_IP:?Set BIND_IP to the host address to publish on (see docker-compose.dev.yml)}:${DEV_WORKER_PORT:-3271}:3261']);
+  assert.doesNotMatch(devCompose, /0\.0\.0\.0/);
+  const db = devCompose.slice(devCompose.indexOf('  everstats-dev-db:'), devCompose.indexOf('  everstats-dev:\n'));
+  assert.doesNotMatch(db, /ports:/);
+  // No default subnet: a forgotten prefix can't fall back to production's.
+  assert.match(devCompose, /subnet: "\$\{EVERSTATS_DEV_SUBNET_PREFIX:\?/);
+  assert.doesNotMatch(devCompose, /10\.213\.47/);
+});
+
+test('every dev container is capped so dev can never starve production', () => {
+  for (const service of ['everstats-dev-db', 'everstats-dev', 'everstats-dev-worker']) {
+    // The service's own block (depends_on names everstats-dev-db too, indented deeper).
+    const start = devCompose.indexOf(`\n  ${service}:\n`);
+    assert.ok(start > 0, `${service} found`);
+    const rest = devCompose.slice(start + 2);
+    const next = rest.search(/\n {2}[a-z][a-z-]*:\n|\nnetworks:/);
+    const block = rest.slice(0, next);
+    assert.match(block, /cpus: [0-9.]+/, `${service} has a CPU cap`);
+    assert.match(block, /mem_limit: \d+[mg]/, `${service} has a memory cap`);
+    assert.match(block, /pids_limit: \d+/, `${service} has a process cap`);
+  }
+  assert.match(devCompose, /cpu_shares: 256/);
+  assert.match(devCompose, /oom_score_adj: 500/);
+  assert.match(devCompose, /shared_buffers=64MB/);
+  // Production is never capped by this build.
+  assert.doesNotMatch(compose, /cpus:|mem_limit:|cpu_shares:/);
+});
+
+test('the dev deploy runs only for the dev branch, on dev\'s stack, behind every guard, and rolls back', () => {
+  assert.match(devWorkflow, /push:\n\s+branches: \[dev\]/);
+  assert.match(devWorkflow, /COMPOSE_FILE_NAME: docker-compose\.dev\.yml/);
+  assert.match(devWorkflow, /PROJECT: everstats-dev/);
+  // Every compose command names dev's project and file.
+  const composeCalls = [...devWorkflow.matchAll(/docker compose ([^\n]*)/g)].map((m) => m[1]);
+  assert.ok(composeCalls.length >= 4);
+  for (const c of composeCalls) assert.match(c, /^-p (?:"\$PROJECT"|everstats-dev) -f (?:"\$COMPOSE_FILE_NAME"|docker-compose\.dev\.yml)/, c);
+  assert.match(devWorkflow, /grep -qx "ENVIRONMENT=dev" \.env/);
+  assert.match(devWorkflow, /clash\(\)/);
+  assert.match(devWorkflow, /reuses production'"'"'s \$k/);
+  assert.match(devWorkflow, /sh scripts\/ci-test\.sh dev/);
+  assert.match(devWorkflow, /Roll back to the previous version/);
+  assert.match(devWorkflow, /"environment":"dev"/);
+  assert.match(devWorkflow, /Confirm dev \.env untouched/);
+  assert.doesNotMatch(devWorkflow, /reset --hard|git clean/);
+  // The Access token goes on stdin (-K -), never in a command line.
+  assert.match(devWorkflow, /-K - "\$PUBLIC_URL\/api\/health"/);
+  assert.doesNotMatch(devWorkflow, /-H "CF-Access/);
+});
+
+test('production refuses dev\'s folders, needs ENVIRONMENT=production and checks the changelog before touching the host', () => {
+  assert.match(workflow, /push:\n\s+branches: \[main\]/);
+  assert.match(workflow, /grep -qx "ENVIRONMENT=production" \.env/);
+  assert.match(workflow, /clash\(\)/);
+  assert.match(workflow, /CHANGELOG_TARGET=production/);
+  assert.ok(workflow.indexOf('CHANGELOG_TARGET=production') < workflow.indexOf('Pull latest main'), 'the changelog is checked before the host moves');
+  assert.match(workflow, /git merge --ff-only "\$CHECKED_SHA"/);
+  assert.match(workflow, /Roll back to the previous version/);
+  assert.match(workflow, /"environment":"production"/);
+  assert.doesNotMatch(workflow, /docker-compose\.dev\.yml|everstats-dev:local/);
+});
+
+test('feature branches and pull requests are built and tested, never deployed', () => {
+  assert.match(ciWorkflow, /branches-ignore: \[main, dev\]/);
+  assert.match(ciWorkflow, /pull_request:/);
+  assert.doesNotMatch(ciWorkflow, /docker compose|DEPLOY_DIR|\.env/);
+  assert.match(ciWorkflow, /--cpus 2 --memory 3g/);
+});

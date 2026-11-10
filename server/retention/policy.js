@@ -1,4 +1,5 @@
 import { getSetting } from '../admin/settings.js';
+import { ENVIRONMENT } from '../core/environment.js';
 
 /**
  * Blizzard's 30-day rule, as one number (CLAUDE.md "Retention"). Blizzard Developer API Terms of Use, section 2:
@@ -17,10 +18,14 @@ import { getSetting } from '../admin/settings.js';
  * Backups are Everstats' own data, so they follow our own rule: the newest BACKUP_KEEP_NIGHTLY nightly dumps, plus the
  * first of each month, kept indefinitely. Dumps made before 0.5.0 (everstats-YYYY-MM-DD.dump) DO hold Blizzard data:
  * they are still deleted LEGACY_BACKUP_KEEP_DAYS after they were taken.
+ *
+ * 0.10.2: how many depends on the environment (core/environment.js): production keeps 14 nightly plus the first of
+ * each month; the dev site keeps only the last 3 nightly and no monthly copies. The 30-day rule is the same on both.
  */
 export const MAX_WITHOUT_PERMISSION = 30;
 export const SAFETY_DAYS = 1;
-export const BACKUP_KEEP_NIGHTLY = 14;
+export const BACKUP_KEEP_NIGHTLY = ENVIRONMENT.backups.nightly;
+export const BACKUP_KEEP_MONTHLY = ENVIRONMENT.backups.monthly;
 export const LEGACY_BACKUP_KEEP_DAYS = 3;
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -32,7 +37,7 @@ export async function retentionPolicy(db, now = Date.now()) {
     windowDays,
     keepDays,
     safetyDays: SAFETY_DAYS,
-    backups: { nightly: BACKUP_KEEP_NIGHTLY, monthly: true, blizzardData: false, legacyKeepDays: LEGACY_BACKUP_KEEP_DAYS },
+    backups: { nightly: BACKUP_KEEP_NIGHTLY, monthly: BACKUP_KEEP_MONTHLY, blizzardData: false, legacyKeepDays: LEGACY_BACKUP_KEEP_DAYS },
     permission: setting.note ?? null,
     cutoff: new Date(now - keepDays * DAY_MS),
   };

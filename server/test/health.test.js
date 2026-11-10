@@ -10,10 +10,10 @@ before(async () => {
 });
 after(() => t.close());
 
-test('/api/health reports status, service, version and the database, nothing else', async () => {
+test('/api/health reports status, service, environment (0.10.2), version and the database, nothing else', async () => {
   const res = await t.client().get('/api/health');
   assert.equal(res.status, 200);
-  assert.deepEqual(res.json, { status: 'ok', service: 'web', version, database: 'ok' });
+  assert.deepEqual(res.json, { status: 'ok', service: 'web', environment: 'local', version, database: 'ok' });
   // The deploy greps the raw body for "version":"x.y.z".
   assert.match(res.text, new RegExp(`"version":"${version.replace(/\./g, '\\.')}"`));
 });

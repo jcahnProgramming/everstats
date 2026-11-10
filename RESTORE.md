@@ -1,5 +1,33 @@
 # Backing up and restoring Everstats
 
+## Two environments (0.10.2)
+
+Everstats runs twice on the same host: **production** (everstats.app, `docker-compose.yml`, the `main` branch) and the
+private **dev** site (dev.everstats.app, `docker-compose.dev.yml`, the `dev` branch; RELEASING.md). Each has its own
+database, backup folder and `.env`, and each backs itself up the same way. Everything below is written for production;
+for dev, change these and nothing else:
+
+| | Production | Dev |
+|---|---|---|
+| Deploy folder (where you run the commands) | `DEPLOY_DIR` | `DEV_DEPLOY_DIR` |
+| Backup folder on the host | `BACKUP_DIR` | `DEV_BACKUP_DIR` |
+| Database folders | `PG_DATA_DIR`, `PG_SNAPSHOT_DIR` | `DEV_PG_DATA_DIR`, `DEV_PG_SNAPSHOT_DIR` |
+| Containers | `everstats`, `everstats-worker`, `everstats-db` | `everstats-dev`, `everstats-dev-worker`, `everstats-dev-db` |
+| Database user and name (`-U …`, `-d …`, `createdb`/`dropdb`) | `everstats` / `everstats` | `everstats_dev` / `everstats_dev` |
+| Compose | `docker compose …` | `docker compose -p everstats-dev -f docker-compose.dev.yml …` |
+| Health (host ports) | `:3260` web, `:3261` worker | `:3270` web, `:3271` worker (or `DEV_WEB_PORT` / `DEV_WORKER_PORT`) |
+| Nightly dumps kept | the newest 14 plus the first of every month | the newest **3**, no monthly copies |
+
+**Never restore one environment's dump into the other.** It can't work by design: every database remembers which
+environment it belongs to (`environment_marker`, written on its first start), and a process of the other environment
+refuses to start on it. A dev database with no marker must also be empty. So a production dump restored into dev's
+database stops dev at start-up with "this database belongs to the production environment". Dev starts from an empty
+database and fills from sign-ins, lookups and its own crawler; it never gets a copy of production's accounts or data.
+
+Restoring a dump into its **own** environment works exactly as below (the marker comes back with it).
+
+## Production
+
 Every night after 04:00 UTC the worker container (`everstats-worker`) dumps **Everstats' own data** with `pg_dump`
 into the host folder in the `BACKUP_DIR` Gitea variable (mounted at `/backups` in the container), as
 `everstats-ours-YYYY-MM-DD.dump` (the UTC date, custom format). Each dump is read all the way through with `pg_restore`
@@ -24,6 +52,7 @@ character profiles, statistics, gear, renders, snapshots, weekly and rolling bas
 guilds, rosters, guild totals, item icons, rulesets, statistic names, Discovery runs and their raw responses.
 
 **Kept:** the newest 14 nightly dumps plus the first dump of every month, indefinitely (none of it is Blizzard data).
+On the dev site: the newest 3, and no monthly copies (owner's decision, 0.10.2).
 Dumps from before 0.5.0 (`everstats-YYYY-MM-DD.dump`, no `-ours`) **do** hold Blizzard data: they are still deleted 3
 days after they were taken (by the hourly retention sweep and after every good backup).
 
@@ -131,6 +160,20 @@ To undo: restore the backup you took in step 1 the same way.
 
 Recreate the folders (`PG_DATA_DIR`, `PG_SNAPSHOT_DIR`, owned by 999:999), deploy (the containers start on an empty
 database and migrate it), then stop the two app containers and restore as above.
+
+On **production** the containers then start on an empty database marked `production`: drop and recreate it as in step 3
+before restoring (the steps above already do), so the dump's own marker comes back with it.
+
+## The dev site
+
+Same steps with the dev names from the table at the top, run from dev's deploy folder. Two differences:
+
+- Dev's data is test data. Usually the quickest fix for a broken dev database is to **start it over empty**: stop dev,
+  empty `DEV_PG_DATA_DIR` and `DEV_PG_SNAPSHOT_DIR` (keep the folders, owned by 999:999), and run the Deploy dev workflow
+  again (Gitea → Actions → Deploy dev → Run workflow). Testers sign in again and add their passkeys again; the admin
+  enrols a passkey on dev again (RELEASING.md).
+- The dev root key (`EVERSTATS_ROOT_KEY` in dev's `.env`) is dev's own: a dev dump needs dev's `.env`, never
+  production's.
 
 ## How this was tested
 

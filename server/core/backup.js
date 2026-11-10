@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { closeSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
 import { devNull } from 'node:os';
 import { join } from 'node:path';
-import { BACKUP_KEEP_NIGHTLY, DAY_MS, LEGACY_BACKUP_KEEP_DAYS } from '../retention/policy.js';
+import { BACKUP_KEEP_MONTHLY, BACKUP_KEEP_NIGHTLY, DAY_MS, LEGACY_BACKUP_KEEP_DAYS } from '../retention/policy.js';
 import { BLIZZARD } from '../retention/registry.js';
 
 /**
@@ -32,7 +32,8 @@ import { BLIZZARD } from '../retention/registry.js';
  * A run that fails at any step removes its partial file, records the failure (backup_runs) and logs
  * `[backup] FAILED`; the earlier backups are untouched. The stubs schema is dropped either way.
  *
- * Kept (retention/policy.js): the newest BACKUP_KEEP_NIGHTLY (14) plus the first backup of every month, indefinitely:
+ * Kept (retention/policy.js): the newest BACKUP_KEEP_NIGHTLY (14) plus the first backup of every month, indefinitely (the
+ * dev site, 0.10.2: the newest 3 and no monthly copies):
  * none of it is Blizzard data. Dumps from before 0.5.0 (everstats-YYYY-MM-DD.dump) hold Blizzard data and are still
  * deleted LEGACY_BACKUP_KEEP_DAYS (3) after they were taken. Nothing else in the folder is ever touched.
  *
@@ -81,11 +82,12 @@ export function listBackups(dir) {
  *   ours    keep the newest `nightly`, and the first (earliest) backup of every calendar month, forever
  *   legacy  (0.4.x, holds Blizzard data) delete once older than `legacyKeepMs`, measured from when it was taken
  */
-export function planPrune(backups, { now = Date.now(), nightly = BACKUP_KEEP_NIGHTLY, legacyKeepMs = LEGACY_BACKUP_KEEP_DAYS * DAY_MS } = {}) {
+export function planPrune(backups, { now = Date.now(), nightly = BACKUP_KEEP_NIGHTLY, monthly = BACKUP_KEEP_MONTHLY, legacyKeepMs = LEGACY_BACKUP_KEEP_DAYS * DAY_MS } = {}) {
   const out = backups.filter((b) => b.legacy && now - b.takenAt > legacyKeepMs).map((b) => b.name);
   const ours = backups.filter((b) => !b.legacy).sort((a, b) => (a.date < b.date ? 1 : -1));
   const firstOfMonth = new Map();
-  for (const b of ours) {
+  // 0.10.2: the dev site keeps no monthly copies (core/environment.js).
+  if (monthly) for (const b of ours) {
     const month = b.date.slice(0, 7);
     if (!firstOfMonth.has(month) || b.date < firstOfMonth.get(month).date) firstOfMonth.set(month, b);
   }

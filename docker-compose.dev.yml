@@ -1,0 +1,155 @@
+# Everstats DEV: the private test site at dev.everstats.app (0.10.2, RELEASING.md). Built from the `dev` branch by
+# .gitea/workflows/deploy-dev.yml into its OWN folder on the host, never production's. Production is
+# docker-compose.yml; nothing here may share anything with it:
+#
+#   project     everstats-dev (pinned below; production's is "everstats")
+#   containers  everstats-dev-db, everstats-dev, everstats-dev-worker
+#   image       everstats-dev:local (production's is everstats:local, so a dev build can never retag production's)
+#   database    host everstats-dev-db, database everstats_dev, user everstats_dev: the app refuses to start as dev with
+#               anything else (server/core/environment.js), and a dev database must start EMPTY and is marked dev
+#               (environment_marker), so production's data can't be used here even by mistake
+#   network     its own pinned /24 (EVERSTATS_DEV_SUBNET_PREFIX, no default: choose one that isn't production's);
+#               Docker itself refuses a subnet that overlaps another network. TRUSTED_PROXIES (in dev's .env) is
+#               <dev prefix>.1
+#   ports       DEV_WEB_PORT / DEV_WORKER_PORT (default 3270 / 3271), on BIND_IP only, never 0.0.0.0. Inside the
+#               containers the app listens on its usual 3260 / 3261.
+#   folders     DEV_PG_DATA_DIR, DEV_PG_SNAPSHOT_DIR, DEV_BACKUP_DIR: dev's own, required, never created by Docker.
+#               The database folders are direct disk paths, never /mnt/user. The deploy refuses any of them that is,
+#               contains or sits inside one of production's.
+#   .env        dev's own (.env.dev.example): ENVIRONMENT=dev, its own root key, database password and Blizzard /
+#               Discord keys. The variables here are all DEV_-prefixed on purpose: production's PG_DATA_DIR,
+#               BACKUP_DIR … exported in a shell can never leak into this file.
+#
+# Resource limits: dev must never starve production on the same host. Every dev container is capped (cpus, memory,
+# processes), gets a quarter of production's CPU weight when the host is busy (cpu_shares 256 vs the default 1024),
+# and is the kernel's first choice if memory runs out (oom_score_adj). Postgres runs with small memory settings.
+# Measured needs are small: dev holds the owner's and testers' characters, not production's crawl.
+
+name: everstats-dev
+
+x-app: &app
+  build:
+    context: .
+    args:
+      CHANGELOG_TARGET: dev
+  image: everstats-dev:local
+  restart: unless-stopped
+  env_file:
+    - path: .env
+      required: true
+  environment: &app-env
+    NODE_ENV: production
+    ENVIRONMENT: "${ENVIRONMENT:?Set ENVIRONMENT=dev in dev's .env (see docker-compose.dev.yml)}"
+    DATABASE_URL: "postgres://everstats_dev:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in dev's .env (see docker-compose.dev.yml)}@everstats-dev-db:5432/everstats_dev"
+    SNAPSHOT_TABLESPACE_DIR: /var/lib/postgresql/snapshots
+    # Fixed: dev is always this address (OAuth redirects, passkeys and the CSRF check derive from it).
+    PUBLIC_ORIGIN: https://dev.everstats.app
+    # Node's heap stops well inside the container's memory cap, so it collects garbage instead of being killed.
+    NODE_OPTIONS: --max-old-space-size=384
+  depends_on:
+    everstats-dev-db:
+      condition: service_healthy
+  cpu_shares: 256
+  oom_score_adj: 500
+
+services:
+  everstats-dev-db:
+    image: postgres:17-bookworm
+    container_name: everstats-dev-db
+    restart: unless-stopped
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: everstats_dev
+      POSTGRES_DB: everstats_dev
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in dev's .env (see docker-compose.dev.yml)}"
+    # Small on purpose (production runs the image's defaults): dev's database is tiny, and it must not compete with
+    # production's for the host's memory or cores.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - effective_cache_size=256MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - max_connections=40
+      - -c
+      - max_parallel_workers_per_gather=0
+      - -c
+      - max_parallel_maintenance_workers=1
+    volumes:
+      - type: bind
+        source: "${DEV_PG_DATA_DIR:?Set DEV_PG_DATA_DIR to dev's own database folder (see docker-compose.dev.yml)}"
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${DEV_PG_SNAPSHOT_DIR:?Set DEV_PG_SNAPSHOT_DIR to dev's own snapshot folder (see docker-compose.dev.yml)}"
+        target: /var/lib/postgresql/snapshots
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U everstats_dev -d everstats_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    cpus: 1.0
+    mem_limit: 768m
+    pids_limit: 200
+    cpu_shares: 256
+    oom_score_adj: 500
+
+  everstats-dev:
+    <<: *app
+    container_name: everstats-dev
+    command: ["node", "server/index.js"]
+    environment:
+      <<: *app-env
+      PORT: 3260
+    ports:
+      - "${BIND_IP:?Set BIND_IP to the host address to publish on (see docker-compose.dev.yml)}:${DEV_WEB_PORT:-3270}:3260"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3260/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    # The web container also runs headless Chromium for share cards (one browser, closed when idle), hence 1 GB.
+    cpus: 1.0
+    mem_limit: 1g
+    pids_limit: 512
+
+  everstats-dev-worker:
+    <<: *app
+    container_name: everstats-dev-worker
+    command: ["node", "server/worker/index.js"]
+    environment:
+      <<: *app-env
+      WORKER_PORT: 3261
+      WORKER_ID: everstats-dev-worker
+      BACKUP_DIR: /backups
+    volumes:
+      - type: bind
+        source: "${DEV_BACKUP_DIR:?Set DEV_BACKUP_DIR to dev's own backup folder (see docker-compose.dev.yml)}"
+        target: /backups
+        bind:
+          create_host_path: false
+    ports:
+      - "${BIND_IP:?Set BIND_IP to the host address to publish on (see docker-compose.dev.yml)}:${DEV_WORKER_PORT:-3271}:3261"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3261/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    cpus: 1.0
+    mem_limit: 768m
+    pids_limit: 256
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: "${EVERSTATS_DEV_SUBNET_PREFIX:?Set EVERSTATS_DEV_SUBNET_PREFIX in dev's .env: three octets of a /24 that is not production's (see docker-compose.dev.yml)}.0/24"
+          gateway: "${EVERSTATS_DEV_SUBNET_PREFIX:?Set EVERSTATS_DEV_SUBNET_PREFIX in dev's .env (see docker-compose.dev.yml)}.1"

@@ -7,7 +7,10 @@ import { describeTrust, trustedProxyCheck } from './core/network.js';
 import { prepareDatabase } from './core/prepare.js';
 import { APP_VERSION } from './core/version.js';
 import { requireRootKey } from './credentials/crypto.js';
+import { assertEnvironment } from './core/environment.js';
 
+// 0.10.2: production or dev, and everything this process was given matches it (core/environment.js), or it stops here.
+assertEnvironment('web');
 requireRootKey('web');
 
 if (!existsSync(config.clientDist)) {

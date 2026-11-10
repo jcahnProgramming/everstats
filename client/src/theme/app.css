@@ -655,3 +655,27 @@ details.panel > summary { cursor: pointer; font-weight: var(--es-weight-semibold
   .yg-card > .yg-actions { flex-direction: column; align-items: flex-end; align-self: start; }
   .yg-card > .yg-actions > .spacer { display: none; }
 }
+
+/* 0.10.2: the environment bar (chrome/AppShell.jsx EnvBar): a thin striped strip at the very top of every page on the
+   dev site, inside the sticky header so it never scrolls away. Its own fill and ink (anything with its own background
+   sets its own text colour). Production never renders it. */
+.env-bar {
+  background-color: var(--es-env-fill);
+  background-image: repeating-linear-gradient(135deg, var(--es-env-stripe) 0 10px, transparent 10px 20px);
+  color: var(--es-env-ink);
+  border-bottom: 1px solid var(--es-env-edge);
+  font: var(--es-weight-semibold) 12px/1.2 var(--es-font-body);
+  letter-spacing: 0.02em;
+}
+.env-bar .in { display: flex; align-items: center; gap: 10px; min-height: 22px; padding-block: 3px; }
+.env-bar b { font-weight: 800; letter-spacing: 0.16em; }
+.env-bar .env-bar-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.env-bar a { color: var(--es-env-ink); text-decoration: underline; }
+.env-bar a:hover, .env-bar a:focus-visible { color: var(--es-env-ink); }
+@media (max-width: 719px) {
+  .env-bar .env-bar-long { display: none; }
+}
+
+/* 0.10.2: the changelog on the dev site: builds still in testing, and what a release was tested as. */
+.release-testing { color: var(--es-env-ink); background: var(--es-env-fill); border-color: var(--es-env-edge); }
+.release-tested { margin: 0; }
