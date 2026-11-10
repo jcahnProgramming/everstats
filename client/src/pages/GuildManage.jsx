@@ -7,6 +7,7 @@ import { useToasts } from '../components/Toasts.jsx';
 import { formatDate } from '../format.js';
 import { useSession } from '../session.jsx';
 import { ReportButton } from '../moderation/Moderation.jsx';
+import { useFeature } from '../features.js';
 
 /**
  * Guild page management (0.7.0), built from v1 parts only (panel, field, buttons, tags, note, modal).
@@ -21,6 +22,7 @@ import { ReportButton } from '../moderation/Moderation.jsx';
 export function GuildLinksArea({ links, slug }) {
   const [leaving, setLeaving] = useState(null);
   const [reporting, setReporting] = useState(null);
+  const reportsOn = useFeature('reports'); // 0.10.3: Player reports switch
   if (!links) return null;
   const all = [
     ...(links.discord ? [{ id: 'discord', label: 'Discord server', url: links.discord.url, host: 'discord.gg', discord: true }] : []),
@@ -47,7 +49,7 @@ export function GuildLinksArea({ links, slug }) {
                 <b>{l.label}</b>
                 <span className="host">{l.discord ? `discord.gg/${links.discord.code}` : l.host}</span>
               </a>
-              {!l.discord && (
+              {!l.discord && reportsOn && (
                 <button type="button" className="btn ghost sm icon" aria-label={`Report the link “${l.label}”`} title="Report this link" onClick={() => setReporting(l)}>
                   <Icon name="warning" size="sm" />
                 </button>

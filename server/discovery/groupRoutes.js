@@ -12,7 +12,7 @@ import { groupsView, setGroupChoice } from '../tiers/groups.js';
 export function createGroupRouter({ db, writes }) {
   const r = express.Router();
   r.get('/discovery/groups', route(async (req, res) => {
-    const version = String(req.query.version ?? PRIMARY_VERSION.id);
+    const version = String(req.query.version ?? req.query.v ?? PRIMARY_VERSION.id); // 0.10.3: ?v= from the version switcher too
     res.json({ versions: publicVersions(), ...(await groupsView(db, version)) });
   }));
   r.post('/discovery/groups', writes, route(async (req, res) => {

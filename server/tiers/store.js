@@ -152,7 +152,8 @@ export async function gradeAll(db, { settings = null, counting = null, write = t
   const perVersion = new Map();
   async function forVersion(v) {
     if (!perVersion.has(v)) {
-      const own = v === PRIMARY_VERSION.id;
+      // 0.10.3: given settings belong to the version asked for (a preview of one version), else the primary's.
+      const own = v === (version ?? PRIMARY_VERSION.id);
       perVersion.set(v, {
         s: own && settings ? settings : await tierSettings(db, v),
         plan: (own && counting ? counting : await countingNow(db, { fresh: true, version: v })).plan,
@@ -341,7 +342,7 @@ export async function runDueTierWork(db, { now = Date.now, log = console } = {})
 /** The preview for the admin: what each ruleset's letters would be with `settings`, nothing written. */
 export async function previewTiers(db, settings, { version = PRIMARY_VERSION.id } = {}) {
   const counting = await countingNow(db, { fresh: true, version });
-  const result = await gradeAll(db, { settings: version === PRIMARY_VERSION.id ? settings : null, counting: version === PRIMARY_VERSION.id ? counting : null, write: false, version });
+  const result = await gradeAll(db, { settings, counting, write: false, version });
   const names = new Map((await db.query('SELECT id, name FROM rulesets LIMIT 100')).map((r) => [r.id, r.name]));
   const labels = new Map(counting.plan.categories.map((c) => [c.key, c.label]));
   return {

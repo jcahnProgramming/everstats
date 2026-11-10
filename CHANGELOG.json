@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.10.3",
+      "date": "2026-11-10",
+      "title": "A rebuilt admin area",
+      "kind": "dev",
+      "sections": {
+        "Improved": [
+          "Behind the scenes: a rebuilt admin area, so Everstats is easier to run and to update safely."
+        ]
+      }
+    },
+    {
       "version": "0.10.2",
       "date": "2026-11-10",
       "title": "A test site behind the scenes",

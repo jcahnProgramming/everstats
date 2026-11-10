@@ -53,12 +53,12 @@ async function addCharacter(owner, { cls, faction = 'Horde', level = 20, hidden 
 
 const held = async (accountId) => (await t.db.query("SELECT badge_id FROM badge_awards WHERE account_id = $1 AND state = 'held' ORDER BY badge_id", [accountId])).map((r) => r.badge_id);
 
-test('the seeded definitions: the design export’s 22 plus Verified Content Creator (0.8.1); staff and partner verified; only S-Tier kept while held', async () => {
+test('the seeded definitions: the design export’s 22 plus Verified Content Creator (0.8.1) and Dev Tester (0.10.3); staff and partner verified; only S-Tier kept while held', async () => {
   const defs = await t.db.query('SELECT id, family, award, verified, kept_while_held FROM badge_definitions ORDER BY sort');
-  assert.equal(defs.length, 23);
+  assert.equal(defs.length, 24);
   assert.deepEqual(defs.filter((d) => d.kept_while_held).map((d) => d.id), ['s-tier']);
   for (const d of defs) assert.equal(d.verified, ['staff', 'partner'].includes(d.family), d.id);
-  assert.deepEqual(defs.filter((d) => d.award === 'manual').map((d) => d.id), ['dev-team', 'moderator', 'community-partner', 'verified-creator', 'blizzard-employee', 'discord-employee']);
+  assert.deepEqual(defs.filter((d) => d.award === 'manual').map((d) => d.id), ['dev-team', 'moderator', 'community-partner', 'verified-creator', 'blizzard-employee', 'discord-employee', 'dev-tester']);
 });
 
 test('automatic badges: beta at sign-in; class, faction, Envoy from level 10+ owned characters (hidden ones too); never from under 10', async () => {

@@ -32,7 +32,10 @@ export function createErrorHandler(processName) {
     if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: "The request body isn't valid JSON" });
     if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'The request body is too large' });
     const status = Number.isInteger(err?.status) ? err.status : 500;
-    if (status < 500) return res.status(status).json({ error: err.message, code: err.code, ...(err.details ?? {}) });
+    // 0.10.3: a 503 HttpError is an expected refusal too ("switched off for now", features/registry.js requireFeature;
+    // "not switched on yet"): its own plain words go back, with Retry-After semantics left to the route. Before, every
+    // 503 HttpError became a generic 500 here.
+    if (status < 500 || (err instanceof HttpError && status === 503)) return res.status(status).json({ error: err.message, code: err.code, ...(err.details ?? {}) });
     const frames = String(err?.stack ?? '').split('\n').slice(1, 6).join('\n');
     console.error(`[${processName}] ${req.method} ${loggablePath(req.originalUrl)} failed: ${err?.name ?? 'Error'}${err?.code ? ` (${err.code})` : ''}\n${frames}`);
     res.status(500).json({ error: 'Something went wrong on our side.' });

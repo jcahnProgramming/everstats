@@ -124,7 +124,7 @@ export async function setGroupChoice(db, { version, group, choice, reasoning = '
   if (!label) throw new HttpError(400, 'Which group?', 'invalid');
   await db.tx(async (q) => {
     await q.query('INSERT INTO discovery_group_decisions (game_version, group_label, choice, reasoning) VALUES ($1, $2, $3, $4)', [version, label, choice, String(reasoning).slice(0, 600)]);
-    await q.query("INSERT INTO admin_events (type, detail) VALUES ('discovery.group_decided', $1::jsonb)", [JSON.stringify({ version, group: label, choice })]);
+    await q.query("INSERT INTO admin_events (type, detail) VALUES ('discovery.group_decided', $1::jsonb)", [JSON.stringify({ version, group: label, choice, ...(String(reasoning ?? '').trim() ? { reason: String(reasoning).trim().slice(0, 500) } : {}) })]);
     const { requestTierRecompute } = await import('./store.js');
     await requestTierRecompute(q, `group ${label} (${version})`);
   });

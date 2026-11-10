@@ -68,6 +68,9 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Suggestion rules | `server/discovery/suggest.js` | per-statistic suggestions (category, bad, leaderboard), each with its reasoning |
 | Share cards | `server/cards/catalog.js` | card types (layouts, show toggles, template), formats, themes, accents; `cleanOptions` is the only way options get in |
 | "Why sign in?" benefits | `server/signin/benefits.js` | id, title, text (ALL the wording, one place), `live(ctx)`: a benefit shows only while its feature is live |
+| Feature switches | `server/features/registry.js` FEATURES | id, name, does, whenOff (the fallback), needs, playerVisible, settings, store (setting / beta / version), env |
+| Admin pages | `client/src/admin/shell/nav.js` NAV / PAGES / REDIRECTS | the sidebar, every admin address with its version scope, old addresses → new homes |
+| Audit log types | `server/audit/log.js` TYPES | admin_events type → area, label, target link |
 | Moderation permissions | `server/moderation/permissions.js` PERMISSIONS | permission → admin / moderator yes or no; every moderation route asks `can(actor, …)` |
 
 - Statistics, categories and rulesets come from Blizzard's API (discovery pass), stored as data, never typed in
@@ -117,12 +120,87 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 - **Visitors never see it**: no link anywhere; every `/api/admin/*` route except enrolment and sign-in answers a plain
   404 without an admin session. `/admin` without one redirects to `/admin/sign-in` (owner's decision, 0.4.0); the API
   stays a plain 404. Admin sessions: 2 hours.
-- The page: the API key manager (registry-driven), the grading minimum, crawler status (`worker_status` and
-  `crawler_status`; older than 3 minutes shows "Not responding", never "running"), the beta window and its perks.
+- A worker or crawler status older than 3 minutes shows "Not responding", never "running".
 
-## Discovery (`server/discovery/`, `client/src/admin/DiscoveryPage.jsx`)
+## The admin area (0.10.3: design/v5-admin, `client/src/admin/`)
 
-- Admin-only page `/admin/discovery` (linked only from `/admin`; its API sits behind the admin 404 gate). A run is
+- **Design: `design/v5-admin/`** (additive to v1–v4). `components/admin.css` is copied VERBATIM to `theme/admin.css`
+  (override in `client/src/admin/admin-app.css`), `tokens/admin.css` appended VERBATIM to `theme/tokens.css`.
+- **Its own frame and chunk:** `AdminApp.jsx` is loaded lazily the first time an /admin address opens (public visitors
+  never download it; its stylesheet is never on a public page; the brand link is a full page load). `/admin/sign-in` and
+  `/admin/enroll` stay in the public frame (`AdminSignIn.jsx`).
+- **`shell/nav.js` is the one registry** of the sidebar (NAV: groups Moderation / Game data / Site, count badges in four
+  strengths: accent = waits for a reply, quiet = pending, warn = attention, err = failing), every admin address (PAGES:
+  title, `scope` 'version' = follows `?v=&r=`, 'global' = the dashed "All versions" pill) and the old addresses
+  (REDIRECTS: 0.4.0–0.10.2 links keep working, id and query carried). Add a page there, never in the shell.
+- **ONE refresh system (`shell/refresh.jsx`):** every piece of data on a page is `usePanel(key, load, deps)` drawn in
+  `<Panel>`. The top bar's Refresh / auto-refresh (off, 30 s, 1 min, 5 min; `admin_prefs`) reloads every panel; panels
+  dim and show a progress line without moving; a failed panel keeps its height with an inline error and Retry; data
+  older than 5 minutes is "Stale". Only a panel on its own clock (`{ everyMs }`: Worker jobs, a grading in flight)
+  refreshes itself. Two contexts (stable actions, changing state): one context looped (0.10.3, see "Bugs that cost us").
+- **Every admin action shows working → done → result in place** (`shell/parts.jsx` useAction / ActionButton /
+  ActionStatus). Destructive or visitor-affecting ones use ConfirmDialog: a required reason (audit-logged), the
+  affected list, an acknowledgement for what players see.
+- **Version + region switcher** writes `?v=&r=` (`shell/scope.jsx useScope`); it only changes what you LOOK at. 0.10.0's
+  per-panel version pickers are gone. Turned-off versions are viewable ("Off · admin only").
+- **Settings search** (`/`, `GET /api/admin/search`): settings, feature switches and the audit log, each with its path
+  and value; Enter opens the page at `#set-<key>` / `#feat-<id>` / `#audit-…` and `useHit` highlights the row.
+- **Dashboard** (`server/admin/dashboard.js`): Needs you (or All clear), the period (since I last checked / 24 h / 7 days /
+  since launch; Mark as checked), 11 cards each computed on its own (a failing card answers `{ error }`, the rest stay
+  live). A change that isn't measured says "not measured", never 0. Layout and hidden cards per admin (`admin_prefs`),
+  reordered with the one Sortable as same-size tiles (full cards differ in width).
+- **Moderators** (still off): the shell falls back to `/api/admin/moderation/me` and shows only Inbox › Reports, the parts
+  of Directory › Accounts `can` allows, and their own audit entries (`/api/admin/moderation/audit`).
+
+## Features (0.10.3: `server/features/registry.js`, `/admin/features`)
+
+- **The feature registry is the one list of on/off switches**: id, name, does, `whenOff` (what visitors see: every
+  fallback is built), `needs`, playerVisible, its own settings, `store` (a boolean setting, the inverted
+  `crawler.paused`, the beta window, or a game version: read-only until 0.11.0), `env` (dev tester gate: dev only).
+- Existing switches kept their settings, so each carried its value over at deploy; new ones (`features.*`) default to
+  what the site did before them. Code asks `featureOn(db, id)` (switch AND its needs; 5 s memory per process) or
+  `requireFeature` (a plain 503 `feature_off`); the client `useFeature(id)` (`client/src/features.js`) from `/api/session`
+  `features`. Providers carry a `feature` field (no `if (provider === …)`).
+- Every switch needs a reason; turning one off with dependents on needs `confirmDependents` (409 `has_dependents`
+  first). Logged once, by its store (`setting.changed` with before / value / reason, `beta.changed`).
+- `server/test/features.test.js` turns EVERY registry feature off on its own and loads what it touches: a new feature is
+  tested automatically.
+
+## Audit log (0.10.3: `server/audit/log.js`, `/admin/audit`)
+
+- A READ over `admin_events` (every admin change since 0.1.0) and `moderation_actions` (0.8.2), never a second copy.
+  `TYPES` maps each admin_events type to an area, a label and a target link; `setting.changed` of a feature's setting is
+  shown as that feature. New admin actions: insert an admin_events row with `{ ids…, before?, value?, reason? }` and add
+  its type to TYPES. Admin sign-ins/outs are logged from 0.10.3. What older rows didn't record says "not recorded".
+  Never a secret or a revealed name in it. CSV export (≤ 5,000 rows).
+
+## Release tools (0.10.3: `server/release/`, `/admin/release`)
+
+- Pause / resume the crawl (= Features → Background crawl), regrade (a grading ALWAYS grades every version: said on the
+  page), "Is the new version live?" (web, CHANGELOG, worker), snapshots, compare, the Before / After deploy checklist
+  (`release_runs`, every step in the audit log), and the maintenance banner (`maintenance.banner`, public
+  `GET /api/maintenance`, off by default).
+- **Snapshots** follow `scripts/forever-fingerprint.sql` per version + region. The label row (`release_snapshots`) is
+  ours; the numbers (`release_snapshot_data`) are derived from Blizzard data and swept after the window ("aged out").
+  Compare re-hashes over the characters an earlier snapshot already had, to say whether a difference is only new
+  characters; where a hash can't tell which rows, it says so.
+
+## Dev tester gate (0.10.3: `server/devgate/`, RELEASING.md "The dev tester gate")
+
+- **Production:** `POST /api/internal/dev-tester` { provider, subject } → { tester } — the one question dev may ask.
+  Off (plain 404) unless `DEV_TESTER_SECRET` (≥ 32 characters) is set; a wrong secret is a 404 too; constant-time
+  compare; the only path exempt from the Origin check; rate-limited per network and globally; nothing logged per
+  request; a revoked badge or a live ban answers false, same shape as unknown.
+- **Dev** (ENVIRONMENT=dev AND Features → Dev tester gate, default OFF): every page and API needs a sign-in, then
+  production is asked for each linked identity; answers kept 3 minutes (failures 15 s); FAILS CLOSED (no secret,
+  timeout, non-200 → nobody but dev's admin). The allowlist (sign-in, `/api/health`, `/api/session`, `/api/maintenance`,
+  static files) is `API_ALLOW` / `OTHER_ALLOW` in `gate.js`. Cloudflare Access paths never reach the origin.
+- The Dev Tester badge is admin-granted only and starts hidden (`badge_definitions.shown_by_default`); its art is
+  temporary.
+
+## Discovery (`server/discovery/`, `client/src/admin/pages/DiscoveryPages.jsx`)
+
+- Admin-only pages `/admin/discovery/approvals`, `/runs`, `/probe` (0.10.3; linked only from the admin sidebar; its API sits behind the admin 404 gate). A run is
   queued there and run by the worker job `discovery`, one at a time; a run whose heartbeat is 5 minutes old is
   marked `interrupted`.
 - It reads Blizzard only through the `blizzard` source (`server/sources/blizzard.js`): tokens in the Authorization
@@ -148,7 +226,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   run rebuilds the combined catalog too. The raw responses are the record and are never rebuilt. Old `bad` decisions
   stay in the append-only history.
 
-## Endpoint probe (0.8.3: `server/discovery/probe/`, `client/src/admin/ProbeSection.jsx`)
+## Endpoint probe (0.8.3: `server/discovery/probe/`, `client/src/admin/pages/DiscoveryPages.jsx` /admin/discovery/probe)
 
 - A second kind of discovery run (`options.kind = 'probe'`), queued from /admin/discovery (character + guild, prefilled
   Path Vexley / Post Nerf Clarity), run by the same worker job, one run of either kind at a time. Discovery only: it
@@ -455,7 +533,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   statistic above zero.
 - **Tier bars** use `stats/tiers.js tierBarParts`: ranked letters only, 9% minimum each; Unranked is its own line, never D.
 
-## Badges (0.7.0: `server/badges/`, `client/src/badges/`, `/badges/{id}`, Settings → Badges, `/admin/badges`)
+## Badges (0.7.0: `server/badges/`, `client/src/badges/`, `/badges/{id}`, Settings → Badges, `/admin/badges/player`)
 
 - **Design: `design/v2-badges/`** (additive to v1, its files link into `../v1/`). Tokens are appended VERBATIM to
   `theme/tokens.css` (a second set of theme blocks; the colour test checks every block); the component CSS is
@@ -469,15 +547,15 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   Blizzard's developers). Ids never change (awards, pins, `/badges/dev-team` carry over); `BADGE_ALIASES` in catalog.js
   makes `/badges/everstats-staff` and `/badges/everstats-moderator` work too. The staff art has no baked-in text.
 - **Verified Content Creator (0.8.1, `badges/creators.js`):** a staff-granted Partner badge for Twitch, YouTube, Kick and
-  TikTok (`CREATOR_PLATFORMS`). The admin starts a verification on /admin/badges → a code (`ES-XXXX-XXXX`,
+  TikTok (`CREATOR_PLATFORMS`). The admin starts a verification on /admin/badges/player → a code (`ES-XXXX-XXXX`,
   `creator_verifications`) the creator sees in Settings → Profile and puts on their channel → the admin checks the channel
   BY HAND (**Everstats never fetches or scrapes a channel**), ticks the handles checked, reason required, grants (the
   generic grant refuses this badge). `creator_handles` stores each ticked handle AS IT WAS: a "Verified" mark shows only
   while the profile has exactly that handle, the badge is held and the state is 'verified'. Changing or removing a verified
-  handle deletes its row at once, logs it and raises an admin alert (/admin and /admin/badges, "Mark as checked"); the
+  handle deletes its row at once, logs it and raises an admin alert (the admin dashboard and /admin/badges/player, "Mark as checked"); the
   badge stays until the admin decides. Revoking removes every mark. Platform names are text, **never a platform logo**.
   Its art (`partner/verified-creator*.svg`, from the platform-employee template) is TEMPORARY (`art_temporary`), shown so
-  on /admin/badges, until a Claude Design pass replaces it.
+  on /admin/badges/player, until a Claude Design pass replaces it.
 - Definitions are DATA (`badge_definitions`, seeded once by migration 015); awards are `badge_awards`, one row per
   (account, badge): when, how (automatic, or admin with a reason), and the Blizzard id of the character that earned a
   class/faction badge, never a Blizzard value. **Revoking is a state with a reason, never a delete**; every grant, earn,
@@ -489,7 +567,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   class badge names AND every class Blizzard has returned on a stored character (so a new class just needs a badge from
   the class template). Evaluated after a sign-in's character import (and on every OAuth sign-in), after any fetch of an
   owned character, after a roster for its rank-0 owner, after every full tier grading (S-Tier), every 6 h, and once on
-  deploy without toasts (the back-fill, counts on /admin/badges).
+  deploy without toasts (the back-fill, counts on /admin/badges/player).
 - **Display** (the player's): `shown` (public; off = private everywhere), `featured` (the profile row, max 6, staff and
   partner always first, even granted into a full row), `pinned` (the ONE inline badge; else first featured, else first
   public, else none). Names always visible: pills (badge + name) on the profile, All badges and Settings; the 18px inline
@@ -509,10 +587,10 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 - **Links are the only free URLs on Everstats**: https, a real domain (no IPs, no single-label/local hosts), no
   user:pass, no port, not a shortener (`shorteners.json`), not on the admin blocklist (`link_blocklist`; subdomains
   match). Shown with label + domain, behind a "You're leaving Everstats for {domain}" notice, `noopener noreferrer
-  nofollow`, each with "Report this link" (anyone, 10 per 15 min per network) → `/admin/guild-links`.
+  nofollow`, each with "Report this link" (anyone, 10 per 15 min per network) → `/admin/directory/guilds/links`.
 - These tables key on Blizzard's guild id WITHOUT a foreign key: a `guilds` row ages out; our data about it must not.
 
-## Guild badges (0.7.1: `server/guildBadges/`, `client/src/guildBadges/`, `/guild-badges`, `/g/{slug}/manage/badges`, `/admin/guild-badges`)
+## Guild badges (0.7.1: `server/guildBadges/`, `client/src/guildBadges/`, `/guild-badges`, `/g/{slug}/manage/badges`, `/admin/badges/guild`)
 
 - **Design: `design/v2-guild-badges/`** (additive to v1 and v2-badges; the Hanging Standard frame). Tokens appended VERBATIM to
   `theme/tokens.css`, component CSS VERBATIM in `theme/guild-badges.css`, SVGs VERBATIM in `client/src/guildBadges/art/`
@@ -533,7 +611,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 
 ## Feedback, render controls, Activity (0.7.1)
 
-- **Feedback** (`server/feedback/routes.js`, `client/src/feedback/`, `/feedback`, `/settings/feedback`, `/admin/feedback`): plain
+- **Feedback** (`server/feedback/routes.js`, `client/src/feedback/`, `/feedback`, `/settings/feedback`, `/admin/inbox/feedback`): plain
   text only, rendered as text (pre-wrap), links never clickable, bidi overrides stripped, 10–4,000 characters, honeypot
   field `website` (answered "sent", stored nowhere), 5/15 min per network AND 10/hour per account, no CAPTCHA, NOT
   profanity-filtered (owner's choice). Replies show as from "Everstats". Signed-out drafts live in localStorage until sent;
@@ -551,12 +629,12 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   deploy (`activity_counting_since`); earlier is "unknown", never 0. The "last checked" marker moves only on "Mark as checked".
 - There is no account dropdown menu: the account button opens Settings (or Your feedback when a reply is unread).
 
-## Moderation (0.8.2: `server/moderation/`, `client/src/admin/ModerationPages.jsx`, `client/src/moderation/`)
+## Moderation (0.8.2: `server/moderation/`, `client/src/admin/pages/InboxPages.jsx` + `DirectoryPages.jsx`, `client/src/moderation/`)
 
-- **Admin → Accounts** (`/admin/accounts`, admin only): every player account, paged (cursor), searchable by username, former
+- **Admin → Accounts** (`/admin/directory/accounts`, admin only): every player account, paged (cursor), searchable by username, former
   username, display name or id, with filters. No export. BattleTags / Discord names only after "Reveal" on one account
-  (logged as `identities_revealed`). An account's page (`/admin/accounts/:id`) has the username tools, the Moderation
-  section and the full history. **Admin → Reports** (`/admin/reports`): profile, guild-description and guild-link reports,
+  (logged as `identities_revealed`). An account's page (`/admin/directory/accounts/:id`) has the username tools, the Moderation
+  section and the full history. **Admin → Reports** (`/admin/inbox/reports`): profile, guild-description and guild-link reports,
   grouped by target; open / actioned / dismissed.
 - **Actions** (`moderation/actions.js`): warn, force a username change (the existing reclaim; hold or release the old
   name), reset a field (display name, bio, one social handle, a managed guild's description / links / invite), temporary
@@ -865,6 +943,8 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
   (`npm run gen-key postgres`). Both processes refuse to start without a valid root key. **Changing or losing the root
   key makes every stored API key and 2FA secret unreadable** (shown as "Can't decrypt"; keys re-entered, 2FA
   re-enrolled). Keep a copy outside the server.
+- `DEV_TESTER_SECRET` (0.10.3, `npm run gen-key devtester`) is the ONE value both `.env` files share (production's and
+  dev's): it lets dev ask production the dev tester question and nothing else. Never in the repo or a log.
 - API keys resolve **database (AES-256-GCM under the root key, slot bound in) → `.env` fallback → "not configured"**
   (`server/credentials/store.js`). **No key is ever sent to a browser**: the admin sees state, source and "set on"
   date, nothing else, not even a last four.
@@ -933,6 +1013,11 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
 - **The design draws things the rules forbid** (found here, design v1): an admin link for the owner, a last-four of
   each API key, a hardcoded "Hardcore · soon" ruleset, and a merge that runs the wrong way round. This file wins; say
   so in the component's header comment.
+- **A context whose value changes re-runs every effect that depends on it** (found here, 0.10.3): the admin refresh
+  system had one context for its actions AND its state. A panel reporting its state changed the value, which re-ran
+  every panel's register effect, whose cleanup removed the state, which was reported again: "Maximum update depth
+  exceeded", and no admin link changed the page. Stable functions and changing state live in separate contexts. The
+  tests didn't catch it (no client tests render React); clicking through the real app did.
 
 ## Testing
 
@@ -951,7 +1036,9 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
   `node scripts/check-overflow.js <base-url> [/c/name-surname] [/g/guild-slug]` opens the
   character page (both tabs), the transmog screen, a guild page and the leaderboards index at 1920–390 px in all three
   themes and fails on the page scrolling sideways or any scroll box whose content overflows, except the listed phone
-  strips (sideways only, at ≤ 719 px, no track). Run it in every visual pass.
+  strips (sideways only, at ≤ 719 px, no track). Run it in every visual pass. 0.10.3: `--admin=<es_admin cookie of a
+  LOCAL server> --admin-ids=account:ID,guild:ID,feedback:ID` checks every admin page in `shell/nav.js` PAGES instead.
+  From Git Bash, prefix `MSYS_NO_PATHCONV=1` or `/c/…` arguments become `C:/…`.
 
 ## Changelog and versioning
 

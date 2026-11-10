@@ -8,6 +8,7 @@ import { EmptyState } from '../components/EmptyState.jsx';
 import { useToasts } from '../components/Toasts.jsx';
 import { formatDateTime } from '../format.js';
 import { useSession } from '../session.jsx';
+import { useFeature } from '../features.js';
 
 /**
  * The player's side of moderation (0.8.2; server/moderation/player.js):
@@ -172,7 +173,12 @@ const WHAT = [
  * "Report": a profile (whom = '@name', socials = the handles on it) or a guild's description (guild = slug). Signed-in
  * and signed-out visitors alike. The reported person never learns who reported them: Everstats doesn't keep it.
  */
-export function ReportButton({ username = null, guild = null, socials = [], label = 'Report' }) {
+export function ReportButton(props) {
+  // 0.10.3: Player reports switched off (features/registry.js): no Report button anywhere; the server refuses too.
+  return useFeature('reports') ? <ReportButtonOn {...props} /> : null;
+}
+
+function ReportButtonOn({ username = null, guild = null, socials = [], label = 'Report' }) {
   const toast = useToasts();
   const [open, setOpen] = useState(false);
   const [what, setWhat] = useState(guild ? 'guild_description' : null);

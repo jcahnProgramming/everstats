@@ -1,0 +1,38 @@
+/* 0.10.3: Release tools (pages/ReleasePage.jsx). Built from the v5 parts; tokens only. */
+.rel-start { display: flex; flex-direction: column; gap: var(--es-space-10); }
+.rel-start-row, .rel-take { display: flex; align-items: flex-end; gap: var(--es-space-10); flex-wrap: wrap; }
+.rel-label { min-width: 0; flex: 0 1 var(--es-size-col-min-md); }
+.rel-preview { margin: 0; padding-left: var(--es-space-20); display: flex; flex-direction: column; gap: var(--es-space-2); }
+
+/* The checklist's steps as a needs-you strip, then one row per step. */
+.rel-steps .it.ok svg { stroke: var(--es-success); }
+.rel-steps .it b { color: var(--es-muted); }
+.rel-rlist { margin: 0; }
+.rel-rlist > div { grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; padding: var(--es-space-10) var(--es-space-12); }
+.rel-rlist > div.is-next { box-shadow: inset var(--es-border-3) 0 0 var(--es-accent); }
+.rel-rlist > div.is-hit { background: color-mix(in oklab, var(--es-accent) 10%, transparent); }
+.rel-n { display: inline-flex; align-items: center; justify-content: center; width: var(--es-space-24); height: var(--es-space-24); border-radius: var(--es-radius-pill); background: var(--es-sunken); border: var(--es-border-1) solid var(--es-line); font-size: var(--es-fs-12); font-weight: var(--es-weight-semibold); font-variant-numeric: tabular-nums; }
+.rel-step-body { min-width: 0; }
+.rel-result { overflow-wrap: anywhere; }
+.rel-step-act { flex-direction: column; align-items: flex-end; gap: var(--es-space-6); }
+
+.rel-problems, .rel-lines { margin: 0; padding-left: var(--es-space-18); display: flex; flex-direction: column; gap: var(--es-space-2); }
+.rel-progress { display: flex; align-items: center; gap: var(--es-space-10); flex-wrap: wrap; }
+.rel-kpi-v { font-size: var(--es-fs-15); }
+
+.rel-pad { padding: var(--es-space-14) var(--es-space-16); }
+.rel-pick { min-height: 0; }
+.rel-compare { border-top: var(--es-border-1) solid var(--es-line); }
+.rel-sections { margin: 0; }
+.rel-sections > div { align-items: start; }
+
+.rel-banner-form .inp.wide { width: 100%; }
+.rel-banner-form .field { min-width: 0; }
+.rel-preview-frame { border: var(--es-border-1) dashed var(--es-line-strong); border-radius: var(--es-radius-md); overflow: hidden; }
+.rel-preview-frame .wrap { padding-inline: var(--es-space-12); }
+
+@media (max-width: 719px) {
+  .rel-rlist > div { grid-template-columns: auto minmax(0, 1fr); }
+  .rel-step-act { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: flex-start; flex-wrap: wrap; }
+  .rel-label { flex: 1 1 100%; }
+}

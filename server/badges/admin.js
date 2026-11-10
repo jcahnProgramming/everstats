@@ -8,7 +8,7 @@ import { MAX_BYTES, processMark } from './marks.js';
 import { getPlatform } from '../accounts/socials.js';
 import { GAME_DATA_RULES, classList, evaluateAccount } from './rules.js';
 import {
-  award, badgeContext, definitionById, definitionId, holderCounts, loadDefinitions, logEvent, markUrl, publicBadge, revoke, sha256,
+  award, badgeContext, definitionById, definitionId, holderCounts, loadDefinitions, logEvent, markUrl, publicBadge, revoke, sha256, tidyDisplay,
 } from './store.js';
 
 /**
@@ -124,8 +124,18 @@ export function createAdminBadgeRouter({ db, writes }) {
     if (def.id === CREATOR_BADGE) throw new HttpError(409, 'Verified Content Creator is granted from the creator form: it needs the handles you checked.', 'use_creator_form');
     await db.tx(async (q) => {
       if (!(await q.one('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [accountId]))) throw new HttpError(404, 'No such account.');
+      const firstAward = !(await q.one('SELECT 1 AS x FROM badge_awards WHERE account_id = $1 AND badge_id = $2', [accountId, def.id]));
       const changed = await award(q, { accountId, def, source: 'admin', reason, notify: req.body?.notify === true, actor: 'admin' });
       if (!changed) throw new HttpError(409, 'That account already has this badge.', 'already');
+      // 0.10.3: a badge whose definition says shown_by_default = false (Dev Tester) starts HIDDEN on a NEW award: the
+      // holder shows it from Settings → Badges if they want. A re-grant keeps whatever the holder chose before.
+      if (firstAward) {
+        const shownByDefault = (await q.one('SELECT shown_by_default FROM badge_definitions WHERE id = $1', [def.id]))?.shown_by_default !== false;
+        if (!shownByDefault) {
+          await q.query('UPDATE badge_awards SET shown = false, featured = false, pinned = false, position = NULL WHERE account_id = $1 AND badge_id = $2', [accountId, def.id]);
+          await tidyDisplay(q, accountId);
+        }
+      }
       await q.query("INSERT INTO admin_events (type, detail) VALUES ('badge.granted', $1::jsonb)", [JSON.stringify({ account: accountId, badge: def.id })]);
     });
     res.json({ account: await accountBadges(db, accountId) });

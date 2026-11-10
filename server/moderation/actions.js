@@ -210,12 +210,13 @@ export async function unban(db, actor, accountId, body, { onChanged = () => {} }
 }
 
 /** Admin only: the BattleTags / Discord names on an account. Every reveal is logged. */
-export async function reveal(db, actor, accountId) {
+export async function reveal(db, actor, accountId, { reason = null } = {}) {
   need(actor, 'identities.reveal');
   const rows = await db.query('SELECT provider, display_name, linked_at, last_used_at FROM account_identities WHERE account_id = $1 ORDER BY linked_at LIMIT 20', [accountId]);
   await db.tx(async (q) => {
-    await logAction(q, { accountId, type: 'identities_revealed', actor, detail: { providers: rows.map((r) => r.provider) } });
-    await q.query("INSERT INTO admin_events (type, detail) VALUES ('moderation.identities_revealed', $1::jsonb)", [JSON.stringify({ account: accountId })]);
+    // The reason (0.10.3) is logged; the revealed names never are.
+    await logAction(q, { accountId, type: 'identities_revealed', actor, reason, detail: { providers: rows.map((r) => r.provider) } });
+    await q.query("INSERT INTO admin_events (type, detail) VALUES ('moderation.identities_revealed', $1::jsonb)", [JSON.stringify({ account: accountId, ...(reason ? { reason } : {}) })]);
   });
   return rows.map((r) => ({ provider: r.provider, displayName: r.display_name, linkedAt: r.linked_at, lastUsedAt: r.last_used_at }));
 }

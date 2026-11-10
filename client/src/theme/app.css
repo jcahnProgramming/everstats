@@ -679,3 +679,15 @@ details.panel > summary { cursor: pointer; font-weight: var(--es-weight-semibold
 /* 0.10.2: the changelog on the dev site: builds still in testing, and what a release was tested as. */
 .release-testing { color: var(--es-env-ink); background: var(--es-env-fill); border-color: var(--es-env-edge); }
 .release-tested { margin: 0; }
+
+/* 0.10.3: the maintenance banner (chrome/MaintenanceBanner.jsx), set by the admin on Release tools. Plain text, one strip
+   under the top bar; the admin's preview uses the same markup. */
+.maint-banner { background: color-mix(in oklab, var(--es-warning) 14%, var(--es-raised)); color: var(--es-text); border-bottom: var(--es-border-1) solid color-mix(in oklab, var(--es-warning) 50%, var(--es-line)); }
+.maint-banner-in { display: flex; align-items: center; gap: var(--es-space-10); min-height: var(--es-size-control-sm); padding-block: var(--es-space-4); font-size: var(--es-fs-13); }
+.maint-banner-in svg { flex: none; color: var(--es-warning); stroke: currentColor; }
+.maint-banner-text { min-width: 0; overflow-wrap: anywhere; font-weight: var(--es-weight-semibold); }
+.maint-banner-until { flex: none; margin-left: auto; color: var(--es-text-2); font-size: var(--es-fs-12); white-space: nowrap; }
+@media (max-width: 719px) {
+  .maint-banner-in { flex-wrap: wrap; row-gap: var(--es-space-2); }
+  .maint-banner-until { margin-left: 0; }
+}

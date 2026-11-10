@@ -9,6 +9,8 @@ import { formatDateTime } from '../format.js';
 import { startProvider } from '../pages/SignInPages.jsx';
 import { useSession } from '../session.jsx';
 import { useEditing } from '../chrome/updates.js';
+import { OFF_WORDS, providerUsable, useFeature } from '../features.js';
+import { SwitchedOff } from '../components/SwitchedOff.jsx';
 
 /**
  * Feedback and contact (0.7.1), built from v1 parts (panel, field, radio buttons, note). Plain text only: messages are
@@ -71,6 +73,7 @@ function initialForm(params) {
 
 export function FeedbackPage() {
   const session = useSession();
+  const open = useFeature('feedback'); // 0.10.3: the Feedback form switch
   const [params] = useSearchParams();
   const [form, setForm] = useState(() => initialForm(params));
   const [website, setWebsite] = useState(''); // the honeypot: people never see it
@@ -123,7 +126,17 @@ export function FeedbackPage() {
     );
   }
 
-  const providers = session.providers.filter((p) => p.configured);
+  // 0.10.3: switched off: the form is closed (the draft in this browser is kept for when it reopens). Ban appeals and
+  // replies in Your feedback are separate and still work.
+  if (!open) {
+    return (
+      <div className="wrap page-pad stack gap-24 narrow-wrap">
+        <h1 className="h1">Feedback</h1>
+        <SwitchedOff>{OFF_WORDS.feedback} Try again later.{session.signedIn ? <> Replies to messages you already sent are still in <Link to="/settings/feedback">Your feedback</Link>.</> : null}</SwitchedOff>
+      </div>
+    );
+  }
+  const providers = session.providers.filter(providerUsable);
   return (
     <div className="wrap page-pad stack gap-24 narrow-wrap">
       <div className="stack gap-8">
@@ -179,6 +192,7 @@ export function FeedbackPage() {
 /** Your feedback: every message this account sent, as threads, newest activity first. */
 export function YourFeedbackPage() {
   const session = useSession();
+  const formOpen = useFeature('feedback'); // 0.10.3: replies here work either way; only the new-message button goes
   const [threads, setThreads] = useState(null);
   const [error, setError] = useState(null);
   const [open, setOpen] = useState(null);
@@ -207,7 +221,7 @@ export function YourFeedbackPage() {
       <nav className="crumbs small" aria-label="Breadcrumb"><Link to="/settings">Settings</Link><span aria-hidden="true"> / </span><span>Your feedback</span></nav>
       <div className="row gap-12 wrap-row">
         <h1 className="h1 flex-fill">Your feedback</h1>
-        <Link className="btn gold sm" to="/feedback">Send feedback</Link>
+        {formOpen ? <Link className="btn gold sm" to="/feedback">Send feedback</Link> : <span className="muted xsmall">{OFF_WORDS.feedback}</span>}
       </div>
       {error && <ServiceUnavailable inline title="Couldn’t load your messages" onRetry={load}>{error}</ServiceUnavailable>}
       {threads?.length === 0 && <EmptyState kind="nodata" title="No messages yet"><span>Messages you send while signed in appear here, with Everstats’ replies.</span></EmptyState>}

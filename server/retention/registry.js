@@ -14,6 +14,12 @@ const n = (rows) => rows.length;
 
 export const BLIZZARD = [
   {
+    // 0.10.3: a Release tools snapshot's fingerprint (counts, hashes, a sample character) is derived from Blizzard data.
+    // Its label row (release_snapshots) is ours and stays, saying the data aged out.
+    table: 'release_snapshot_data', holds: 'Release tools snapshots: counts, hashes and a sample character derived from Blizzard data', fetched: 'taken_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM release_snapshot_data WHERE taken_at < $1 RETURNING 1', [cutoff])),
+  },
+  {
     table: 'character_snapshots', holds: 'Daily copies of each character’s statistic values', fetched: 'taken_at',
     sweep: async (q, cutoff) => n(await q.query('DELETE FROM character_snapshots WHERE taken_at < $1 RETURNING 1', [cutoff])),
   },
@@ -259,6 +265,10 @@ export const BLIZZARD = [
 
 export const OURS = {
   _migrations: 'Which migrations ran',
+  // 0.10.3
+  admin_prefs: 'The admin’s own choices: dashboard card order and hidden cards, auto-refresh interval, a collapsed sidebar',
+  release_runs: 'Release tools checklist runs: which steps the admin did and when, with their results (counts and states)',
+  release_snapshots: 'A Release tools snapshot’s label, game version, region, app version and time (its data is release_snapshot_data)',
   // 0.10.2
   environment_marker: 'Which environment (production or dev) this database belongs to, so the other one refuses it',
   // 0.10.0

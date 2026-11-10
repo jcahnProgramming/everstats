@@ -67,6 +67,11 @@ export const SEED_BADGES = Object.freeze([
     description: 'Was here while Everstats was in beta.', how: 'Given to every account created while the beta is open.' },
   { id: 'early-supporter', family: 'membership', name: 'Early Supporter', art: 'membership/early-supporter', rule: { type: 'early-supporter' }, timeLimited: true, sort: 220,
     description: 'Joined Everstats early.', how: 'Given to every account created inside the early-supporter window.' },
+  // 0.10.3: admin-granted only, never automatic; a new award starts hidden on the profile (shown_by_default false) until
+  // its holder shows it. Holding it lets the person into the private test site (server/devgate/). TEMPORARY ART.
+  { id: 'dev-tester', family: 'membership', name: 'Dev Tester', art: 'membership/dev-tester', sort: 230, artTemporary: true, shownByDefault: false,
+    description: 'Helps test Everstats before changes reach everyone.',
+    how: 'Granted by Everstats staff to people who test the private test site. Hidden unless its holder shows it.' },
   { id: 'alliance', family: 'faction', name: 'Alliance', art: 'faction/alliance', rule: { type: 'faction', faction: 'Alliance' }, sort: 310,
     description: 'Fights for the Alliance.', how: 'Owns a level 10+ Alliance character.' },
   { id: 'horde', family: 'faction', name: 'Horde', art: 'faction/horde', rule: { type: 'faction', faction: 'Horde' }, sort: 320,

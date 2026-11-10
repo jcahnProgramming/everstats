@@ -18,6 +18,7 @@ import { fetchImages, fetchRender } from './images.js';
 import { renderSwitch } from '../characters/renders.js';
 import { RendererBusy } from './render.js';
 import { cacheKey, cachedImage, previewOptions, saveDefault, savedDefault, storeImage } from './store.js';
+import { featureOn } from '../features/registry.js';
 
 /**
  * Share-card routes (0.8.0).
@@ -42,7 +43,24 @@ const MEMO_MS = 60_000;
 const memo = new Map();
 const inflight = new Map();
 
-const str = (v, max = 200) => (typeof v === 'string' && v.length <= max ? v : null);
+/**
+ * 0.10.3: the "Share cards and link previews" switch (features/registry.js 'share-cards'). Off: the maker, "Save as my
+ * default", every card image and every link-preview image answer 503 feature_off with a plain sentence; the pages say
+ * sharing is switched off and link previews fall back to the plain Everstats link (meta.js). A collections card also
+ * needs Collections on.
+ */
+export async function cardsOn(db, type) {
+  if (!(await featureOn(db, 'share-cards'))) return false;
+  if (type === 'collections' && !(await featureOn(db, 'collections'))) return false;
+  return true;
+}
+async function requireCards(db, type) {
+  if (await cardsOn(db, type)) return;
+  const sharing = await featureOn(db, 'share-cards');
+  throw new HttpError(503, sharing ? 'Collections are switched off for now, so they can’t be shared.' : 'Sharing is switched off for now.', 'feature_off');
+}
+
+const str = (v, max = 200) =>(typeof v === 'string' && v.length <= max ? v : null);
 
 /** The subject's parameters from a query string, validated. → { type, params } or throws 404. */
 export function subjectFrom(type, q) {
@@ -230,6 +248,7 @@ export function createCardApiRouter({ db, limits, networkOf }) {
   r.get('/cards/maker', route(async (req, res) => {
     const type = String(req.query.type ?? '');
     const { params } = subjectFrom(type, req.query);
+    await requireCards(db, type);
     const id = await subjectId(db, type, params);
     const role = await saveRole(db, req, type, params);
     const saved = id && ['character', 'tier', 'guild', 'collections'].includes(type) ? await savedDefault(db, type, id) : null;
@@ -271,6 +290,7 @@ export function createCardApiRouter({ db, limits, networkOf }) {
     if (req.session?.stage !== 'full') throw new HttpError(401, 'Sign in first.', 'signed_out');
     const type = String(req.body?.type ?? '');
     if (!['character', 'tier', 'guild'].includes(type)) throw new HttpError(400, 'Only character, tier and guild cards have a saved default.', 'invalid');
+    await requireCards(db, type);
     const { params } = subjectFrom(type, req.body?.subject ?? {});
     const role = await saveRole(db, req, type, params);
     if (!role) throw new HttpError(403, type === 'guild' ? 'Only the Guild Master and officers can save this guild’s default card.' : 'Only the character’s owner can save its default card.', 'forbidden');
@@ -322,6 +342,7 @@ export function createCardImageRouter(deps) {
     try {
       const type = String(req.query.type ?? '');
       const { params } = subjectFrom(type, req.query);
+      await requireCards(db, type);
       const options = decodeOptions(type, req.query.o);
       const out = await cardImage(deps, req, type, params, options);
       const name = (params.c ?? params.g ?? `board-${params.statisticId}`).replace(/[^a-z0-9-]/gi, '');
@@ -335,6 +356,7 @@ export function createCardImageRouter(deps) {
     try {
       const file = String(req.params.file ?? '');
       if (!file.endsWith('.png')) throw new HttpError(404, 'Not found', 'not_found');
+      await requireCards(db, type);
       const { params } = await read(file.slice(0, -4), req);
       const id = await subjectId(db, type, params);
       const options = type === 'board' ? cleanOptions('board', defaultOptions('board')) : await previewOptions(db, type, id);

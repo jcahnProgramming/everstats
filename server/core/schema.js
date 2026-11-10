@@ -1946,4 +1946,65 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.10.3: the admin rework (design/v5-admin), release tools and the Dev Tester badge.
+    //   admin_prefs             the admin's own choices: dashboard card order and hidden cards, auto-refresh, a collapsed
+    //                           sidebar. One admin identity, so one value per key. Ours.
+    //   admin_events time index the Audit log reads admin_events newest first across every type.
+    //   release_snapshots       a labelled fingerprint taken from Release tools: label, version, region, app version. Ours.
+    //   release_snapshot_data   the fingerprint itself: counts, hashes and a sample character, DERIVED FROM BLIZZARD DATA,
+    //                           so it follows the 30-day rule (retention registry BLIZZARD, swept by taken_at). The label
+    //                           row stays and says the data aged out.
+    //   release_runs            a guided Before / After deploy checklist run: when each step was done and its result. Ours.
+    //   badge_definitions.shown_by_default  false = a new award starts hidden on the profile (Dev Tester).
+    //   The Dev Tester badge: admin-granted only, never automatic; its holder decides whether it shows. Migration 015
+    //   already seeds every SEED_BADGES row on a fresh database, so the conflict branch sets the two flags (like 018).
+    id: '030_admin_rework',
+    async up(q) {
+      await q.query(`
+        CREATE TABLE admin_prefs (
+          key         text PRIMARY KEY CHECK (key ~ '^[a-z][a-z0-9.-]{1,60}$'),
+          value       jsonb NOT NULL,
+          updated_at  timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX admin_events_time ON admin_events (created_at, id);
+
+        CREATE TABLE release_runs (
+          id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          kind         text NOT NULL CHECK (kind IN ('before', 'after')),
+          label        text NOT NULL CHECK (char_length(label) BETWEEN 1 AND 80),
+          started_at   timestamptz NOT NULL DEFAULT now(),
+          finished_at  timestamptz,
+          abandoned_at timestamptz,
+          steps        jsonb NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX release_runs_time ON release_runs (started_at);
+
+        CREATE TABLE release_snapshots (
+          id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          label         text NOT NULL CHECK (char_length(label) BETWEEN 1 AND 80),
+          game_version  text NOT NULL,
+          region        text NOT NULL,
+          app_version   text NOT NULL,
+          run_id        bigint REFERENCES release_runs (id) ON DELETE SET NULL,
+          taken_at      timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX release_snapshots_time ON release_snapshots (taken_at);
+        CREATE TABLE release_snapshot_data (
+          snapshot_id  bigint PRIMARY KEY REFERENCES release_snapshots (id) ON DELETE CASCADE,
+          taken_at     timestamptz NOT NULL,
+          data         jsonb NOT NULL
+        );
+        CREATE INDEX release_snapshot_data_time ON release_snapshot_data (taken_at);
+
+        ALTER TABLE badge_definitions ADD COLUMN shown_by_default boolean NOT NULL DEFAULT true;
+      `);
+      await q.query(
+        `INSERT INTO badge_definitions (id, family, name, description, how, art, award, sort, art_temporary, shown_by_default)
+         VALUES ('dev-tester', 'membership', 'Dev Tester', $1, $2, 'membership/dev-tester', 'manual', 230, true, false)
+         ON CONFLICT (id) DO UPDATE SET shown_by_default = false, art_temporary = true`,
+        ['Helps test Everstats before changes reach everyone.', 'Granted by Everstats staff to people who test the private test site. Hidden unless its holder shows it.'],
+      );
+    },
+  },
 ];

@@ -143,7 +143,7 @@ test('authorizing Battle.net for discovery stores the token sealed and lands on 
   // Battle.net sends the browser back cross-site: the Strict admin cookie doesn't come along, only the flow cookie.
   const cb = await c.get(`/auth/battlenet/callback?code=fixture-code&state=${encodeURIComponent(state)}`);
   assert.equal(cb.status, 303);
-  assert.equal(cb.headers.get('location'), '/admin/discovery?authorized=1');
+  assert.equal(cb.headers.get('location'), '/admin/discovery/runs?authorized=1');
   const row = await t.db.one('SELECT * FROM discovery_grants');
   assert.ok(!row.ciphertext.toString('latin1').includes(USER_TOKEN));
   const page = await c.get('/api/admin/discovery', admin);

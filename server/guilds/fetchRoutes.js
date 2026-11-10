@@ -8,6 +8,12 @@ import { getSource } from '../sources/registry.js';
 import { parseGuildSlug } from '../stats/slug.js';
 import { countActivity } from '../activity/count.js';
 import { FetchAllError, fetchStatus, readRoster, rosterFailed, startFetch } from './fetchAll.js';
+import { switchOn } from '../features/registry.js';
+
+// 0.10.3: the Guild "Fetch all members" switch (features/registry.js 'guild-fetch'). Off: reading a roster and starting
+// a fetch are refused; fetches already queued or running finish (the worker job doesn't look at it). Its OWN switch,
+// not featureOn: while the background crawl is paused a fetch may still start and waits, as it always has.
+const GUILD_FETCH_OFF = 'Fetching a whole guild is switched off for now. Members are still refreshed daily.';
 
 /**
  * "Fetch all members" on guild pages (0.9.0, guilds/fetchAll.js). Anyone may use it, signed in or not.
@@ -43,6 +49,7 @@ export function createGuildFetchRouter({ db, limits, networkOf }) {
     configured: await isConfigured(db, getSource('blizzard').credential),
     concurrent: await getSetting(db, 'guilds.fetchConcurrent'),
     cooldownHours: await getSetting(db, 'guilds.fetchCooldownHours'),
+    switchedOff: !(await switchOn(db, 'guild-fetch')),
   });
 
   const fail = (err) => {
@@ -56,6 +63,7 @@ export function createGuildFetchRouter({ db, limits, networkOf }) {
 
   r.post('/guilds/:slug/fetch-all/roster', route(async (req, res) => {
     const g = await guildOf(req.params.slug);
+    if (!(await switchOn(db, 'guild-fetch'))) throw new HttpError(503, GUILD_FETCH_OFF, 'feature_off');
     if (!(await isConfigured(db, getSource('blizzard').credential))) throw new HttpError(503, 'Look-ups aren’t switched on yet.', 'not_configured');
     const before = await fetchStatus(db, { slug: g.slug, guildId: g.id });
     // Already reading, queued or running: show that one, ask Blizzard nothing.
@@ -76,6 +84,7 @@ export function createGuildFetchRouter({ db, limits, networkOf }) {
     const g = await guildOf(req.params.slug);
     const before = await fetchStatus(db, { slug: g.slug, guildId: g.id });
     if (before.state === 'queued' || before.state === 'running') return res.json(await view(g)); // pressing again shows it
+    if (!(await switchOn(db, 'guild-fetch'))) throw new HttpError(503, GUILD_FETCH_OFF, 'feature_off');
     const net = networkOf(req);
     const account = req.session?.stage === 'full' ? String(req.session.accountId) : null;
     if (!limits.guildFetchesByNetwork.check(net).ok) return tooMany(res, limits.guildFetchesByNetwork, net, 'Too many guild fetches from your network. Wait a little and try again.');

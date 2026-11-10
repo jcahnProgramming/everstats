@@ -12,6 +12,7 @@ import { finishGrant } from '../discovery/grant.js';
 import { importAccountCharacters } from '../crawler/account.js';
 import { SOURCES } from '../sources/registry.js';
 import { accountTouchesBan, activeBan, identityBan, passkeyBan } from '../moderation/bans.js';
+import { featureById, featureOn } from '../features/registry.js';
 
 /**
  * Sign-in, under /api/auth, plus the OAuth callbacks under /auth (createCallbackRouter).
@@ -40,9 +41,19 @@ const safeReturn = (value) => (typeof value === 'string' && /^\/(?![/\\])[\w\-./
 
 export async function providerStatus(db) {
   return Promise.all(
-    PROVIDERS.map(async (p) => ({ id: p.id, label: p.label, configured: (await resolveCredential(db, p.credential)).state === 'configured' })),
+    PROVIDERS.map(async (p) => ({
+      id: p.id, label: p.label, configured: (await resolveCredential(db, p.credential)).state === 'configured',
+      // 0.10.3: the provider's feature switch (providers.js `feature`): off = shown as "Switched off for now"
+      switchedOff: !(await providerOn(db, p)),
+    })),
   );
 }
+
+/** Whether a provider's feature switch (if it has one) is on. Generic: no provider is named here. */
+export async function providerOn(db, provider) {
+  return !provider.feature || featureOn(db, provider.feature);
+}
+const switchedOffMessage = (provider) => `${featureById(provider.feature)?.name ?? `${provider.label} sign-in`} is switched off for now. Every other way to sign in still works.`;
 
 /** One second-factor attempt against both counters; a right code gives both slots back. */
 async function secondFactorAttempt({ db, limits, networkOf, req, accountId, code }) {
@@ -74,6 +85,7 @@ export function createAuthRouter({ db, limits, networkOf, fetch = globalThis.fet
     const intent = INTENTS.includes(req.body?.intent) ? req.body.intent : 'sign_in';
     if (intent !== 'sign_in' && req.session?.stage !== 'full') throw new HttpError(401, 'Sign in first.', 'signed_out');
     if (intent === 'characters' && !readsCharacters(provider.id)) throw new HttpError(400, `${provider.label} can't list characters.`, 'invalid');
+    if (!(await providerOn(db, provider))) throw new HttpError(503, switchedOffMessage(provider), 'feature_off');
     const cred = await resolveCredential(db, provider.credential);
     if (cred.state !== 'configured') throw new HttpError(409, `${provider.label} sign-in isn't configured yet.`, 'not_configured');
     const { state, verifier } = newOAuthState(provider);
@@ -173,6 +185,9 @@ export function createCallbackRouter({ db, fetch = globalThis.fetch }) {
     // Discovery page and never touches accounts or sessions.
     if (intent === 'discovery') return finishGrant({ db, provider, flow, req, res, fetch });
     if (typeof req.query.error === 'string') return back(intent, 'cancelled');
+    // 0.10.3: switched off after this round trip started: it ends here, before the code is exchanged (the provider is
+    // asked nothing; no account is made, signed in or linked). The page says it is switched off for now.
+    if (!(await providerOn(db, provider))) return back(intent, 'switched_off');
     if (!sameState(req.query.state, flow.data.state) || typeof req.query.code !== 'string') return back(intent, 'state_mismatch');
 
     const cred = await resolveCredential(db, provider.credential);

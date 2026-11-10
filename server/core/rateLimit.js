@@ -105,6 +105,12 @@ export function createLimits({ now = Date.now } = {}) {
     // visitors may start one too. On top: one live fetch per guild, a cooldown per guild, a site-wide cap.
     guildFetchesByNetwork: createLimiter({ limit: 10, windowMs: 4 * FIFTEEN_MINUTES, now }),
     guildFetchesByAccount: createLimiter({ limit: 10, windowMs: 4 * FIFTEEN_MINUTES, now }),
+    // 0.10.3: the dev tester question (devgate/endpoint.js, production only). The dev site asks it about each identity of
+    // a signed-in account at most once per 3 minutes (its cache), and all of dev's questions arrive from ONE network (the
+    // host's), so the per-network limit is roomy: 300 per network per 15 minutes, and 600 site-wide (key 'global').
+    // Counted before the secret is checked, so guessing is bounded too.
+    devTesterByNetwork: createLimiter({ limit: 300, windowMs: FIFTEEN_MINUTES, now }),
+    devTesterGlobal: createLimiter({ limit: 600, windowMs: FIFTEEN_MINUTES, now }),
   };
 }
 

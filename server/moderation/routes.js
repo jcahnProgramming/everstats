@@ -49,6 +49,38 @@ const FILTER_SQL = {
 };
 const SIGN_IN_EVENTS = ['signed_in', 'second_factor_passed', 'signed_in_banned'];
 
+/**
+ * 0.10.3 (design/v5-admin directory-accounts): extra filters that combine with `filter` and the search. Each value is a
+ * fixed SQL fragment (whitelisted keys; nothing from the request is interpolated).
+ */
+export const EXTRA_FILTERS = Object.freeze({
+  status: {
+    active: `NOT everstats_banned(a.id) AND NOT EXISTS (SELECT 1 FROM moderation_actions m WHERE m.account_id = a.id AND m.type = 'warning')`,
+    warned: `NOT everstats_banned(a.id) AND EXISTS (SELECT 1 FROM moderation_actions m WHERE m.account_id = a.id AND m.type = 'warning')`,
+    temp_banned: `EXISTS (SELECT 1 FROM account_bans b WHERE b.account_id = a.id AND b.kind = 'temporary' AND ${LIVE})
+                  AND NOT EXISTS (SELECT 1 FROM account_bans b WHERE b.account_id = a.id AND b.kind = 'permanent' AND ${LIVE})`,
+    banned: `EXISTS (SELECT 1 FROM account_bans b WHERE b.account_id = a.id AND b.kind = 'permanent' AND ${LIVE})`,
+  },
+  signin: {
+    battlenet: "EXISTS (SELECT 1 FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'battlenet')",
+    discord: "EXISTS (SELECT 1 FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'discord')",
+    passkey: 'EXISTS (SELECT 1 FROM passkeys p WHERE p.account_id = a.id)',
+  },
+  twofa: {
+    on: "EXISTS (SELECT 1 FROM account_totp t WHERE t.account_id = a.id AND t.state = 'enabled')",
+    off: "NOT EXISTS (SELECT 1 FROM account_totp t WHERE t.account_id = a.id AND t.state = 'enabled')",
+  },
+  created: {
+    '7d': "a.created_at >= now() - interval '7 days'",
+    '30d': "a.created_at >= now() - interval '30 days'",
+  },
+});
+const extraSql = (query) => Object.entries(EXTRA_FILTERS)
+  .filter(([k, map]) => typeof query[k] === 'string' && Object.hasOwn(map, query[k]))
+  .map(([k, map]) => `(${map[query[k]]})`);
+const extraChosen = (query) => Object.fromEntries(Object.entries(EXTRA_FILTERS)
+  .filter(([k, map]) => typeof query[k] === 'string' && Object.hasOwn(map, query[k])).map(([k]) => [k, query[k]]));
+
 /** active | warned | temp-banned (until) | banned, from the live ban and the warnings. */
 const statusOf = (r) => {
   if (r.ban_kind === 'permanent') return { id: 'banned', until: null };
@@ -220,6 +252,16 @@ export function createModerationRouter({ db, writes }) {
     });
   }));
 
+  // 0.10.3: the Audit log for whoever passed the gate. A moderator sees ONLY their own entries (design/v5-admin: a
+  // moderator would see Inbox › Reports, the parts of Directory › Accounts they may use, and their own audit entries).
+  r.get('/moderation/audit', route(async (req, res) => {
+    const actor = actorFrom(req);
+    const { auditPage } = await import('../audit/log.js');
+    const cursor = typeof req.query.cursor === 'string' && req.query.cursor ? req.query.cursor : null;
+    if (actor.kind !== 'moderator') throw new HttpError(404, 'Not found'); // the admin reads /api/admin/audit
+    res.json(await auditPage(db, { actorAccountId: actor.accountId, cursor }));
+  }));
+
   // ---- Admin → Accounts (admin only): every player account, newest first, searchable and filterable. No export.
   r.get('/moderation/accounts', route(async (req, res) => {
     need(actorFrom(req), 'accounts.list');
@@ -229,9 +271,10 @@ export function createModerationRouter({ db, writes }) {
     const cursor = Number.isSafeInteger(Number(req.query.cursor)) && Number(req.query.cursor) > 0 ? Number(req.query.cursor) : null;
     const marker = (await db.one('SELECT at FROM pipeline_facts WHERE key = $1', [MARKER]))?.at ?? null;
     const like = `${q.replace(/[%_\\]/g, (c) => `\\${c}`)}`;
+    const extra = extraSql(req.query).map((s) => ` AND ${s}`).join('');
     const rows = await db.query(
       `SELECT ${columns(6)} FROM accounts a
-        WHERE ${FILTER_SQL[filter]} AND ($2::timestamptz IS NULL OR $2::timestamptz IS NOT NULL)
+        WHERE ${FILTER_SQL[filter]}${extra} AND ($2::timestamptz IS NULL OR $2::timestamptz IS NOT NULL)
           AND ($1 = '' OR a.id::text = $1 OR a.username LIKE $3 || '%' OR lower(a.display_name) LIKE '%' || $3 || '%'
                OR a.id IN (SELECT h.account_id FROM username_history h WHERE h.old_name LIKE $3 || '%'))
           AND ($4::bigint IS NULL OR a.id < $4)
@@ -239,10 +282,10 @@ export function createModerationRouter({ db, writes }) {
       [q, marker, like, cursor, limit + 1, SIGN_IN_EVENTS],
     );
     // How many accounts the filter matches (search aside), for "N accounts".
-    const total = (await db.one(`SELECT count(*)::int AS n FROM accounts a WHERE ${FILTER_SQL[filter]} AND ($1::text IS NULL OR $2::timestamptz IS NULL OR true)`, [null, marker])).n;
+    const total = (await db.one(`SELECT count(*)::int AS n FROM accounts a WHERE ${FILTER_SQL[filter]}${extra} AND ($1::text IS NULL OR $2::timestamptz IS NULL OR true)`, [null, marker])).n;
     const page = rows.slice(0, limit);
     res.json({
-      filter, filters: ACCOUNT_FILTERS, q, checkedAt: marker, total,
+      filter, filters: ACCOUNT_FILTERS, extra: extraChosen(req.query), q, checkedAt: marker, total,
       accounts: page.map(rowView),
       next: rows.length > limit ? Number(page[page.length - 1].id) : null,
     });
@@ -266,8 +309,11 @@ export function createModerationRouter({ db, writes }) {
   r.post('/moderation/accounts/:id/ban', writes, act((actor, id, body) => ban(db, actor, id, body, { onChanged: changed })));
   r.post('/moderation/accounts/:id/unban', writes, act((actor, id, body) => unban(db, actor, id, body, { onChanged: changed })));
   r.put('/moderation/accounts/:id/role', writes, act((actor, id, body) => setRole(db, actor, id, body)));
+  // 0.10.3: the v5 admin asks for a reason before it reveals (design/v5-admin: "Reveal shows a redacted value until the
+  // admin gives a reason"); the reason is logged with the reveal, the revealed names never are.
   r.post('/moderation/accounts/:id/reveal', writes, route(async (req, res) => {
-    res.json({ identities: await reveal(db, actorFrom(req), idParam(req.params.id)) });
+    const reason = req.body?.reason ? cleanReason(req.body.reason, { label: 'The reason' }) : null;
+    res.json({ identities: await reveal(db, actorFrom(req), idParam(req.params.id), { reason }) });
   }));
 
   // ---- Admin → Reports: profiles, guild descriptions and guild links, grouped by target.
@@ -277,11 +323,22 @@ export function createModerationRouter({ db, writes }) {
     res.json(await reportsQueue(db, state));
   }));
 
+  // 0.10.3: the Inbox tab count without loading the queue.
+  r.get('/moderation/reports/count', route(async (req, res) => {
+    need(actorFrom(req), 'reports.view');
+    const row = await db.one(
+      `SELECT (SELECT count(*)::int FROM reports WHERE state = 'open') + (SELECT count(*)::int FROM guild_link_reports WHERE state = 'open') AS open`,
+    );
+    res.json({ open: row.open });
+  }));
+
   // Dismiss (or mark actioned) every open report about one target.
   r.post('/moderation/reports/resolve', writes, route(async (req, res) => {
     const actor = actorFrom(req);
     const state = req.body?.state === 'actioned' ? 'actioned' : 'dismissed';
     need(actor, 'reports.dismiss');
+    // 0.10.3: the v5 Inbox asks for a reason (logged with the action); older callers may leave it out.
+    const reason = req.body?.reason ? cleanReason(req.body.reason, { label: 'The reason' }) : null;
     const kind = req.body?.target?.kind;
     const id = idParam(req.body?.target?.id);
     const count = await db.tx(async (q) => {
@@ -296,7 +353,7 @@ export function createModerationRouter({ db, writes }) {
       if (!n) throw new HttpError(409, 'Those reports are already handled.', 'nothing');
       await logAction(q, {
         accountId: kind === 'account' ? id : null, guildId: kind === 'guild' ? id : null,
-        type: state === 'actioned' ? 'reports_actioned' : 'reports_dismissed', actor, detail: { count: n, target: kind, link: kind === 'link' ? id : undefined },
+        type: state === 'actioned' ? 'reports_actioned' : 'reports_dismissed', actor, reason, detail: { count: n, target: kind, link: kind === 'link' ? id : undefined },
       });
       return n;
     });

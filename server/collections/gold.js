@@ -1,6 +1,7 @@
 import { BLIZZARD_API } from '../core/config.js';
 import { pageLimit } from '../core/db.js';
 import { countRequests } from '../crawler/stats.js';
+import { featureOn } from '../features/registry.js';
 
 /**
  * Opt-in gold stats (0.9.0). /profile/user/wow/protected-character/{realmId}-{characterId} answers ONLY with the
@@ -61,6 +62,8 @@ export function protectedPath(href) {
  *   → { read, stored, failed }
  */
 export async function importGold({ db, accountId, characters, source, userToken, namespace = BLIZZARD_API.namespaces.profile }) {
+  // 0.10.3: the Gold opt-in switch (features/registry.js). Off: no gold is read (nothing is asked with the token).
+  if (!(await featureOn(db, 'gold'))) return { read: 0, stored: 0, failed: 0, off: true };
   // 0.10.0: `characters` = [{ id (Everstats'), blizzardId (Blizzard's; = id on the native version), protectedPath }],
   // and `namespace` the profile namespace of the version they belong to.
   const todo = characters.filter((c) => c.protectedPath).slice(0, MAX_PER_SIGNIN);
@@ -111,6 +114,8 @@ export async function goldFor(db, character, viewerAccountId) {
   const mine = Boolean(viewerAccountId && character.owner_account_id && Number(character.owner_account_id) === Number(viewerAccountId));
   const owner = character.owner_account_id;
   if (!owner) return null;
+  // 0.10.3: switched off: the owner is told so; everyone else sees nothing, as for gold that isn't shared.
+  if (!(await featureOn(db, 'gold'))) return mine ? { state: 'off', mine, public: false } : null;
   const pub = await db.one('SELECT since FROM character_gold_public WHERE character_id = $1 AND account_id = $2', [character.id, owner]);
   if (!mine && (!pub || character.hidden)) return null;
   const g = await db.one('SELECT money, gold_gained, gold_lost, item_value_gained, fetched_at FROM character_gold WHERE character_id = $1 AND account_id = $2', [character.id, owner]);

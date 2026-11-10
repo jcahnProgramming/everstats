@@ -56,6 +56,15 @@ const KINDS = SUGGESTION_KINDS; // decisions on a suggestion
 const DECISION_KINDS = [...SUGGESTION_KINDS, 'value_type']; // … plus the admin's own value-type corrections
 const DECISIONS = ['approved', 'rejected', 'cleared'];
 
+/** 0.10.3: the game version a list or catalog is limited to (`version` or `v`), or null for every version. */
+const versionParam = (x) => {
+  if (x === undefined || x === null || x === '') return null;
+  const v = String(x);
+  if (!versionById(v)) throw new HttpError(400, 'Unknown game version', 'invalid');
+  return v;
+};
+const regionParam = (x) => (typeof x === 'string' && /^[a-z]{2}$/.test(x) ? x : null);
+
 const intParam = (v) => {
   const n = Number.parseInt(v, 10);
   if (!Number.isSafeInteger(n) || n < 1) throw new HttpError(404, 'Not found');
@@ -88,9 +97,11 @@ const runView = (r, { skeletons = false } = {}) => {
  * the combined catalog of every finished run; a number is that run's own catalog. Only the decision-free stored
  * `suggestions` snapshot is ignored here: what the page shows always follows the current decisions.
  */
-async function loadCatalog(db, runId) {
+async function loadCatalog(db, runId, { version = null } = {}) {
+  // 0.10.3: `version` (the admin's version switcher) limits the combined catalog to one game version's statistics;
+  // null keeps every version (as before). A run's own catalog is that run's, whatever the version.
   const rows = runId === null
-    ? [...await db.query('SELECT * FROM discovery_catalog ORDER BY statistic_id LIMIT $1', [MAX_CATALOG_ROWS]), ...await productionOnly(db)]
+    ? [...await db.query('SELECT * FROM discovery_catalog WHERE ($2::text IS NULL OR game_version = $2) ORDER BY statistic_id LIMIT $1', [MAX_CATALOG_ROWS, version]), ...await productionOnly(db, version)]
     : await db.query('SELECT * FROM discovery_statistics WHERE run_id = $1 ORDER BY statistic_id LIMIT $2', [runId, MAX_CATALOG_ROWS]);
   const decisions = await currentDecisions(db, rows.map((r) => r.statistic_id));
   return rows.map((r) => present({
@@ -121,8 +132,8 @@ async function loadCatalog(db, runId) {
  * crawls). Shaped like discovery_catalog rows, with counts measured from the production tables, so the combined
  * catalog shows them for approval like any other. Their value type is the same name-based guess discovery makes.
  */
-async function productionOnly(db) {
-  const sampled = (await db.one('SELECT count(*)::int AS n FROM characters WHERE stats_fetched_at IS NOT NULL')).n;
+async function productionOnly(db, version = null) {
+  const sampled = (await db.one('SELECT count(*)::int AS n FROM characters WHERE stats_fetched_at IS NOT NULL AND ($1::text IS NULL OR game_version = $1)', [version])).n;
   const rows = await db.query(
     `SELECT s.id, s.name, s.category_path, s.has_text, s.named_example, s.derived,
             (SELECT count(*)::int FROM character_statistics cs WHERE cs.statistic_id = s.id) AS present,
@@ -130,8 +141,9 @@ async function productionOnly(db) {
             (SELECT min(value) FROM character_statistics cs WHERE cs.statistic_id = s.id) AS min_value,
             (SELECT max(value) FROM character_statistics cs WHERE cs.statistic_id = s.id) AS max_value
        FROM statistics s WHERE NOT EXISTS (SELECT 1 FROM discovery_catalog d WHERE d.statistic_id = s.id)
+        AND ($2::text IS NULL OR s.game_version = $2)
       ORDER BY s.id LIMIT $1`,
-    [MAX_CATALOG_ROWS],
+    [MAX_CATALOG_ROWS, version],
   );
   return rows.map((r) => {
     const g = guessValueType(r.name, { namedExample: r.named_example });
@@ -204,19 +216,32 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy, fetch = 
   r.get('/', route(async (req, res) => {
     const limit = pageLimit(req.query.limit, { fallback: 25, max: 100 });
     const before = req.query.before ? intParam(req.query.before) : null;
+    // 0.10.3: ?version= (or v) &region= (or r) &kind=discovery|probe narrow the list; none of them = every run, as before.
+    const version = versionParam(req.query.version ?? req.query.v);
+    const region = regionParam(req.query.region ?? req.query.r);
+    const kind = ['discovery', 'probe'].includes(req.query.kind) ? req.query.kind : null;
     const rows = await db.query(
-      `SELECT id, status, requested_at, started_at, finished_at, heartbeat_at, options, progress, problem, stop_requested_at,
+      `SELECT id, status, requested_at, started_at, finished_at, heartbeat_at, options, progress, problem, stop_requested_at, game_version, region,
               (summary IS NOT NULL) AS has_summary, summary->'requests' AS requests, summary->'catalogSize' AS catalog_size, summary->'wallMs' AS wall_ms
-         FROM discovery_runs WHERE ($1::bigint IS NULL OR id < $1) ORDER BY id DESC LIMIT $2`,
-      [before, limit + 1],
+         FROM discovery_runs
+        WHERE ($1::bigint IS NULL OR id < $1) AND ($3::text IS NULL OR game_version = $3) AND ($4::text IS NULL OR region = $4)
+          AND ($5::text IS NULL OR coalesce(options->>'kind', 'discovery') = $5)
+        ORDER BY id DESC LIMIT $2`,
+      [before, limit + 1, version, region, kind],
+    );
+    // One run at a time across every version and kind: the one in flight, wherever it is, so a page can say why it waits.
+    const active = await db.one(
+      `SELECT id, status, options, progress, heartbeat_at, game_version, region, stop_requested_at FROM discovery_runs
+        WHERE status IN ('queued', 'running') ORDER BY id LIMIT 1`,
     );
     const settings = (await listSettings(db)).filter((s) => s.section === 'discovery');
     res.json({
       configured: await isConfigured(db, source.credential),
       grant: await grantStatus(db),
       settings,
-      runs: rows.slice(0, limit).map((x) => ({ ...runView({ ...x, summary: undefined }), requests: x.requests, catalogSize: x.catalog_size, wallMs: x.wall_ms })),
+      runs: rows.slice(0, limit).map((x) => ({ ...runView({ ...x, summary: undefined }), version: x.game_version, region: x.region, requests: x.requests, catalogSize: x.catalog_size, wallMs: x.wall_ms })),
       nextBefore: rows.length > limit ? rows[limit - 1].id : null,
+      active: active ? { ...runView({ ...active, summary: undefined }), version: active.game_version, region: active.region } : null,
     });
   }));
 
@@ -283,6 +308,37 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy, fetch = 
       requestsPerSecond: await getSetting(db, 'discovery.requestsPerSecond'),
     };
     res.status(201).json({ run: runView(await queueRun(options, 'discovery.probe_queued', { version, region })) });
+  }));
+
+  /**
+   * 0.10.3: the endpoint probe matrix: every endpoint as the NEWEST finished probe of each game version (in one region)
+   * answered it, from the stored summaries only (nothing is asked). A version never probed there is listed with no run.
+   */
+  r.get('/probe-matrix', route(async (req, res) => {
+    const region = regionParam(req.query.region ?? req.query.r) ?? PRIMARY_SCOPE.region;
+    const latest = await db.query(
+      `SELECT DISTINCT ON (game_version) id, game_version, finished_at, status, summary->'entries' AS entries, summary->'areas' AS areas
+         FROM discovery_runs
+        WHERE options->>'kind' = 'probe' AND region = $1 AND status IN ('done', 'stopped') AND summary IS NOT NULL
+        ORDER BY game_version, id DESC LIMIT $2`,
+      [region, GAME_VERSIONS.length],
+    );
+    const byVersion = new Map(latest.map((x) => [x.game_version, x]));
+    const versions = GAME_VERSIONS.map((v) => {
+      const run = byVersion.get(v.id);
+      return { id: v.id, name: v.name, short: v.short ?? v.name, run: run ? { id: run.id, status: run.status, finishedAt: run.finished_at } : null };
+    });
+    const rows = new Map();
+    const areas = new Map();
+    for (const run of latest) {
+      for (const a of run.areas ?? []) if (!areas.has(a.id)) areas.set(a.id, a.label);
+      for (const e of run.entries ?? []) {
+        if (!rows.has(e.id)) rows.set(e.id, { id: e.id, area: e.area, template: e.template, cells: {} });
+        const best = (e.attempts ?? []).find((a) => a.responseId === e.best) ?? null;
+        rows.get(e.id).cells[run.game_version] = { outcome: e.outcome, status: best?.status ?? null, skipped: e.skipped ?? null };
+      }
+    }
+    res.json({ region, versions, areas: [...areas].map(([id, label]) => ({ id, label })), rows: [...rows.values()] });
   }));
 
   // 0.10.0: the versions a probe can ask about (the client's pickers), whatever is enabled for players.
@@ -431,15 +487,20 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy, fetch = 
 
   // ---- the combined catalog of every finished run: what the admin approves from
   r.get('/catalog', route(async (req, res) => {
-    res.json({ combined: await combinedView(db), catalog: await loadCatalog(db, null) });
+    // 0.10.3: ?version= limits it to one version's statistics. Discovery runs ask the primary version only, so the
+    // combined summary (built from those runs) belongs to the primary version and is null for any other.
+    const version = versionParam(req.query.version ?? req.query.v);
+    const combined = version === null || version === PRIMARY_VERSION.id ? await combinedView(db) : null;
+    res.json({ version, combined, catalog: await loadCatalog(db, null, { version }) });
   }));
   r.post('/reanalyse', writes, route(async (req, res) => {
     await reanalyseAll(db);
     res.json({ combined: await combinedView(db) });
   }));
   r.get('/catalog/export.csv', route(async (req, res) => {
-    const csv = catalogCsv(await loadCatalog(db, null));
-    res.set('Content-Disposition', 'attachment; filename="everstats-discovery-combined-catalog.csv"');
+    const version = versionParam(req.query.version ?? req.query.v);
+    const csv = catalogCsv(await loadCatalog(db, null, { version }));
+    res.set('Content-Disposition', `attachment; filename="everstats-discovery-combined-catalog${version ? `-${version}` : ''}.csv"`);
     res.type('text/csv; charset=utf-8').send(csv);
   }));
 
@@ -480,8 +541,9 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy, fetch = 
   r.put('/decisions', writes, route(async (req, res) => {
     const { statisticId, kind, decision } = req.body ?? {};
     const runId = req.body?.combined === true ? null : intParam(req.body?.runId);
+    const version = versionParam(req.body?.version);
     if (!DECISION_KINDS.includes(kind) || !DECISIONS.includes(decision) || !Number.isSafeInteger(statisticId)) throw new HttpError(400, 'That isn’t a decision.', 'invalid');
-    const [stat] = (await loadCatalog(db, runId)).filter((s) => s.statisticId === statisticId);
+    const [stat] = (await loadCatalog(db, runId, { version })).filter((s) => s.statisticId === statisticId);
     if (!stat) throw new HttpError(404, 'Not found');
     let value;
     let reasoning;
@@ -499,15 +561,15 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy, fetch = 
     }
     await db.tx(async (q) => {
       await q.query(
-        'INSERT INTO discovery_decisions (statistic_id, kind, value, decision, reasoning, run_id) VALUES ($1, $2, $3::jsonb, $4, $5, $6)',
-        [statisticId, kind, JSON.stringify(value), decision, String(reasoning).slice(0, 600), runId],
+        'INSERT INTO discovery_decisions (statistic_id, kind, value, decision, reasoning, run_id, game_version) VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)',
+        [statisticId, kind, JSON.stringify(value), decision, String(reasoning).slice(0, 600), runId, version ?? PRIMARY_VERSION.id],
       );
       await q.query("INSERT INTO admin_events (type, detail) VALUES ('discovery.decided', $1::jsonb)", [JSON.stringify({ statisticId, kind, decision })]);
       // 0.6.0: tiers are graded from the live decisions. One full grading follows a burst of decisions (debounced).
       await requestTierRecompute(q, 'decision');
     });
     clearCatalogCache(); // character pages and boards follow the decision at once
-    const [after] = (await loadCatalog(db, runId)).filter((s) => s.statisticId === statisticId);
+    const [after] = (await loadCatalog(db, runId, { version })).filter((s) => s.statisticId === statisticId);
     res.json({ statistic: after });
   }));
 

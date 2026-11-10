@@ -1,0 +1,11 @@
+/* Dashboard additions (0.10.3). Tokens only. */
+.adm .dash-body { display: flex; flex-direction: column; gap: var(--es-space-14); }
+.adm .dash-body.is-loading .dcard > .bd { opacity: var(--es-adm-loading-opacity); }
+.adm .dcard.is-error { border-color: color-mix(in oklab, var(--es-adm-error-edge) 60%, var(--es-line)); }
+.adm .spark-fig { margin: 0; display: flex; flex-direction: column; gap: var(--es-space-4); }
+.adm .edit-list > .edit-slot { flex: 1 1 var(--es-adm-card-basis); min-width: 0; display: flex; }
+.adm .edit-list .dcard, .adm .edit-list .dcard.w { flex: 1 1 auto; min-height: 0; }
+.adm .dcard .kvs { font-size: var(--es-fs-12-5); }
+/* Audit log (0.10.3) */
+.adm .audit-table td .chip { flex: none; }
+.adm .audit-table .chg { overflow-wrap: anywhere; }

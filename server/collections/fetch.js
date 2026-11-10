@@ -5,6 +5,7 @@ import { catalogTotals, recordStaticNamespace } from './catalog.js';
 import { staticNamespaceIn } from './parse.js';
 import { KINDS } from './registry.js';
 import { storeFeedValues } from '../stats/feedStore.js';
+import { featureOn } from '../features/registry.js';
 
 /** 0.10.0 rule A7: the collections responses that are also feeds (stats/feeds.js FEEDS ids). */
 const FEED_OF_KIND = Object.freeze({
@@ -35,6 +36,9 @@ export const COLLECTIONS_STALE_MS = 24 * 60 * 60 * 1000; // the Collections tab 
 export async function queueCollections(q, ref, priority, scope = {}) {
   const r = typeof ref === 'string' || ref === null || ref === undefined ? { slug: ref, realmSlug: null } : ref;
   if (!r.slug) return null;
+  // 0.10.3: Collections switched off (features/registry.js): nothing is queued, from anywhere (the weekly refresh, a
+  // sign-in, the tab, the backfill all come through here).
+  if (!(await featureOn(q, 'collections'))) return null;
   return enqueue(q, { kind: 'collections', key: crawlKey(r), priority, mode: 'full', version: scope.version, region: scope.region });
 }
 
@@ -57,6 +61,8 @@ export async function maybeQueueCollections(db, characterId, slug, priority) {
 const retryable = (r) => r.status === null || r.status === 429 || r.status >= 500;
 
 export async function fetchCollections({ db, client }, item) {
+  // 0.10.3: an item queued before Collections was switched off asks Blizzard nothing.
+  if (!(await featureOn(db, 'collections'))) return 'skipped: Collections are switched off';
   const { scope, ctx } = itemScope(item);
   const ref = parseCrawlKey(scope.version, item.key);
   const ch = await db.one(

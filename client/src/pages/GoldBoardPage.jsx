@@ -7,6 +7,8 @@ import { EmptyState, Provenance } from '../components/EmptyState.jsx';
 import { RankedTable, RulesetSwitcher } from '../components/Stats.jsx';
 import { formatMoney } from '../collections/parts.jsx';
 import { formatNumber } from '../format.js';
+import { SwitchedOff } from '../components/SwitchedOff.jsx';
+import { isFeatureOff } from '../features.js';
 
 /**
  * Gold leaderboards (0.9.0), /leaderboards/gold/{ruleset}/{field}. Gold is private Blizzard data that only a
@@ -34,6 +36,8 @@ export function GoldBoardPage() {
     setData((x) => ({ ...x, rows: [...x.rows, ...d.rows], next: d.next }));
     setMore({ busy: false });
   }, [data, ruleset, field]);
+  // 0.10.3: gold switched off by Everstats: the boards say so instead of "no such board".
+  if (isFeatureOff(error)) return <div className="wrap page-pad stack gap-16"><h1 className="h1">Gold</h1><SwitchedOff>{error.message}</SwitchedOff><Link className="btn self-start" to="/leaderboards">All leaderboards</Link></div>;
   if (error) {
     return <div className="wrap page-pad stack gap-16"><h1 className="h1">No such board</h1><EmptyState kind="nocoverage" title="Everstats has no such gold board"><span><Link to="/leaderboards">All leaderboards</Link></span></EmptyState></div>;
   }
@@ -82,6 +86,14 @@ export function GoldBoardsSection({ ruleset }) {
       live = false;
     };
   }, [ruleset]);
+  if (data?.off) {
+    return (
+      <section className="stack gap-14" id="gold" aria-labelledby="h-gold">
+        <h2 className="h2" id="h-gold">Gold</h2>
+        <SwitchedOff compact>{data.message}</SwitchedOff>
+      </section>
+    );
+  }
   if (!data?.ruleset) return null;
   return (
     <section className="stack gap-14" id="gold" aria-labelledby="h-gold">

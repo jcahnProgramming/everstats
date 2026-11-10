@@ -1,10 +1,10 @@
 import express from 'express';
-import { TIER_SETTING_KEYS, checkSetting, getSetting, setSetting } from '../admin/settings.js';
+import { TIER_SETTING_KEYS, checkSetting, getSetting, listSettings, setSetting } from '../admin/settings.js';
 import { HttpError, route } from '../core/errors.js';
 import { PRIMARY_VERSION, versionById } from '../core/gameVersions.js';
 import { rulesetList } from '../characters/routes.js';
 import { weightsProblem } from './engine.js';
-import { countingNow, previewTiers, requestTierRecompute } from './store.js';
+import { countingNow, eligibleCount, previewTiers, requestTierRecompute } from './store.js';
 import { adminTierState, howTiersWork, tierBoard } from './view.js';
 
 /**
@@ -13,8 +13,13 @@ import { adminTierState, howTiersWork, tierBoard } from './view.js';
  *           GET /api/tiers/boards         a tier board: ?ruleset=&scope=overall|<category key>&cursor=
  *   admin   GET  /api/admin/tiers         settings, what counts (with reasons and inconsistencies), runs, rulesets
  *           POST /api/admin/tiers/preview letters per ruleset with proposed settings; nothing is saved
- *           PUT  /api/admin/tiers/settings save the tier settings (each change logged; a full grading follows)
- *           POST /api/admin/tiers/regrade ask for a full grading now
+ *           PUT  /api/admin/tiers/settings save the tier settings (each change logged, with the admin's reason since
+ *                                          0.10.3; a full grading follows)
+ *           POST /api/admin/tiers/regrade ask for a full grading now → the run it queued or joined + the gradings
+ *           GET  /api/admin/tiers/runs    (0.10.3) the gradings and this version's rulesets only: what the Tiers page polls
+ *                                          while a grading is pending or running, so "Grade everyone now" shows
+ *                                          queued → grading → done with its result in place
+ * 0.10.3: the version comes as `version` or `v` (the admin's version switcher writes ?v=&r=).
  * The admin ones are mounted inside the admin router, after its gate: a plain 404 without an admin session.
  */
 const FIELDS = { shares: 'tiers.shares', minPopulation: 'grading.minPopulation', categoryHalf: 'tiers.categoryHalf', overallHalf: 'tiers.overallHalf', weights: 'tiers.weights' };
@@ -29,6 +34,41 @@ const versionOf = (x) => {
   if (!versionById(v)) throw new HttpError(400, 'Unknown game version', 'invalid');
   return v;
 };
+
+const versionFromQuery = (query) => versionOf(query?.version ?? query?.v);
+
+/**
+ * The gradings (tier_runs: one grading covers every version) with, per run, what it did on THIS version's realm
+ * categories: how many were graded, how many characters, the overall letters summed. Plus the version's categories now.
+ */
+async function tierRunsView(db, version) {
+  const rows = await db.query(
+    'SELECT r.id, r.name, t.population, t.graded, t.computed_at FROM rulesets r LEFT JOIN tier_rulesets t ON t.ruleset_id = r.id WHERE r.game_version = $1 ORDER BY r.id LIMIT 50',
+    [version],
+  );
+  const mine = new Set(rows.map((r) => Number(r.id)));
+  const runs = await db.query('SELECT id, status, reasons, requested_at, started_at, finished_at, ms, summary, problem FROM tier_runs ORDER BY id DESC LIMIT 10');
+  const rulesets = [];
+  for (const r of rows) rulesets.push({ id: r.id, name: r.name, eligible: await eligibleCount(db, r.id), graded: Boolean(r.graded), gradedAt: r.computed_at ?? null, gradedPopulation: r.population ?? null });
+  return {
+    version,
+    rulesets,
+    runs: runs.map((run) => {
+      const here = (run.summary?.rulesets ?? []).filter((x) => mine.has(Number(x.rulesetId)));
+      const letters = { S: 0, A: 0, B: 0, C: 0, D: 0, unranked: 0 };
+      for (const x of here) for (const k of Object.keys(letters)) letters[k] += Number(x.overall?.[k] ?? 0);
+      return {
+        ...run,
+        here: run.summary ? {
+          rulesets: here.length,
+          graded: here.filter((x) => x.graded).length,
+          characters: here.filter((x) => x.graded).reduce((n, x) => n + Number(x.population ?? 0), 0),
+          letters: here.some((x) => x.graded) ? letters : null,
+        } : null,
+      };
+    }),
+  };
+}
 
 async function settingsFrom(db, body) {
   const version = versionOf(body?.version);
@@ -79,7 +119,14 @@ export function createTierRouter({ db }) {
 
 export function createAdminTierRouter({ db, writes }) {
   const r = express.Router();
-  r.get('/tiers', route(async (req, res) => res.json(await adminTierState(db, { version: versionOf(req.query.version) }))));
+  r.get('/tiers', route(async (req, res) => {
+    const version = versionFromQuery(req.query);
+    // 0.10.3: each tier setting's label, help, default and when it was last saved, for the setting rows.
+    const meta = (await listSettings(db, { version })).filter((s) => TIER_SETTING_KEYS.includes(s.key))
+      .map((s) => ({ key: s.key, label: s.label, help: s.help, default: s.default, updatedAt: s.updatedAt, min: s.min ?? null, max: s.max ?? null }));
+    res.json({ ...(await adminTierState(db, { version })), meta });
+  }));
+  r.get('/tiers/runs', route(async (req, res) => res.json(await tierRunsView(db, versionFromQuery(req.query)))));
 
   r.post('/tiers/preview', writes, route(async (req, res) => {
     const version = versionOf(req.body?.version);
@@ -90,21 +137,26 @@ export function createAdminTierRouter({ db, writes }) {
   r.put('/tiers/settings', writes, route(async (req, res) => {
     const version = versionOf(req.body?.version);
     const settings = await settingsFrom(db, req.body);
+    // 0.10.3: the admin's reason ("Save and regrade") goes into each change's audit-log entry.
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : null;
     await db.tx(async (q) => {
       for (const [field, key] of Object.entries(FIELDS)) {
         const now = await getSetting(q, key, { version });
-        if (JSON.stringify(now) !== JSON.stringify(settings[field])) await setSetting(q, key, settings[field], { q, version });
+        if (JSON.stringify(now) !== JSON.stringify(settings[field])) await setSetting(q, key, settings[field], { q, version, reason });
       }
     });
     res.json(await adminTierState(db, { version }));
   }));
 
+  // One grading covers every version; `version` says which page asked (the log, and whose rulesets the answer lists).
   r.post('/tiers/regrade', writes, route(async (req, res) => {
-    await db.tx(async (q) => {
-      await requestTierRecompute(q, 'admin asked');
-      await q.query("INSERT INTO admin_events (type) VALUES ('tiers.regrade_requested')");
+    const version = versionOf(req.body?.version);
+    const runId = await db.tx(async (q) => {
+      const id = await requestTierRecompute(q, 'admin asked');
+      await q.query("INSERT INTO admin_events (type, detail) VALUES ('tiers.regrade_requested', $1::jsonb)", [JSON.stringify({ version, run: id })]);
+      return id;
     });
-    res.json(await adminTierState(db));
+    res.json({ runId, ...(await tierRunsView(db, version)) });
   }));
   return r;
 }

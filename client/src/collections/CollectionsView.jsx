@@ -14,6 +14,8 @@ import {
 import { TransmogTracker } from './Transmog.jsx';
 import { ShareButton } from '../share/ShareButtons.jsx';
 import { fillStyle } from '../components/fillGrid.js';
+import { SwitchedOff } from '../components/SwitchedOff.jsx';
+import { OFF_WORDS } from '../features.js';
 
 /**
  * The Collections tab (0.9.0, design/v4-collections pages/collections-tab and the screens beside it), at
@@ -79,6 +81,8 @@ export function CollectionsView({ character: c, screen = '' }) {
 
   if (error) return <div className="note warn" role="alert"><Icon name="warning" /><span>Couldn’t load collections: {error.message}</span></div>;
   if (!data) return <CollectionsLoading />;
+  // 0.10.3: Collections switched off by Everstats (features/registry.js): said plainly, nothing is fetched.
+  if (data.status === 'off') return <SwitchedOff>{data.message ?? OFF_WORDS.collections} Statistics, gear and leaderboards are unaffected.</SwitchedOff>;
   if (data.status !== 'ok') return <div className="note" role="status"><Icon name="info" /><span>Collections aren’t available for this character.</span></div>;
 
   const present = new Set(data.sections.map((s) => s.id));
@@ -419,7 +423,9 @@ function GoldPanel({ gold, character: c, onChange }) {
         <h2 className="h3" id="gold-h">Gold</h2>
         {gold.mine && <span className={`tag${gold.public ? ' gold' : ''}`}>{gold.public ? 'Public' : 'Only you can see this'}</span>}
       </div>
-      {gold.state === 'none' ? (
+      {gold.state === 'off' ? (
+        <p className="small t2">{OFF_WORDS.gold} Nothing Everstats already has is deleted; it ages out as usual.</p>
+      ) : gold.state === 'none' ? (
         <p className="small t2">Gold updates when the owner signs in with Battle.net. Blizzard shares a character’s gold only with its owner, and Everstats keeps it for at most 30 days.</p>
       ) : (
         <>
@@ -432,7 +438,7 @@ function GoldPanel({ gold, character: c, onChange }) {
           <span className="muted xsmall">From the last Battle.net sign-in, {formatDate(gold.fetchedAt)}. Gold updates when the owner signs in.</span>
         </>
       )}
-      {gold.mine && (
+      {gold.mine && gold.state !== 'off' && (
         <div className="stack gap-6">
           <Toggle checked={gold.public} disabled={busy} onChange={(v) => flip(v)}>Show my gold stats publicly</Toggle>
           <span className="small t2">Gold is private Blizzard data: only you can share it. On, anyone can see these four numbers on this page and {c.name} appears on the gold leaderboards (they rank only characters whose owners chose to share). Off, it leaves them at once. Your character’s location is never collected.</span>

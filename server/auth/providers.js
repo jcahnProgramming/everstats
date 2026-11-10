@@ -11,6 +11,9 @@
  *   scopes        what is asked for, and why (scopeReason, shown nowhere yet but kept honest here)
  *   pkce          true only where the provider's docs say it supports PKCE
  *   identity(accessToken, { fetch }) → { subject, displayName }: who signed in. subject is the provider's stable id.
+ *   feature       (optional) the features/registry.js switch that turns this provider off (0.10.3). Off: its button says
+ *                 "Switched off for now", starting it (sign in, link, merge) is refused, and a round trip already started
+ *                 ends at the callback without asking the provider anything. Nobody is signed out; no link is removed.
  *
  * Verified against the providers' docs on 2026-11-08:
  *   Battle.net (community.developer.battle.net, "Authorization Code Flow"): authorize and token on oauth.battle.net,
@@ -51,6 +54,7 @@ export const PROVIDERS = [
     id: 'discord',
     label: 'Discord',
     credential: 'discord',
+    feature: 'discord',
     authorizeUrl: 'https://discord.com/oauth2/authorize',
     tokenUrl: 'https://discord.com/api/oauth2/token',
     // identify: the user's id and name, without their email. We never ask for email.

@@ -5,7 +5,7 @@ import { config, scopeSql } from '../core/config.js';
 import { ENVIRONMENT } from '../core/environment.js';
 import { parseGuildSlug, parseSlug } from '../stats/slug.js';
 import { loadCatalog } from '../stats/catalog.js';
-import { ogPath } from './routes.js';
+import { cardsOn, ogPath } from './routes.js';
 import { LAYOUT_VERSION } from './render.js';
 import { pageTitleFor } from '../core/pageTitles.js';
 import { displayName } from '../stats/names.js';
@@ -89,8 +89,24 @@ async function boardMeta(db, { rulesetId, statisticId, guilds, query }) {
   return { title: `${stat.name} on ${rs.name}`, description: `The ${stat.name} leaderboard on ${rs.name}, on Everstats.`, image: `${path}${path.includes('?') ? '&' : '?'}v=${await version(db, 'board', null)}` };
 }
 
-/** The preview for a page path → { title, description, image (path) | null } (SITE when nothing specific). */
+/**
+ * The preview for a page path → { title, description, image (path) | null } (SITE when nothing specific).
+ * 0.10.3: with "Share cards and link previews" switched off (features/registry.js) a page keeps its title and words
+ * but has NO image: the plain Everstats link preview. A collections page also loses its image while Collections is off.
+ */
 export async function linkPreviewFor(db, pathname, query) {
+  const p = await previewOf(db, pathname, query);
+  if (!p.image) return p;
+  try {
+    const type = /^[/]c[/][^/]+[/]collections/.test(pathname) ? 'collections' : 'card';
+    if (await cardsOn(db, type)) return p;
+  } catch {
+    // a switch that can't be read: the plain preview, never a broken page
+  }
+  return { ...p, image: null };
+}
+
+async function previewOf(db, pathname, query) {
   let m;
   try {
     if ((m = /^[/]c[/]([^/]+)[/]tier[/]share[/]?$/.exec(pathname))) return (await characterMeta(db, decodeURIComponent(m[1]), 'tier')) ?? SITE;

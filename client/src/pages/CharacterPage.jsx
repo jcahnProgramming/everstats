@@ -21,6 +21,7 @@ import { feedbackHref } from '../feedback/FeedbackPages.jsx';
 import { ShareButton } from '../share/ShareButtons.jsx';
 import { SignInNudge } from '../chrome/SignInNudge.jsx';
 import { CollectionsView } from '../collections/CollectionsView.jsx';
+import { useFeature } from '../features.js';
 
 /**
  * The character page (design/v1/pages/character): the gilt character sheet, then every statistic.
@@ -135,6 +136,7 @@ const NOTICES = {
 
 function CharacterSheet({ data, onReload, tab = 'stats', screen = '' }) {
   const c = data.character;
+  const collectionsOn = useFeature('collections'); // 0.10.3: switched off, Refresh doesn't ask for collections
   const stats = data.statistics;
   const line = [c.level !== null ? `Level ${c.level}` : null, c.race, c.class].filter(Boolean).join(' · ');
   const statCount = stats.categories.reduce((n, cat) => n + cat.statistics.length, 0);
@@ -163,7 +165,7 @@ function CharacterSheet({ data, onReload, tab = 'stats', screen = '' }) {
               <span className="t2">Last seen in game: <b className="strong-text">{c.lastLoginAt ? timeAgo(c.lastLoginAt) : 'not reported'}</b></span>
               <Fresh at={c.fetchedAt} prefix="Data as of " />
               {/* 0.9.0: a manual Refresh also refreshes collections (at lookup priority, same per-network limit). */}
-              <button type="button" className="btn ghost sm" onClick={() => { api(`/api/characters/${encodeURIComponent(c.slug)}/collections/refresh`, { method: 'POST' }).catch(() => {}); onReload(); }}><Icon name="refresh" size="sm" />Refresh</button>
+              <button type="button" className="btn ghost sm" onClick={() => { if (collectionsOn) api(`/api/characters/${encodeURIComponent(c.slug)}/collections/refresh`, { method: 'POST' }).catch(() => {}); onReload(); }}><Icon name="refresh" size="sm" />Refresh</button>
               {!c.hidden && <ShareButton to={`/c/${encodeURIComponent(c.slug)}/share`} />}
             </div>
           </div>
@@ -212,6 +214,7 @@ function CharacterSheet({ data, onReload, tab = 'stats', screen = '' }) {
  */
 function CharacterRender({ c, onReload }) {
   const toast = useToasts();
+  const feedbackOpen = useFeature('feedback'); // 0.10.3: "Report a wrong render" opens the feedback form
   const [busy, setBusy] = useState(false);
   const page = `/c/${encodeURIComponent(c.slug)}`;
   const toggle = async () => {
@@ -243,7 +246,7 @@ function CharacterRender({ c, onReload }) {
         <RenderFrame src={c.media.state === 'ok' ? c.media.render : null} alt={`${c.name} ${c.surname}, as Blizzard renders them`} pending={c.media.state !== 'ok'} />
       )}
       <span className="row gap-10 wrap-row render-links xsmall">
-        {c.media.state !== 'hidden' && c.media.state !== 'paused' && <Link to={feedbackHref(page, { type: 'bug', about: 'render' })}>Report a wrong render</Link>}
+        {feedbackOpen && c.media.state !== 'hidden' && c.media.state !== 'paused' && <Link to={feedbackHref(page, { type: 'bug', about: 'render' })}>Report a wrong render</Link>}
         {c.mine && <button type="button" className="linklike" onClick={toggle} disabled={busy}>{c.media.state === 'hidden' ? 'Show my render' : 'Hide my render'}</button>}
       </span>
     </div>

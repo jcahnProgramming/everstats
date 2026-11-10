@@ -23,6 +23,11 @@ import { createAdminGuildBadgeRouter } from '../guildBadges/admin.js';
 import { createAdminFeedbackRouter } from '../feedback/routes.js';
 import { createAdminActivityRouter } from '../activity/admin.js';
 import { createModerationRouter } from '../moderation/routes.js';
+import { createAdminShellRouter } from './shell.js';
+import { createAdminDashboardRouter } from './dashboard.js';
+import { createAdminDirectoryRouter } from './directory.js';
+import { createAdminDataRouter } from './data.js';
+import { createAdminReleaseRouter } from '../release/routes.js';
 
 /**
  * The admin area, under /api/admin. The admin is NOT an account: one person, passkeys only (admin_passkeys),
@@ -92,6 +97,8 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
     const counter = row ? await verifyAuthentication(req.body.response, flow.data.challenge, row) : null;
     if (counter === null) throw new HttpError(401, "That passkey isn't an admin passkey.", 'passkey_failed');
     await db.query('UPDATE admin_passkeys SET sign_count = $2, last_used_at = now() WHERE id = $1', [row.id, counter]);
+    // 0.10.3: admin sign-ins are in the Audit log (which passkey by its row id, never the credential).
+    await db.query("INSERT INTO admin_events (type, detail) VALUES ('admin.signed_in', $1::jsonb)", [JSON.stringify({ passkey: Number(row.id) })]);
     await startAdminSession(db, res);
     res.json({ ok: true });
   }));
@@ -106,6 +113,13 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
     if (!(await isAdmin(db, req))) throw notFound();
     next();
   }));
+
+  // 0.10.3: the v5 admin shell (nav counts, prefs, settings search, the Audit log, Features).
+  r.use('/', createAdminShellRouter({ db, writes }));
+  r.use('/', createAdminDashboardRouter({ db }));
+  r.use('/', createAdminDirectoryRouter({ db, writes }));
+  r.use('/', createAdminDataRouter({ db, writes, cardStats, proxies }));
+  r.use('/', createAdminReleaseRouter({ db, writes }));
 
   r.get('/state', route(async (req, res) => {
     res.json({
@@ -183,11 +197,12 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
   // The beta window: open or close it. Membership is decided by the window at account creation (beta.js).
   r.post('/beta', writes, route(async (req, res) => {
     if (typeof req.body?.open !== 'boolean') throw new HttpError(400, 'Open or close?', 'invalid');
-    res.json({ beta: await setBetaOpen(db, req.body.open) });
+    res.json({ beta: await setBetaOpen(db, req.body.open, { reason: req.body?.reason ?? null }) });
   }));
 
   r.put('/settings/:key', writes, route(async (req, res) => {
-    await setSetting(db, req.params.key, req.body?.value); // logged in admin_events ('setting.changed')
+    // logged in admin_events ('setting.changed', with the value before and the reason when one is given)
+    await setSetting(db, req.params.key, req.body?.value, { reason: req.body?.reason ?? null, version: typeof req.body?.version === 'string' ? req.body.version : null });
     // 0.8.1: turning Blizzard renders off or on (or changing the note) clears every cached share card, so no image made
     // the other way is served (the 60-second card data memo too); the clear is logged with how many went.
     if (RENDER_SETTING_KEYS.includes(req.params.key)) {
@@ -200,7 +215,10 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
 
   r.post('/sign-out', route(async (req, res) => {
     const token = readCookie(req, COOKIE.admin);
-    if (token) await db.query('DELETE FROM admin_sessions WHERE id_hash = $1', [sha256Hex(token)]);
+    if (token) {
+      const gone = await db.query('DELETE FROM admin_sessions WHERE id_hash = $1 RETURNING 1', [sha256Hex(token)]);
+      if (gone.length) await db.query("INSERT INTO admin_events (type) VALUES ('admin.signed_out')");
+    }
     clearCookie(res, COOKIE.admin, { sameSite: 'Strict' });
     res.json({ ok: true });
   }));

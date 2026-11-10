@@ -11,13 +11,13 @@ export async function betaState(db) {
   return { open: false, openedAt: last?.opened_at ?? null, closedAt: last?.closed_at ?? null };
 }
 
-export async function setBetaOpen(db, open) {
+export async function setBetaOpen(db, open, { reason = null } = {}) {
   await db.tx(async (q) => {
     await q.query('LOCK TABLE beta_windows IN SHARE ROW EXCLUSIVE MODE');
     const current = await q.one('SELECT id FROM beta_windows WHERE closed_at IS NULL');
     if (open && !current) await q.query('INSERT INTO beta_windows DEFAULT VALUES');
     if (!open && current) await q.query('UPDATE beta_windows SET closed_at = now() WHERE id = $1', [current.id]);
-    if (Boolean(current) !== open) await q.query("INSERT INTO admin_events (type, detail) VALUES ('beta.changed', $1::jsonb)", [JSON.stringify({ open })]);
+    if (Boolean(current) !== open) await q.query("INSERT INTO admin_events (type, detail) VALUES ('beta.changed', $1::jsonb)", [JSON.stringify({ open, before: Boolean(current), ...(reason ? { reason: String(reason).slice(0, 500) } : {}) })]);
   });
   return betaState(db);
 }

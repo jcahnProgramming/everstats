@@ -23,7 +23,7 @@ import { getSource } from '../sources/registry.js';
 const SOURCE = getSource('blizzard');
 const provider = () => getProvider(SOURCE.userProvider);
 const slot = (id) => `discovery.grant.${id}`;
-export const DISCOVERY_RETURN = '/admin/discovery';
+export const DISCOVERY_RETURN = '/admin/discovery/runs'; // 0.10.3: the Runs tab holds the authorization
 
 export async function startGrant(db, res) {
   const p = provider();
