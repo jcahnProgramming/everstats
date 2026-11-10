@@ -75,7 +75,12 @@ jobs:
         shell: sh
     timeout-minutes: 25
     steps:
+      # 0.10.2 fix: values pass between steps ONLY as step outputs (echo "name=value" >> "$GITHUB_OUTPUT", read as
+      # ${{ steps.<id>.outputs.name }} in a later step's env:), never through files in /tmp. And a value handed to a
+      # helper container with a bare `docker run -e NAME` must be an EXPORTED variable (a step env: entry): a plain
+      # shell assignment is not passed on, which is what broke run #23 ("CHECKED_SHA: parameter not set").
       - name: Check the pushed commit's changelog as production's (before the host is touched)
+        id: check
         env:
           GIT_TOKEN: ${{ gitea.token }}
           REPO_PATH: ${{ gitea.repository }}
@@ -91,9 +96,11 @@ jobs:
             git rev-parse FETCH_HEAD >&2
             git archive --format=tar FETCH_HEAD CHANGELOG.json scripts/check-changelog.js
           ' > /tmp/check.tar 2> /tmp/check.log
-          tail -n 1 /tmp/check.log > /tmp/checked.sha
-          echo "Checking commit $(cat /tmp/checked.sha)"
+          sha=$(tail -n 1 /tmp/check.log)
+          printf '%s' "$sha" | grep -Eqx '[0-9a-f]{40}' || { echo "::error::Could not read the checked commit (got \"$sha\")."; exit 1; }
+          echo "Checking commit $sha"
           docker run --rm -i -e CHANGELOG_TARGET=production "$NODE_IMAGE" sh -c 'mkdir /w && cd /w && tar -xf - && node scripts/check-changelog.js' < /tmp/check.tar
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Preflight — variables, host Docker daemon, deploy dir and database folders
         run: |
@@ -185,11 +192,14 @@ jobs:
           echo "Backup folder OK: $BACKUP_DIR"
 
       - name: Record .env fingerprint
+        id: envfp
         run: |
           set -eu
-          docker run --rm \
+          sha=$(docker run --rm \
             --mount "type=bind,source=$DEPLOY_DIR,target=$DEPLOY_DIR,readonly" \
-            -w "$DEPLOY_DIR" --entrypoint sh "$GIT_IMAGE" -c 'sha256sum .env | cut -d" " -f1' > /tmp/env.sha
+            -w "$DEPLOY_DIR" --entrypoint sh "$GIT_IMAGE" -c 'sha256sum .env | cut -d" " -f1')
+          printf '%s' "$sha" | grep -Eqx '[0-9a-f]{64}' || { echo "::error::Could not fingerprint .env."; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "Recorded .env fingerprint."
 
       - name: Pull latest main into host working copy (fast-forward only)
@@ -197,10 +207,12 @@ jobs:
           GIT_TOKEN: ${{ gitea.token }}
           REPO_PATH: ${{ gitea.repository }}
           PUSHED_SHA: ${{ gitea.sha }}
+          # 0.10.2: the host moves to exactly the commit whose changelog was checked above, never a newer one. An env:
+          # entry, so it is exported and `docker run -e CHECKED_SHA` passes it on.
+          CHECKED_SHA: ${{ steps.check.outputs.sha }}
         run: |
           set -eu
-          # 0.10.2: the host moves to exactly the commit whose changelog was checked above, never a newer one.
-          CHECKED_SHA=$(cat /tmp/checked.sha)
+          printf '%s' "${CHECKED_SHA:-}" | grep -Eqx '[0-9a-f]{40}' || { echo "::error::The checked commit didn't reach this step (got \"${CHECKED_SHA:-}\"). Nothing on the host was changed."; exit 1; }
           # Fetch from Gitea's internal address explicitly: the host can't resolve tailnet names. The token travels
           # in an env var and an http header, never in argv or .git/config.
           docker run --rm \
@@ -238,12 +250,13 @@ jobs:
             '
 
       - name: Build the image (nothing running changes yet)
+        id: build
         run: |
           set -eu
           # 0.10.2: the running image is kept as everstats:previous, for a rollback if the new one isn't healthy.
           if docker image inspect "$APP_IMAGE" >/dev/null 2>&1; then
             docker image tag "$APP_IMAGE" "$PREV_IMAGE"
-            echo yes > /tmp/can-rollback
+            echo "previous=yes" >> "$GITHUB_OUTPUT"
             echo "Kept the running image as $PREV_IMAGE for a rollback."
           fi
           docker run --rm \
@@ -254,9 +267,9 @@ jobs:
             docker compose build
 
       - name: Rebuild and restart stack
+        id: restart
         run: |
           set -eu
-          touch /tmp/up-attempted
           docker run --rm \
             --mount "type=bind,source=$DEPLOY_DIR,target=$DEPLOY_DIR" \
             --mount "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock" \
@@ -322,12 +335,19 @@ jobs:
           done
           echo "Deployed Everstats $expected: web, worker and database healthy and stable."
 
+      # Runs ONLY when the restart step itself ran (succeeded or failed) and a previous image was kept. After any
+      # earlier failure the restart step is skipped, so this step is skipped too: it can't restart anything.
       - name: Roll back to the previous version
-        if: failure()
+        if: failure() && (steps.restart.outcome == 'success' || steps.restart.outcome == 'failure') && steps.build.outputs.previous == 'yes'
+        env:
+          RESTART_OUTCOME: ${{ steps.restart.outcome }}
+          PREVIOUS_KEPT: ${{ steps.build.outputs.previous }}
         run: |
           set -eu
-          if [ ! -f /tmp/up-attempted ]; then echo "Nothing running was replaced: the previous version is still up."; exit 0; fi
-          if [ ! -f /tmp/can-rollback ]; then echo "::error::No previous image to roll back to."; exit 0; fi
+          # The same conditions again, in case a runner evaluates `if:` differently: anything else is a no-op.
+          case "$RESTART_OUTCOME" in success|failure) ;; *) echo "The stack was never restarted: nothing to roll back."; exit 0 ;; esac
+          [ "$PREVIOUS_KEPT" = yes ] || { echo "No previous image was kept: nothing to roll back."; exit 0; }
+          docker image inspect "$PREV_IMAGE" >/dev/null 2>&1 || { echo "::error::$PREV_IMAGE is missing: can't roll back."; exit 0; }
           docker image tag "$PREV_IMAGE" "$APP_IMAGE"
           docker run --rm \
             --mount "type=bind,source=$DEPLOY_DIR,target=$DEPLOY_DIR" \
@@ -339,13 +359,15 @@ jobs:
 
       - name: Confirm .env untouched
         if: always()
+        env:
+          RECORDED: ${{ steps.envfp.outputs.sha }}
         run: |
           set -eu
-          [ -s /tmp/env.sha ] || { echo "No fingerprint recorded (earlier step failed); skipping."; exit 0; }
+          [ -n "$RECORDED" ] || { echo "No fingerprint recorded (an earlier step failed before it); skipping."; exit 0; }
           now=$(docker run --rm \
             --mount "type=bind,source=$DEPLOY_DIR,target=$DEPLOY_DIR,readonly" \
             -w "$DEPLOY_DIR" --entrypoint sh "$GIT_IMAGE" -c 'sha256sum .env | cut -d" " -f1')
-          if [ "$now" != "$(cat /tmp/env.sha)" ]; then
+          if [ "$now" != "$RECORDED" ]; then
             echo "::error::.env on the host changed during the deploy. This must never happen. Investigate."
             exit 1
           fi

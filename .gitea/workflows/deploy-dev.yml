@@ -65,7 +65,12 @@ jobs:
         shell: sh
     timeout-minutes: 40
     steps:
-      - name: Fetch the pushed commit (a throwaway clone, no host folder)
+      # Values pass between steps ONLY as step outputs (echo "name=value" >> "$GITHUB_OUTPUT", read as
+      # ${{ steps.<id>.outputs.name }} in a later step's env:), never through files in /tmp. A value handed to a helper
+      # container with a bare `docker run -e NAME` must be an exported variable (a step env: entry); a plain shell
+      # assignment isn't passed on (production's run #23 failed on exactly that).
+      - name: Fetch the pushed commit and build and test it (capped, so production keeps its CPU and memory)
+        id: tested
         env:
           GIT_TOKEN: ${{ gitea.token }}
           REPO_PATH: ${{ gitea.repository }}
@@ -74,26 +79,24 @@ jobs:
         run: |
           set -eu
           [ -n "$INTERNAL_GIT_URL" ] || { echo "::error::Missing Gitea Actions variable INTERNAL_GIT_URL."; exit 1; }
+          # A throwaway clone (no host folder). The files live only inside this step.
           docker run --rm -e GIT_TOKEN -e REPO_PATH -e INTERNAL_GIT_URL -e REF --entrypoint sh "$GIT_IMAGE" -c '
             set -eu
             auth="Authorization: Basic $(printf "x-access-token:%s" "$GIT_TOKEN" | base64 | tr -d "\n")"
             git init -q /w && cd /w
             git -c http.extraHeader="$auth" fetch -q --depth 1 --no-tags "$INTERNAL_GIT_URL/$REPO_PATH.git" "$REF" >&2
-            git rev-parse FETCH_HEAD > /dev/stderr
+            git rev-parse FETCH_HEAD >&2
             git archive --format=tar FETCH_HEAD
           ' > /tmp/src.tar 2> /tmp/fetch.log
           sha=$(tail -n 1 /tmp/fetch.log)
-          echo "$sha" > /tmp/tested.sha
+          printf '%s' "$sha" | grep -Eqx '[0-9a-f]{40}' || { echo "::error::Could not read the fetched commit (got \"$sha\")."; exit 1; }
           echo "Testing commit $sha"
           [ "$sha" = "$PUSHED_SHA" ] || echo "::warning::dev's tip ($sha) is newer than the pushed commit ($PUSHED_SHA); testing and deploying the tip."
-
-      - name: Build and test (capped, so production keeps its CPU and memory)
-        run: |
-          set -eu
           docker run --rm -i --cpus 2 --memory 3g --memory-swap 3g --cpu-shares 256 "$NODE_IMAGE" sh -c '
             set -eu
             mkdir /w && cd /w && tar -xf - && sh scripts/ci-test.sh dev
           ' < /tmp/src.tar
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Preflight and guards (dev may never touch production)
         run: |
@@ -208,18 +211,23 @@ jobs:
           echo "Dev folders OK."
 
       - name: Record dev .env fingerprint
+        id: envfp
         run: |
           set -eu
-          docker run --rm --mount "type=bind,source=$DEV_DEPLOY_DIR,target=$DEV_DEPLOY_DIR,readonly" \
-            -w "$DEV_DEPLOY_DIR" --entrypoint sh "$GIT_IMAGE" -c 'sha256sum .env | cut -d" " -f1' > /tmp/env.sha
+          sha=$(docker run --rm --mount "type=bind,source=$DEV_DEPLOY_DIR,target=$DEV_DEPLOY_DIR,readonly" \
+            -w "$DEV_DEPLOY_DIR" --entrypoint sh "$GIT_IMAGE" -c 'sha256sum .env | cut -d" " -f1')
+          printf '%s' "$sha" | grep -Eqx '[0-9a-f]{64}' || { echo "::error::Could not fingerprint dev's .env."; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Move the dev checkout to the tested commit (fast-forward only)
         env:
           GIT_TOKEN: ${{ gitea.token }}
           REPO_PATH: ${{ gitea.repository }}
+          # An env: entry, so it is exported and `docker run -e TESTED_SHA` passes it on.
+          TESTED_SHA: ${{ steps.tested.outputs.sha }}
         run: |
           set -eu
-          TESTED_SHA=$(cat /tmp/tested.sha)
+          printf '%s' "${TESTED_SHA:-}" | grep -Eqx '[0-9a-f]{40}' || { echo "::error::The tested commit didn't reach this step (got \"${TESTED_SHA:-}\"). Nothing on the host was changed."; exit 1; }
           docker run --rm \
             --mount "type=bind,source=$DEV_DEPLOY_DIR,target=$DEV_DEPLOY_DIR" \
             -w "$DEV_DEPLOY_DIR" -e GIT_TOKEN -e REPO_PATH -e INTERNAL_GIT_URL -e TESTED_SHA \
@@ -237,11 +245,12 @@ jobs:
             '
 
       - name: Build the dev image (nothing running changes yet)
+        id: build
         run: |
           set -eu
           if docker image inspect "$APP_IMAGE" >/dev/null 2>&1; then
             docker image tag "$APP_IMAGE" "$PREV_IMAGE"
-            echo yes > /tmp/can-rollback
+            echo "previous=yes" >> "$GITHUB_OUTPUT"
             echo "Kept the running image as $PREV_IMAGE for a rollback."
           fi
           docker run --rm \
@@ -252,9 +261,9 @@ jobs:
             docker compose -p "$PROJECT" -f "$COMPOSE_FILE_NAME" build
 
       - name: Restart the dev stack on the new image
+        id: restart
         run: |
           set -eu
-          touch /tmp/up-attempted
           docker run --rm \
             --mount "type=bind,source=$DEV_DEPLOY_DIR,target=$DEV_DEPLOY_DIR" \
             --mount "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock" \
@@ -315,12 +324,19 @@ jobs:
           [ "$ok" = 1 ] || { echo "::error::$PUBLIC_URL/api/health did not answer environment dev, version $expected (tunnel hostname, Access policy, service token?)."; exit 1; }
           echo "Deployed Everstats dev $expected: healthy, stable, and answering at $PUBLIC_URL."
 
+      # Runs ONLY when the restart step itself ran (succeeded or failed) and a previous image was kept. After any
+      # earlier failure the restart step is skipped, so this step is skipped too: it can't restart anything.
       - name: Roll back to the previous version
-        if: failure()
+        if: failure() && (steps.restart.outcome == 'success' || steps.restart.outcome == 'failure') && steps.build.outputs.previous == 'yes'
+        env:
+          RESTART_OUTCOME: ${{ steps.restart.outcome }}
+          PREVIOUS_KEPT: ${{ steps.build.outputs.previous }}
         run: |
           set -eu
-          if [ ! -f /tmp/up-attempted ]; then echo "Nothing running was replaced: the previous version is still up."; exit 0; fi
-          if [ ! -f /tmp/can-rollback ]; then echo "::error::No previous dev image to roll back to (this was the first dev deploy)."; exit 0; fi
+          # The same conditions again, in case a runner evaluates `if:` differently: anything else is a no-op.
+          case "$RESTART_OUTCOME" in success|failure) ;; *) echo "The dev stack was never restarted: nothing to roll back."; exit 0 ;; esac
+          [ "$PREVIOUS_KEPT" = yes ] || { echo "No previous dev image was kept (the first dev deploy): nothing to roll back."; exit 0; }
+          docker image inspect "$PREV_IMAGE" >/dev/null 2>&1 || { echo "::error::$PREV_IMAGE is missing: can't roll back."; exit 0; }
           docker image tag "$PREV_IMAGE" "$APP_IMAGE"
           docker run --rm \
             --mount "type=bind,source=$DEV_DEPLOY_DIR,target=$DEV_DEPLOY_DIR" \
@@ -332,12 +348,14 @@ jobs:
 
       - name: Confirm dev .env untouched
         if: always()
+        env:
+          RECORDED: ${{ steps.envfp.outputs.sha }}
         run: |
           set -eu
-          [ -s /tmp/env.sha ] || { echo "No fingerprint recorded (an earlier step failed); skipping."; exit 0; }
+          [ -n "$RECORDED" ] || { echo "No fingerprint recorded (an earlier step failed before it); skipping."; exit 0; }
           now=$(docker run --rm --mount "type=bind,source=$DEV_DEPLOY_DIR,target=$DEV_DEPLOY_DIR,readonly" \
             -w "$DEV_DEPLOY_DIR" --entrypoint sh "$GIT_IMAGE" -c 'sha256sum .env | cut -d" " -f1')
-          [ "$now" = "$(cat /tmp/env.sha)" ] || { echo "::error::Dev's .env changed during the deploy. This must never happen."; exit 1; }
+          [ "$now" = "$RECORDED" ] || { echo "::error::Dev's .env changed during the deploy. This must never happen."; exit 1; }
           echo "Dev .env unchanged."
 
       - name: Diagnostics on failure

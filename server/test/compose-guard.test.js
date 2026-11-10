@@ -160,3 +160,44 @@ test('feature branches and pull requests are built and tested, never deployed', 
   assert.doesNotMatch(ciWorkflow, /docker compose|DEPLOY_DIR|\.env/);
   assert.match(ciWorkflow, /--cpus 2 --memory 3g/);
 });
+
+// 0.10.2 fix (production run #23, "CHECKED_SHA: parameter not set"): how values move inside and between steps.
+const WORKFLOWS = { 'deploy.yml': workflow, 'deploy-dev.yml': devWorkflow, 'ci.yml': ciWorkflow };
+const stepsOf = (text) => text.split('\n      - name: ').slice(1).map((s) => ({ name: s.split('\n')[0], body: s }));
+
+test('every bare `docker run -e NAME` passes an exported variable (an env: entry), never a plain shell assignment', () => {
+  for (const [file, text] of Object.entries(WORKFLOWS)) {
+    const envKeys = new Set([...text.matchAll(/^\s+([A-Z][A-Z0-9_]*): /gm)].map((m) => m[1]));
+    for (const step of stepsOf(text)) {
+      for (const m of step.body.matchAll(/(?:^|\s)-e ([A-Z][A-Z0-9_]*)(?=\s)/g)) {
+        assert.ok(envKeys.has(m[1]), `${file} › ${step.name}: -e ${m[1]} isn't an env: entry, so docker would pass nothing`);
+      }
+    }
+  }
+});
+
+test('nothing passes between steps through /tmp: a file is read only in the step that wrote it', () => {
+  for (const [file, text] of Object.entries(WORKFLOWS)) {
+    for (const step of stepsOf(text)) {
+      const used = new Set([...step.body.matchAll(/\/tmp\/([\w.-]+)/g)].map((m) => m[1]));
+      for (const f of used) {
+        assert.ok(new RegExp(`(?:^|[^<])>>? ?/tmp/${f.replace(/\./g, '[.]')}`).test(step.body), `${file} › ${step.name}: /tmp/${f} is used but not written in this step`);
+      }
+    }
+  }
+  // Values that later steps need are step outputs (ci.yml is a single step and needs none).
+  for (const text of [workflow, devWorkflow]) assert.ok(text.includes('>> "$GITHUB_OUTPUT"'));
+  assert.match(workflow, /CHECKED_SHA: \$\{\{ steps\.check\.outputs\.sha \}\}/);
+  assert.match(devWorkflow, /TESTED_SHA: \$\{\{ steps\.tested\.outputs\.sha \}\}/);
+});
+
+test('a rollback runs only after the restart itself ran, so an early failure restarts nothing', () => {
+  for (const text of [workflow, devWorkflow]) {
+    const rollback = stepsOf(text).find((s) => s.name.startsWith('Roll back'));
+    assert.ok(rollback);
+    assert.match(rollback.body, /if: failure\(\) && \(steps\.restart\.outcome == 'success' \|\| steps\.restart\.outcome == 'failure'\) && steps\.build\.outputs\.previous == 'yes'/);
+    // And the script checks the same again before it touches anything.
+    assert.ok(rollback.body.indexOf('case "$RESTART_OUTCOME"') < rollback.body.indexOf('docker image tag'));
+    assert.match(stepsOf(text).find((s) => /restart/i.test(s.name) && !s.name.startsWith('Roll back')).body, /id: restart/);
+  }
+});

@@ -28,11 +28,14 @@ jobs:
         shell: sh
     timeout-minutes: 30
     steps:
-      - name: Fetch the pushed commit (a throwaway clone)
+      # One step: the files live only inside it (nothing passes between steps through /tmp; deploy.yml's header).
+      - name: Fetch the pushed commit (a throwaway clone) and build and test it (capped)
         env:
           GIT_TOKEN: ${{ gitea.token }}
           REPO_PATH: ${{ gitea.repository }}
           REF: ${{ gitea.ref }}
+          # A pull request into main is checked as production's changelog, into dev as dev's; anything else either way.
+          BASE: ${{ gitea.base_ref }}
         run: |
           set -eu
           [ -n "$INTERNAL_GIT_URL" ] || { echo "::error::Missing Gitea Actions variable INTERNAL_GIT_URL."; exit 1; }
@@ -45,13 +48,6 @@ jobs:
             git archive --format=tar FETCH_HEAD
           ' > /tmp/src.tar 2> /tmp/fetch.log
           echo "Testing $REF at $(tail -n 1 /tmp/fetch.log)"
-
-      - name: Build and test (capped)
-        env:
-          # A pull request into main is checked as production's changelog, into dev as dev's; anything else either way.
-          BASE: ${{ gitea.base_ref }}
-        run: |
-          set -eu
           case "$BASE" in
             main) target=production ;;
             dev) target=dev ;;

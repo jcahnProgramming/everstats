@@ -923,6 +923,11 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
   protocol message exclusively and keeps a connection's messages together only inside a transaction. `helpers.js`
   `wholeSequences` hands each connection's messages over up to its Sync as one piece. (A one-connection pool was tried
   first: it deadlocks.)
+- **`docker run -e NAME` passes only EXPORTED variables** (found here, 0.10.2's first production deploy, run #23:
+  "CHECKED_SHA: parameter not set"). A value read into a plain shell variable never reached the helper container. In
+  the workflows a value a helper needs is a step `env:` entry, and values pass between steps only as step outputs
+  (`>> "$GITHUB_OUTPUT"`, `${{ steps.<id>.outputs.… }}`), never files in /tmp. A rollback step runs only if the restart
+  step itself ran. `compose-guard.test.js` checks all three.
 - **Tool and shell layers eat backslashes** (found here): regex escapes written through heredocs or the editor's escape
   decoding came out as plain letters (`\s` → `s`). Build such regexes from `String.fromCharCode(92)` and test them.
 - **The design draws things the rules forbid** (found here, design v1): an admin link for the owner, a last-four of
