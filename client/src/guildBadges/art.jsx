@@ -31,7 +31,7 @@ function toNode(el) {
   let slot = null;
   for (const a of el.attributes) {
     const n = a.name;
-    if (n === 'style') props.style = styleObject(a.value);
+    if (n === 'style' || n === 'data-es-style') props.style = styleObject(a.value);
     else if (n === 'data-slot') slot = a.value;
     else if (n === 'id' || n === 'xmlns' || n === 'role' || n === 'aria-label' || n === 'width' || n === 'height') continue;
     else if (n === 'class') props.className = a.value;
@@ -50,7 +50,9 @@ function parsed(path) {
   let node = null;
   if (raw && typeof DOMParser !== 'undefined') {
     // The template files open with a comment containing "--" (not well-formed XML): comments are dropped here.
-    const doc = new DOMParser().parseFromString(raw.replace(/<!--[\s\S]*?-->/g, '').replace(/<\?xml-stylesheet[^>]*\?>/g, ''), 'image/svg+xml');
+    // 0.9.1: style="…" is renamed before parsing: Chrome reported every one against the CSP while DOMParser built the
+    // (inert) document, though React then draws them through the CSSOM. toNode reads it back as the style.
+    const doc = new DOMParser().parseFromString(raw.replace(/<!--[\s\S]*?-->/g, '').replace(/<\?xml-stylesheet[^>]*\?>/g, '').replace(/(\s)style="/g, '$1data-es-style="'), 'image/svg+xml');
     const svg = doc.querySelector('svg');
     if (svg && !doc.querySelector('parsererror')) node = toNode(svg);
   }

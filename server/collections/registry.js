@@ -107,7 +107,11 @@ export const FAMILIES = Object.freeze([
   },
   {
     family: 'slot', kind: 'transmog', shared: 'detected', label: 'Appearances collected, per slot',
-    entries: (d) => d.slots.filter((s) => /^[A-Z0-9_]{1,30}$/.test(s.type)).map((s) => ({ key: `slot:${s.type}`, name: `Appearances collected: ${s.name}`, value: new Set(s.ids).size })),
+    // Blizzard names two slots "Chest" (CHEST and ROBE): a name two slots share gets the slot type after it.
+    entries: (d) => d.slots.filter((s) => /^[A-Z0-9_]{1,30}$/.test(s.type)).map((s, _, all) => ({
+      key: `slot:${s.type}`, value: new Set(s.ids).size,
+      name: `Appearances collected: ${s.name}${all.filter((x) => x.name === s.name).length > 1 ? ` (${s.type.toLowerCase()})` : ''}`,
+    })),
   },
   {
     family: 'instance', kind: 'dungeons', label: 'Boss kills, per instance',
