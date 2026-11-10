@@ -197,7 +197,7 @@ export function ProbeDetail({ runId, listed, onChanged }) {
   const skipped = s.areas.reduce((n, a) => n + a.skipped, 0);
   const tabs = [
     { id: 'answers', label: 'Answers' },
-    ...(s.realms ? [{ id: 'realms', label: 'Realms', count: s.realms.asked }] : []),
+    ...(s.realms ? [{ id: 'realms', label: 'Realms', count: s.realms.players ?? s.realms.asked }] : []),
     ...(s.groups ? [{ id: 'groups', label: 'Statistics & groups', count: s.groups.length }] : []),
     ...(s.boards ? [{ id: 'boards', label: 'Boards', count: s.boards.total }] : []),
     { id: 'areas', label: 'By area', count: s.entryCount },
@@ -225,6 +225,9 @@ export function ProbeDetail({ runId, listed, onChanged }) {
         <Button className="sm ghost" loading={busy === 'reanalyse'} onClick={reanalyse} title="Rebuild the results and answers from the stored responses. Asks Blizzard nothing."><Icon name="refresh" size="sm" />Re-analyse</Button>
       </div>
       <div className="pad-x-20 stack gap-12">
+        {s.primaryMissing && (
+          <div className="note err small" role="status"><Icon name="error" /><span><b>The probe’s character didn’t answer.</b> {s.answers.find((a) => a.id === 'primary-character')?.text ?? 'Its profile answered no 200.'}</span></div>
+        )}
         {s.stopped && <div className="note warn small" role="status"><Icon name="warning" /><span>Stopped after {formatNumber(s.stopped.afterRequests)} requests ({formatNumber(s.stopped.afterEntries)} of {formatNumber(s.entryCount)} endpoints). Endpoints after that are “not asked”, and answers that needed them say unknown.</span></div>}
         <div className="grid-auto col-md gap-12">
           <Figure label="Requests" value={formatNumber(s.requests)} note={`${formatNumber(s.retried)} retried · ${formatNumber(s.throttled)} answered 429`} />
@@ -277,7 +280,20 @@ function ProbeAnswers({ summary: s }) {
           <div className="kv"><span className="t2">Profile</span><span className="mono small">{s.namespaces?.profile ?? '—'}</span></div>
           <div className="kv"><span className="t2">Dynamic</span><span className="mono small">{s.namespaces?.dynamic ?? '—'}</span></div>
           <div className="kv"><span className="t2">Static (detected from links)</span><span className="mono small">{s.namespaces?.staticDetected ?? 'none detected: static endpoints were skipped'}</span></div>
+          {s.staticCheck && <div className="kv"><span className="t2">Static (used, after the check)</span><span className="mono small">{s.staticCheck.chosen ?? 'none'}</span></div>}
         </div>
+        {s.staticCheck && (
+          <div className="tblbox listbox"><table className="tbl probe-stack"><thead><tr><th scope="col">Namespace tried</th><th scope="col">Why</th><th scope="col">Answers</th><th scope="col" className="r">Items</th></tr></thead><tbody>
+            {s.staticCheck.candidates.map((c) => (
+              <tr key={c.ns}>
+                <td className="mono xsmall" data-label="Namespace tried">{c.ns}{c.ns === s.staticCheck.chosen && <span className="tag ok">used</span>}</td>
+                <td className="xsmall" data-label="Why">{c.why}</td>
+                <td className="xsmall" data-label="Answers">{c.results.map((r) => `${r.entry.replace(/^data\./, '')} ${r.status ?? 'no answer'}`).join(', ')}</td>
+                <td className="r" data-label="Items">{formatNumber(c.items)}</td>
+              </tr>
+            ))}
+          </tbody></table></div>
+        )}
       </Q>
     </div>
   );
@@ -358,22 +374,38 @@ function ProbeRealms({ summary: s }) {
   const r = s.realms;
   return (
     <div className="stack gap-16">
-      <span className="t2 small">{formatNumber(r.answered)} of {formatNumber(r.asked)} realms answered{r.capped ? ` (realm/index listed more; the first ${formatNumber(r.capped)} were asked)` : ''}. {r.tournament ? `${formatNumber(r.tournament)} tournament realm(s).` : ''}</span>
+      <span className="t2 small">{formatNumber(r.answered)} of {formatNumber(r.asked)} realms answered{r.capped ? ` (realm/index listed more; the first ${formatNumber(r.capped)} were asked)` : ''}{r.players !== undefined ? `: ${formatNumber(r.players)} player realms, ${formatNumber(r.excluded?.length ?? 0)} internal realms excluded${r.exclusionKnown ? '' : ' (connected-realm/index didn’t answer, so none could be told apart)'}` : ''}. {r.tournament ? `${formatNumber(r.tournament)} tournament realm(s).` : ''}</span>
+      {r.rules && <span className="muted xsmall">{r.rules.players} {r.rules.locked}</span>}
       <div className="grid-auto col-md gap-12">
         <Figure label="By realm type" value={formatNumber(r.byType.length)} note={r.byType.map((t) => `${t.value} ×${t.realms}`).join(', ') || 'none'} />
         <Figure label="By category" value={formatNumber(r.byCategory.length)} note={r.byCategory.map((t) => `${t.value} ×${t.realms}`).join(', ') || 'none'} />
+        {r.lockKnown > 0 && <Figure label="Locked" value={`${formatNumber(r.locked)} of ${formatNumber(r.lockKnown)}`} note={(r.lockByCategory ?? []).map((c) => `${c.category}: ${c.locked} locked, ${c.open} open`).join(' · ')} />}
       </div>
       <div className="tblbox listbox"><table className="tbl probe-stack"><thead><tr><th scope="col">Realm</th><th scope="col">Type</th><th scope="col">Category</th><th scope="col">Time zone · locale</th><th scope="col">Other</th></tr></thead><tbody>
-        {r.realms.map((x) => (
+        {r.realms.filter((x) => !x.excluded).map((x) => (
           <tr key={x.slug}>
             <td className="small" data-label="Realm">{x.name ?? x.slug} <span className="muted mono xsmall">{x.slug}{x.id !== null && x.id !== undefined ? ` · ${x.id}` : ''}</span></td>
             <td className="small" data-label="Type">{x.answered ? (x.type ? `${x.type.type ?? '?'} (${x.type.name ?? '?'})` : '—') : <span className={`tag ${statusTag(x.status)}`}>{x.status ?? 'no answer'}</span>}</td>
             <td className="small" data-label="Category">{x.category ?? '—'}</td>
             <td className="xsmall" data-label="Time zone · locale">{[x.timezone, x.locale].filter(Boolean).join(' · ') || '—'}</td>
-            <td className="xsmall" data-label="Other">{[x.isTournament ? 'tournament' : null, ...Object.entries(x.extra ?? {}).map(([k, val]) => `${k}: ${val}`)].filter(Boolean).join(', ') || '—'}</td>
+            <td className="xsmall" data-label="Other">{[x.locked === true ? 'locked' : x.locked === false ? 'open' : null, x.isTournament ? 'tournament' : null, ...Object.entries(x.extra ?? {}).map(([k, val]) => `${k}: ${val}`)].filter(Boolean).join(', ') || '—'}</td>
           </tr>
         ))}
       </tbody></table></div>
+      {r.excluded?.length > 0 && (
+        <Q title={`Excluded: internal realms (${formatNumber(r.excluded.length)})`}>
+          <span className="muted xsmall">On no realm list, no board, never crawled.</span>
+          <div className="tblbox listbox"><table className="tbl probe-stack"><thead><tr><th scope="col">Realm</th><th scope="col">Blizzard category</th><th scope="col">Connected realm</th></tr></thead><tbody>
+            {r.excluded.map((x) => (
+              <tr key={x.slug}>
+                <td className="small" data-label="Realm">{x.name ?? x.slug} <span className="muted mono xsmall">{x.slug}</span></td>
+                <td className="small" data-label="Blizzard category">{x.category ?? '—'}</td>
+                <td className="mono xsmall" data-label="Connected realm">{x.connectedRealmId ?? 'none named'} (not listed)</td>
+              </tr>
+            ))}
+          </tbody></table></div>
+        </Q>
+      )}
     </div>
   );
 }
@@ -392,8 +424,9 @@ function ProbeGroups({ summary: s }) {
           <span className="t2 small">Top categories only here: {st.categories.onlyHere.join(', ') || 'none'} · only on Forever: {st.categories.onlyForever.join(', ') || 'none'} · both: {st.categories.both.join(', ') || 'none'}.</span>
           <span className="muted xsmall">Nothing is copied: decisions are made per version on the Discovery page (0.11.0).</span>
         </Q>
-      ) : <span className="t2 small">No achievement-statistics answer, so there is no catalog to compare.</span>}
+      ) : <span className="t2 small">{s.primaryMissing ? 'Not measured: the probe’s character answered no profile, so there is no statistics answer to compare (not zero statistics).' : 'No achievement-statistics answer, so there is no catalog to compare.'}</span>}
       <Q title="Groups, with Forever's choice as a suggestion">
+        {s.primaryMissing && <span className="t2 small">The statistic counts below are not measured: the probe’s character answered no profile. Only boards from data endpoints are counted.</span>}
         <span className="muted xsmall">A suggestion only: nothing is chosen for this version. A new version starts with every group undecided (no tiers) until you decide on the Discovery page. “Proposed” = a group Forever doesn’t have.</span>
         <div className="tblbox listbox"><table className="tbl probe-stack"><thead><tr><th scope="col">Group</th><th scope="col" className="r">Statistics</th><th scope="col" className="r">Ids matching Forever</th><th scope="col" className="r">Other boards</th><th scope="col">Suggestion</th></tr></thead><tbody>
           {s.groups.map((g) => (
@@ -416,6 +449,7 @@ function ProbeBoards({ summary: s }) {
   const [shown, setShown] = useState(100);
   return (
     <div className="stack gap-24">
+      {s.primaryMissing && <div className="note err small" role="status"><Icon name="error" /><span>Not measured: the probe’s character answered no profile, so the counts below are not zeros. Run the probe again with a character that answers.</span></div>}
       <span className="t2 small">Rule A7: every numeric value Blizzard returns is a board. {formatNumber(b.total)} boards from this character's (and guild's) answers. Other characters can have values this one hasn't, so the real count can be higher. The Boards CSV has every board, every skipped field and the realms.</span>
       <div className="grid-auto col-md gap-12">
         {b.groups.map((g) => <Figure key={g.group} label={g.group} value={formatNumber(g.boards)} note="boards" />)}

@@ -23,6 +23,11 @@
  *                 own links and must match `staticPattern` (a versioned build like static-1.60.1_70399-forever-us, or a
  *                 plain static-us on retail; both detected the same way). A build segment starts with a digit, so
  *                 retail's pattern can never match a classic namespace (static-classic-us).
+ *   staticPlain   0.10.1: the version's PLAIN static namespace (no build segment), as Blizzard's namespace guides write
+ *                 it. Probes #5 (Retail) and #6 (Classic) found every static index 404 and every search empty in the
+ *                 versioned namespace their links named, so the probe asks static indexes in BOTH (probe/staticCheck.js)
+ *                 and uses whichever answers with real data. Forever: null. Its plain static-forever-{region} answers
+ *                 403, so Forever keeps the detected versioned namespace exactly as before.
  *   realms        false: realmless (Forever: /profile/wow/character/{name-surname}); true: realm paths
  *                 (/profile/wow/character/{realmSlug}/{name}, /data/wow/guild/{realmSlug}/{guild})
  *   realmCategory where a character's "realm category" (what tiers and boards are graded within) comes from, and what
@@ -42,21 +47,21 @@ export const GAME_VERSIONS = Object.freeze([
   {
     id: 'forever', name: 'WoW Forever', short: 'Forever', regions: ['us', 'eu', 'kr', 'tw'],
     namespaces: { profile: 'profile-forever-{region}', dynamic: 'dynamic-forever-{region}' },
-    staticPattern: '^static-\\d[A-Za-z0-9._]*-forever-{region}$',
+    staticPattern: '^static-\\d[A-Za-z0-9._]*-forever-{region}$', staticPlain: null,
     realms: false, realmCategory: { source: 'ruleset', label: 'ruleset', plural: 'rulesets' },
     nativeIds: true, enabled: true, primary: true,
   },
   {
     id: 'retail', name: 'World of Warcraft', short: 'Retail', regions: ['us', 'eu', 'kr', 'tw'],
     namespaces: { profile: 'profile-{region}', dynamic: 'dynamic-{region}' },
-    staticPattern: '^static-(?:\\d[A-Za-z0-9._]*-)?{region}$',
+    staticPattern: '^static-(?:\\d[A-Za-z0-9._]*-)?{region}$', staticPlain: 'static-{region}',
     realms: true, realmCategory: { source: 'realm-type', label: 'realm type', plural: 'realm types' },
     nativeIds: false, enabled: false, primary: false,
   },
   {
     id: 'classic', name: 'WoW Classic (progression)', short: 'Classic', regions: ['us', 'eu', 'kr', 'tw'],
     namespaces: { profile: 'profile-classic-{region}', dynamic: 'dynamic-classic-{region}' },
-    staticPattern: '^static-(?:\\d[A-Za-z0-9._]*-)?classic-{region}$',
+    staticPattern: '^static-(?:\\d[A-Za-z0-9._]*-)?classic-{region}$', staticPlain: 'static-classic-{region}',
     realms: true, realmCategory: { source: 'realm-type', label: 'realm type', plural: 'realm types' },
     nativeIds: false, enabled: false, primary: false,
   },
@@ -64,7 +69,7 @@ export const GAME_VERSIONS = Object.freeze([
     // Era, and whichever of Hardcore / Season of Discovery live in classic1x: the probe records how realms differ.
     id: 'classic-era', name: 'WoW Classic Era', short: 'Classic Era', regions: ['us', 'eu', 'kr', 'tw'],
     namespaces: { profile: 'profile-classic1x-{region}', dynamic: 'dynamic-classic1x-{region}' },
-    staticPattern: '^static-(?:\\d[A-Za-z0-9._]*-)?classic1x-{region}$',
+    staticPattern: '^static-(?:\\d[A-Za-z0-9._]*-)?classic1x-{region}$', staticPlain: 'static-classic1x-{region}',
     realms: true, realmCategory: { source: 'realm-type', label: 'realm type', plural: 'realm types' },
     nativeIds: false, enabled: false, primary: false, eraFamily: true,
   },
@@ -72,7 +77,7 @@ export const GAME_VERSIONS = Object.freeze([
     // Not in the 0.10.0 brief: Blizzard's Classic namespaces guide gives Anniversary its own namespace.
     id: 'classic-anniversary', name: 'WoW Classic Anniversary', short: 'Anniversary', regions: ['us', 'eu', 'kr', 'tw'],
     namespaces: { profile: 'profile-classicann-{region}', dynamic: 'dynamic-classicann-{region}' },
-    staticPattern: '^static-(?:\\d[A-Za-z0-9._]*-)?classicann-{region}$',
+    staticPattern: '^static-(?:\\d[A-Za-z0-9._]*-)?classicann-{region}$', staticPlain: 'static-classicann-{region}',
     realms: true, realmCategory: { source: 'realm-type', label: 'realm type', plural: 'realm types' },
     nativeIds: false, enabled: false, primary: false, eraFamily: true,
   },
@@ -136,6 +141,12 @@ export function namespaceFor(versionId, regionId, kind) {
   return pattern.replace('{region}', r.suffix);
 }
 
+/** The version's plain static namespace in a region (0.10.1), or null where it isn't used (Forever: 403). */
+export function plainStaticFor(versionId, regionId) {
+  const { v, r } = need(versionId, regionId);
+  return v.staticPlain ? v.staticPlain.replace('{region}', r.suffix) : null;
+}
+
 /** Is `ns` this version's static namespace in this region (a build Blizzard's links named)? */
 export function isStaticNamespace(versionId, regionId, ns) {
   const { v, r } = need(versionId, regionId);
@@ -170,10 +181,13 @@ export function blizzardContext(versionId, regionId) {
     realms: v.realms,
     namespaces: Object.freeze({ profile: namespaceFor(v.id, r.id, 'profile'), dynamic: namespaceFor(v.id, r.id, 'dynamic') }),
     isStatic: (ns) => isStaticNamespace(v.id, r.id, ns),
+    plainStatic: v.staticPlain ? v.staticPlain.replace('{region}', r.suffix) : null,
     paths: Object.freeze({
       rulesets: '/data/wow/ruleset/index',
       realms: '/data/wow/realm/index',
       realm: (slug) => `/data/wow/realm/${enc(slug)}`,
+      connectedRealms: '/data/wow/connected-realm/index',
+      connectedRealmSearch: '/data/wow/search/connected-realm',
       accountCharacters: '/profile/user/wow',
     }),
     /** A character's own path: { slug } on a realmless version, { realmSlug, slug } on a realm version. */

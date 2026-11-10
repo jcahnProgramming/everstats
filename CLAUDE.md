@@ -224,6 +224,17 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   tables need no version column. Characters/guilds carry `game_version, region, realm_slug, blizzard_id`; the slug is unique
   per (version, region, realm). Crawl keys: slug, or `{realmSlug}/{slug}` on a realm version. Page lookups use
   `scopeSql()` (config.js): the primary scope.
+- **Static namespaces (0.10.1):** probes #5/#6 found every static index 404 and every search empty in the versioned
+  namespace the links named. Every version but Forever has `staticPlain` in the registry; the probe asks two static indexes
+  (`probe/staticCheck.js`) in the detected one, the newest build linked and the plain one, and uses whichever has real data.
+  Forever's `staticPlain` is null (plain answers 403): its probe and crawl are unchanged. Production static use for other
+  versions follows the probe's answer in 0.11.0.
+- **Player realms (0.10.1, `server/realms/playerRealms.js`, the one place):** a realm counts only when its connected realm is
+  one `connected-realm/index` lists; every other realm is internal/test (Classic's CWOW CSI…, Retail's …-INST, rdb-us) and
+  EXCLUDED: no realm list, no board, never crawled (`crawler/fetch.js realmInfo` reads the realm before the profile; outcome
+  'excluded: internal realm'; `realms.excluded`, migration 028). Never a name list. LOCKED = population LOCKED or locked for
+  new characters (Classic's "Legacy" realms all were; a Legacy character 404'd). The probe's prefill prefers open realms, and
+  the probe asks a few more of the admin's characters per kind of realm (`probe/characterCheck.js`).
 - **Realm categories:** a `rulesets` row is a realm category of one version and region: Forever's rulesets, or a realm
   version's realm TYPE (`category_key`, from `realm/{slug}`, kept in `realms`). Tiers and boards grade within one; copy
   says the registry's word ("ruleset" / "realm type").

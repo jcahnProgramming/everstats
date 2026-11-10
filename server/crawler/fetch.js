@@ -1,6 +1,7 @@
 import { BLIZZARD_API } from '../core/config.js';
 import { blizzardContext, versionById } from '../core/gameVersions.js';
 import { localId } from '../core/localIds.js';
+import { listedConnectedRealms, realmConnectedId, realmExclusion } from '../realms/playerRealms.js';
 import { storeFeedValues } from '../stats/feedStore.js';
 import { getSetting } from '../admin/settings.js';
 import { EQUIPMENT_VERSION, parseAttributes, parseEquipment, parseGuildProfile, parseMedia, parseProfile, parseRoster, parseStatistics } from './parse.js';
@@ -58,31 +59,53 @@ export function itemScope(item) {
 }
 
 const REALM_EVERY_MS = 24 * 60 * 60 * 1000;
+// connected-realm/index per (database, version, region), re-read daily: which connected realms are player ones.
+const listedCache = new WeakMap();
+async function listedFor({ db, client }, { scope, ctx }, priority) {
+  if (!listedCache.has(db)) listedCache.set(db, new Map());
+  const cache = listedCache.get(db);
+  const k = `${scope.version}/${scope.region}`;
+  const hit = cache.get(k);
+  if (hit && Date.now() - hit.at < REALM_EVERY_MS) return hit.listed;
+  const r = await client.request('connected-realm-index', ctx.paths.connectedRealms, { priority, namespace: ctx.namespaces.dynamic, version: scope.version, region: scope.region });
+  const listed = listedConnectedRealms(okOr(r, 'connected-realm index'));
+  cache.set(k, { at: Date.now(), listed });
+  return listed;
+}
+
 /**
- * A realm version's realm category: the realm's TYPE (realm/{slug}, dynamic namespace), read at most once a day per
- * realm and kept in `realms`. → Everstats' category id, or null when Blizzard didn't say (the character then has no
- * category and is on no board until it does: never a guess).
+ * A realm version's realm: its realm category (the realm's TYPE, realm/{slug}, dynamic namespace) and, 0.10.1, whether
+ * it is a player realm at all (realms/playerRealms.js rule 1: an internal realm is excluded, never crawled). Read at most
+ * once a day per realm and kept in `realms`. → { categoryId, excluded }: categoryId null when Blizzard didn't say (the
+ * character then has no category and is on no board until it does: never a guess); an excluded realm gets no category.
  */
-export async function realmCategoryId({ db, client }, { scope, ctx }, realm, priority) {
-  if (!realm?.slug) return null;
-  const known = await db.one('SELECT category_id, fetched_at FROM realms WHERE game_version = $1 AND region = $2 AND slug = $3', [scope.version, scope.region, realm.slug]);
-  if (known && Date.now() - new Date(known.fetched_at).getTime() < REALM_EVERY_MS) return known.category_id;
+export async function realmInfo({ db, client }, { scope, ctx }, realm, priority) {
+  if (!realm?.slug) return { categoryId: null, excluded: null };
+  const known = await db.one('SELECT category_id, excluded, fetched_at FROM realms WHERE game_version = $1 AND region = $2 AND slug = $3', [scope.version, scope.region, realm.slug]);
+  if (known && Date.now() - new Date(known.fetched_at).getTime() < REALM_EVERY_MS) return { categoryId: known.category_id, excluded: known.excluded };
   const r = await client.request('realm', ctx.paths.realm(realm.slug), { priority, namespace: ctx.namespaces.dynamic, version: scope.version, region: scope.region });
   const json = okOr(r, 'realm');
+  const connectedRealmId = realmConnectedId(json);
+  const { excluded } = json ? realmExclusion(connectedRealmId, await listedFor({ db, client }, { scope, ctx }, priority)) : { excluded: null };
   const type = json?.type && typeof json.type === 'object' ? json.type : null;
-  const key = typeof type?.type === 'string' ? type.type : null;
+  const key = !excluded && typeof type?.type === 'string' ? type.type : null;
   return db.tx(async (q) => {
     const categoryId = key ? await upsertRealmCategory(q, { key, name: typeof type.name === 'string' ? type.name : key }, { scope }) : null;
     await q.query(
-      `INSERT INTO realms (game_version, region, slug, blizzard_id, name, type_key, type_name, category_id, fetched_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+      `INSERT INTO realms (game_version, region, slug, blizzard_id, name, type_key, type_name, category_id, connected_realm_id, excluded, fetched_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
        ON CONFLICT (game_version, region, slug) DO UPDATE SET blizzard_id = EXCLUDED.blizzard_id, name = EXCLUDED.name, type_key = EXCLUDED.type_key,
-         type_name = EXCLUDED.type_name, category_id = EXCLUDED.category_id, fetched_at = now()`,
-      [scope.version, scope.region, realm.slug, Number.isSafeInteger(json?.id) ? json.id : realm.id, typeof json?.name === 'string' ? json.name.slice(0, 80) : realm.name, key, type?.name ?? null, categoryId],
+         type_name = EXCLUDED.type_name, category_id = EXCLUDED.category_id, connected_realm_id = EXCLUDED.connected_realm_id,
+         excluded = EXCLUDED.excluded, fetched_at = now()`,
+      [scope.version, scope.region, realm.slug, Number.isSafeInteger(json?.id) ? json.id : realm.id, typeof json?.name === 'string' ? json.name.slice(0, 80) : realm.name,
+        excluded ? null : key, excluded ? null : (type?.name ?? null), categoryId, connectedRealmId, excluded],
     );
-    return categoryId;
+    return { categoryId, excluded };
   });
 }
 const usesRealmTypes = (scope) => versionById(scope.version)?.realmCategory.source === 'realm-type';
+/** The outcome of an item on an internal realm: nothing is fetched or stored (realms/playerRealms.js). */
+export const EXCLUDED_OUTCOME = 'excluded: internal realm';
 
 const okOr = (r, what) => {
   if (r.status === 200 && r.json) return r.json;
@@ -97,6 +120,8 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
   const priority = item.priority;
   const base = ctx.characterPath(ref);
   const ask = (endpoint, path) => client.request(endpoint, path, { priority, namespace: ctx.namespaces.profile, version: scope.version, region: scope.region });
+  // 0.10.1: never a character on an internal realm (realms/playerRealms.js): its realm is read first (cached a day).
+  if (usesRealmTypes(scope) && ref.realmSlug && (await realmInfo({ db, client }, { scope, ctx }, { slug: ref.realmSlug }, priority)).excluded) return EXCLUDED_OUTCOME;
   const prof = await ask('profile', base);
   const pj = okOr(prof, 'profile');
   if (!pj) {
@@ -109,7 +134,9 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
   if (ctx.realms && !p.realm && ref.realmSlug) p.realm = { id: null, slug: ref.realmSlug, name: null };
   // 0.10.0: Everstats' id for it (Blizzard's own on the native version) and, on a realm version, its realm's category.
   const id = await localId(db, { kind: 'character', version: scope.version, region: scope.region, blizzardId: p.id });
-  const rulesetId = usesRealmTypes(scope) ? await realmCategoryId({ db, client }, { scope, ctx }, p.realm, priority) : undefined;
+  const realmOfP = usesRealmTypes(scope) ? await realmInfo({ db, client }, { scope, ctx }, p.realm, priority) : null;
+  if (realmOfP?.excluded) return EXCLUDED_OUTCOME;
+  const rulesetId = realmOfP ? realmOfP.categoryId : undefined;
   const store = { source: sourceOf(item), scope, rulesetId };
 
   const existing = await db.one('SELECT login_at_full, last_fetched_at, media_state, equipment_version, missing_since FROM characters WHERE id = $1', [id]);
@@ -244,6 +271,7 @@ export async function fetchGuildRoster({ db, client }, item) {
   const ref = parseCrawlKey(scope.version, String(item.key).toLowerCase());
   const slug = ref.slug;
   const ask = (endpoint, path) => client.request(endpoint, path, { priority: item.priority, namespace: ctx.namespaces.profile, version: scope.version, region: scope.region });
+  if (usesRealmTypes(scope) && ref.realmSlug && (await realmInfo({ db, client }, { scope, ctx }, { slug: ref.realmSlug }, item.priority)).excluded) return EXCLUDED_OUTCOME;
   const prof = await ask('guild-profile', ctx.guildPath(ref));
   const pj = okOr(prof, 'guild profile');
   if (!pj) {
@@ -258,7 +286,9 @@ export async function fetchGuildRoster({ db, client }, item) {
   const gp = parseGuildProfile(pj, { realms: ctx.realms });
   if (!gp) throw new RetryableError('guild profile: an answer without a guild in it', 'blizzard');
   if (ctx.realms && !gp.realm && ref.realmSlug) gp.realm = { id: null, slug: ref.realmSlug, name: null };
-  const rulesetId = usesRealmTypes(scope) ? await realmCategoryId({ db, client }, { scope, ctx }, gp.realm, item.priority) : undefined;
+  const guildRealm = usesRealmTypes(scope) ? await realmInfo({ db, client }, { scope, ctx }, gp.realm, item.priority) : null;
+  if (guildRealm?.excluded) return EXCLUDED_OUTCOME;
+  const rulesetId = guildRealm ? guildRealm.categoryId : undefined;
   // 0.10.0: from here on the guild is Everstats' id (Blizzard's own on the native version).
   const guildId = await db.tx((q) => storeGuildProfile(q, gp, { scope, rulesetId }));
   const guild = { ...gp, id: guildId, blizzardId: gp.id };

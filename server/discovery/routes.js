@@ -20,6 +20,7 @@ import { SourceError } from '../sources/blizzard.js';
 import { openSource } from '../sources/registry.js';
 import { grantToken } from './grant.js';
 import { parseAccountCharacters, parseProfile } from '../crawler/parse.js';
+import { connectedRealmsFromSearch, realmMapFromSearch } from '../realms/playerRealms.js';
 
 const isProbe = (run) => run?.options?.kind === 'probe';
 const MAX_EXPORT_BODY = 20_000; // characters of each raw body in a probe's JSON export (the page has every body in full)
@@ -310,18 +311,52 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy, fetch = 
     const list = await src.get(ctx.paths.accountCharacters, { namespace: ctx.namespaces.profile, auth: 'user', userToken: grant.token });
     if (list.status === 404) return res.json({ version, region, grant: true, characters: [], pick: null, guild: null, note: `Your Battle.net account has no characters on ${v.name} (Blizzard answered 404). Type one in: ${v.realms ? 'realm and name' : 'name and surname'}.` });
     if (list.status !== 200 || !list.json) return res.json({ version, region, grant: true, characters: [], pick: null, guild: null, note: `Blizzard didn’t give the character list (${list.status === null ? `no answer: ${list.error ?? 'error'}` : `HTTP ${list.status}`}). Type one in.` });
-    const characters = parseAccountCharacters(list.json, { realms: ctx.realms }).map((c) => ({
-      id: c.id, name: c.name, surname: c.surname, realmSlug: c.realmSlug ?? null, level: c.level, class: c.class, race: c.race, faction: c.faction,
-    }));
+    // 0.10.1: on a realm version, which realms are player realms and which are locked (realms/playerRealms.js), from
+    // search/connected-realm (one page per 100 connected realms; it lists the same set as connected-realm/index).
+    let realmInfo = null;
+    if (ctx.realms) {
+      const pages = [];
+      for (let page = 1; page <= 5; page += 1) {
+        const r = await src.get(ctx.paths.connectedRealmSearch, { namespace: ctx.namespaces.dynamic, query: { orderby: 'id', _page: page } });
+        if (r.status !== 200 || !r.json) break;
+        pages.push(r.json);
+        if (!(Number(r.json.pageCount) > page)) break;
+      }
+      realmInfo = pages.length ? realmMapFromSearch(connectedRealmsFromSearch(pages)) : null;
+    }
+    const characters = parseAccountCharacters(list.json, { realms: ctx.realms }).map((c) => {
+      const info = realmInfo && c.realmSlug ? realmInfo.get(c.realmSlug) ?? null : null;
+      return {
+        id: c.id, name: c.name, surname: c.surname, realmSlug: c.realmSlug ?? null, level: c.level, class: c.class, race: c.race, faction: c.faction,
+        // null = unknown (no realm data); internal = on no connected realm Blizzard lists (never picked).
+        realm: realmInfo ? { internal: !info, locked: info?.locked ?? null, category: info?.category ?? null } : null,
+      };
+    });
     if (!characters.length) return res.json({ version, region, grant: true, characters, pick: null, guild: null, note: `Your Battle.net account lists no characters on ${v.name}. Type one in: ${v.realms ? 'realm and name' : 'name and surname'}.` });
-    const pick = [...characters].sort((a, b) => (b.level ?? 0) - (a.level ?? 0) || a.id - b.id)[0];
+    // Highest level wins, but a character on an open realm before one on a locked realm (probe #6: a Legacy-realm
+    // character answered 404 everywhere), and never one on an internal realm. Level 10+ first (below, no profile).
+    const rank = (c) => [c.realm?.internal ? 0 : 1, (c.level ?? 0) >= 10 ? 1 : 0, c.realm?.locked === true ? 0 : 1, c.level ?? 0];
+    const cmp = (a, b) => {
+      const x = rank(a);
+      const y = rank(b);
+      for (let i = 0; i < x.length; i += 1) if (x[i] !== y[i]) return y[i] - x[i];
+      return a.id - b.id;
+    };
+    const pick = [...characters].sort(cmp)[0];
+    if (pick.realm?.internal) return res.json({ version, region, grant: true, characters, pick: null, guild: null, note: `Every character on your list is on an internal realm Blizzard doesn't list. Type one in.` });
     let guild = null;
     if (!ctx.realms || pick.realmSlug) {
       const prof = await src.get(ctx.characterPath({ realmSlug: pick.realmSlug, slug: (ctx.realms ? pick.name : `${pick.name}-${pick.surname}`).toLowerCase() }), { namespace: ctx.namespaces.profile });
       const pp = prof.status === 200 ? parseProfile(prof.json, { realms: ctx.realms }) : null;
       if (pp?.guild) guild = { name: pp.guild.name, slug: pp.guild.slug, realmSlug: pp.guild.realm?.slug ?? null };
     }
-    res.json({ version, region, grant: true, characters, pick, guild, note: guild ? null : `${pick.name} is in no guild Blizzard names (or its profile didn’t answer): type a guild in.` });
+    const why = pick.realm?.locked === true
+      ? `${pick.name}'s realm is locked (every realm your characters are on is): its profile may not answer.`
+      : pick.realm && characters.some((c) => c.realm?.locked === true && (c.level ?? 0) > (pick.level ?? 0))
+        ? `Picked ${pick.name} (level ${pick.level}) on an open realm over higher-level characters on locked realms.`
+        : null;
+    const guildNote = guild ? null : `${pick.name} is in no guild Blizzard names (or its profile didn’t answer): type a guild in.`;
+    res.json({ version, region, grant: true, characters, pick, guild, note: [why, guildNote].filter(Boolean).join(' ') || null });
   }));
 
   // 0.10.0: the admin's eyes on the render: does it draw the race Blizzard names? Kept in the run's live record, so a

@@ -1920,4 +1920,16 @@ export const migrations = [
       `);
     },
   },
+  {
+    // 0.10.1: player realms (realms/playerRealms.js). A realm whose connected realm isn't one connected-realm/index lists
+    // is an internal realm: `excluded` says why, and the crawler never fetches a character or guild on it. Blizzard data
+    // like the rest of the row. The table only ever holds rows of versions with realms, none enabled yet: empty on the
+    // live database, so this is two metadata-only ADD COLUMNs.
+    id: '028_player_realms',
+    async up(q) {
+      await q.query(`
+        ALTER TABLE realms ADD COLUMN connected_realm_id bigint, ADD COLUMN excluded text CHECK (length(excluded) <= 200);
+      `);
+    },
+  },
 ];

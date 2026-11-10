@@ -10,6 +10,9 @@ import { probeAnswers } from './answers.js';
 import { boardsFrom, compareStatistics, groupSuggestions, renderCheck, rolesByGroup, statisticCatalog, FEED_ENTRIES, KIND_ENTRIES } from './compare.js';
 import { PROBE_AREAS, PROBE_ENDPOINTS, probeAreasFor, probeEndpointById, probeEntriesFor, probeResponseEndpoint, templateParams } from './endpoints.js';
 import { MAX_REALMS, REALM_SWEEP_ENDPOINT, realmAnswers, realmList, realmSlugsIn } from './realms.js';
+import { CHARACTER_CHECK_ENDPOINT, characterAnswers, characterCheckPlan } from './characterCheck.js';
+import { STATIC_CHECK_ENDPOINT, STATIC_CHECK_ENTRIES, chooseStatic, staticAnswer, staticCandidates } from './staticCheck.js';
+import { connectedRealmsFromSearch, listedConnectedRealms } from '../../realms/playerRealms.js';
 
 /**
  * The endpoint probe (0.8.3): one request (or a few) per entry of probe/endpoints.js, in order, against one GAME VERSION
@@ -203,13 +206,36 @@ export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now
     return stopRequested;
   }
 
-  const kindNs = (kind) => {
-    if (kind === 'static' && !ns.static) ns.static = pickStatic(namespaceLinks, bz);
+  const kindNs = async (kind) => {
+    if (kind === 'static' && !ns.static) {
+      const detected = pickStatic(namespaceLinks, bz);
+      ns.static = bz.plainStatic ? await staticCheck(detected) : detected;
+    }
     return ns[kind] ?? null;
   };
 
+  /**
+   * 0.10.1 (probe/staticCheck.js): ask STATIC_CHECK_ENTRIES in every candidate namespace (the detected versioned one, the
+   * newest build linked, the registry's plain one) and use whichever answered with real data. Recorded in live.staticCheck.
+   */
+  async function staticCheck(detected) {
+    const tries = [];
+    for (const cand of staticCandidates({ namespaceLinks, ctx: bz, detected })) {
+      for (const id of STATIC_CHECK_ENTRIES) {
+        if (await shouldStop()) break;
+        const e = probeEndpointById.get(id);
+        progress.phase = `Static namespace check: ${cand.ns}`;
+        const r = await attempt(e, e.path, cand.ns, {}, cand.why, { endpoint: STATIC_CHECK_ENDPOINT });
+        tries.push({ ns: cand.ns, why: cand.why, entry: id, status: r.status, json: r.json });
+      }
+    }
+    const choice = chooseStatic(tries, { detected, plain: bz.plainStatic });
+    live.staticCheck = { chosen: choice.chosen, basis: choice.basis, detected, candidates: choice.candidates };
+    return choice.chosen;
+  }
+
   /** One request, stored. A link to another host is refused and stored as such, never fetched. */
-  async function attempt(e, path, namespace, values, basis, { endpoint = null } = {}) {
+  async function attempt(e, path, namespace, values, basis, { endpoint = null, subject = null } = {}) {
     let r;
     try {
       r = await source.get(path, { namespace, auth: e.auth === 'user' ? 'user' : 'app', userToken: e.auth === 'user' ? grant.token : null, query: e.query ?? null });
@@ -220,7 +246,7 @@ export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now
     const row = await db.one(
       `INSERT INTO discovery_responses (run_id, endpoint, subject_kind, subject, path, namespace, auth, status, latency_ms, attempts, headers, content_type, bytes, body, truncated, error, fetched_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17) RETURNING id`,
-      [runId, endpoint ?? probeResponseEndpoint(e.id), subjectKind(e), subjectKind(e) === 'character' ? ctx.C : subjectKind(e) === 'guild' ? ctx.G : '', r.path, r.namespace, r.auth, r.status, r.latencyMs, r.attempts,
+      [runId, endpoint ?? probeResponseEndpoint(e.id), subjectKind(e), subject ?? (subjectKind(e) === 'character' ? ctx.C : subjectKind(e) === 'guild' ? ctx.G : ''), r.path, r.namespace, r.auth, r.status, r.latencyMs, r.attempts,
         JSON.stringify(r.headers), r.contentType, r.bytes, r.body, r.truncated, r.error, r.fetchedAt],
     );
     for (const n of namespacesIn(r.body)) {
@@ -229,8 +255,8 @@ export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now
     }
     progress.requests += 1;
     if (endpoint) {
-      // The realm sweep: stored like every response, tracked apart from the entries.
-      live.realmSweep.push({ slug: values.realmSlug, responseId: Number(row.id), status: r.status });
+      // The realm sweep, the static check, the character check: stored like every response, tracked apart from entries.
+      if (endpoint === REALM_SWEEP_ENDPOINT) live.realmSweep.push({ slug: values.realmSlug, responseId: Number(row.id), status: r.status });
       await beat();
       return r;
     }
@@ -271,14 +297,14 @@ export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now
       const why = realmState();
       if (why) return skip(e, why);
     }
-    const namespace = kindNs(e.ns);
+    const namespace = await kindNs(e.ns);
     if (!namespace) return skip(e, 'no static namespace was detected in any answer so far, and none is ever guessed');
     const params = templateParams(e.path).filter((p) => !(p in (e.fixed ?? {})));
 
     if (params.length === 0) {
       if (await shouldStop()) return null;
       const r = await attempt(e, fill(e.path, ctx, e.fixed), namespace, e.fixed ?? {}, 'no parameters');
-      const alt = ALT[e.ns] ? kindNs(ALT[e.ns]) : null;
+      const alt = ALT[e.ns] ? await kindNs(ALT[e.ns]) : null;
       if (r.status === 404 && alt && e.path.startsWith('/data/') && !e.id.startsWith('guild.')) {
         if (await shouldStop()) return null;
         await attempt(e, fill(e.path, ctx, e.fixed), alt, e.fixed ?? {}, `asked again in the ${ALT[e.ns]} namespace after a 404`);
@@ -312,7 +338,8 @@ export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now
     }
     for (const cand of common ? candidates : candidates.slice(0, MAX_DISCOVERED)) {
       if (await shouldStop()) return null;
-      const r = await attempt(e, fill(e.path, ctx, cand.values), cand.ns ?? namespace, cand.values, cand.basis);
+      const checked = e.ns === 'static' && live.staticCheck?.candidates.some((c) => c.ns === namespace && c.real);
+      const r = await attempt(e, fill(e.path, ctx, cand.values), checked ? namespace : (cand.ns ?? namespace), cand.values, cand.basis);
       if (!common && r.status === 200) break;
     }
     return null;
@@ -332,6 +359,36 @@ export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now
     }
   }
 
+  /** 0.10.1 (probe/characterCheck.js): a few more of the admin's own characters' profiles, per kind of realm. */
+  async function characterCheck() {
+    if (!bz.realms || stopRequested) return;
+    const account = results.get('account.profile')?.success?.json;
+    if (!account || !live.realmSweep.length) return;
+    const details = [];
+    for (const x of live.realmSweep) {
+      const row = await db.one('SELECT status, body, truncated FROM discovery_responses WHERE id = $1', [x.responseId]);
+      let json = null;
+      try {
+        json = row?.status === 200 && !row.truncated ? JSON.parse(row.body) : null;
+      } catch {
+        json = null;
+      }
+      details.push({ slug: x.slug, status: row?.status ?? null, json });
+    }
+    const realms = realmList(details, {
+      listed: listedConnectedRealms(results.get('data.connected-realm-index')?.success?.json),
+      connected: connectedRealmsFromSearch([results.get('search.connected-realm')?.success?.json].filter(Boolean)),
+    });
+    live.characterChecks = [];
+    const e = probeEndpointById.get('character.profile');
+    for (const c of characterCheckPlan({ account, realms, primary: opts.primary })) {
+      if (await shouldStop()) return;
+      progress.phase = `Characters by realm: ${c.realmSlug}/${c.slug}`;
+      const r = await attempt(e, bz.characterPath({ realmSlug: c.realmSlug, slug: c.slug }), ns.profile, {}, `another ${c.group} character`, { endpoint: CHARACTER_CHECK_ENDPOINT, subject: bz.characterPath({ realmSlug: c.realmSlug, slug: c.slug }) });
+      live.characterChecks.push({ ...c, status: r.status });
+    }
+  }
+
   const areaLabel = new Map(probeAreasFor(scope.version).map((a) => [a.id, a.label]));
   for (const e of ENTRIES) {
     if (await shouldStop()) break;
@@ -345,8 +402,9 @@ export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now
     }
     progress.entriesDone += 1;
   }
+  await characterCheck();
   if (stopRequested) live.stopped = { afterEntries: progress.entriesDone, afterRequests: progress.requests };
-  live.namespaces = { profile: ns.profile, dynamic: ns.dynamic, staticDetected: ns.static ?? pickStatic(namespaceLinks, bz) };
+  live.namespaces = { profile: ns.profile, dynamic: ns.dynamic, staticDetected: live.staticCheck?.detected ?? ns.static ?? pickStatic(namespaceLinks, bz), staticUsed: ns.static ?? null };
   progress.phase = 'analysing';
   await beat(true);
   return { summary: await analyseProbe(db, runId, live, opts), stopped: Boolean(live.stopped) };
@@ -382,7 +440,7 @@ export async function analyseProbe(db, runId, live, options = null) {
   const obs = createObserver();
   const facts = new Map();
   // 0.10.0: the first 200 body of the entries the comparisons read, and every realm-sweep answer.
-  const wanted = new Set([...Object.keys(FEED_ENTRIES), ...Object.values(KIND_ENTRIES), 'character.achievement-statistics', 'character.character-media', 'account.profile', 'data.realm-index', 'data.ruleset-index'].map(probeResponseEndpoint));
+  const wanted = new Set([...Object.keys(FEED_ENTRIES), ...Object.values(KIND_ENTRIES), 'character.achievement-statistics', 'character.character-media', 'account.profile', 'data.realm-index', 'data.ruleset-index', 'data.connected-realm-index', 'search.connected-realm'].map(probeResponseEndpoint));
   const bodies = new Map(); // entry id → json
   const realmDetails = new Map(); // response id → { json, status }
   for (let after = 0; ;) {
@@ -442,12 +500,27 @@ export async function analyseProbe(db, runId, live, options = null) {
 
   // ---- 0.10.0: realms, statistics compared with Forever's, groups with suggestions, boards (rule A7), renders
   const realms = (live.realmSweep ?? []).length
-    ? realmList((live.realmSweep ?? []).map((x) => ({ slug: x.slug, status: realmDetails.get(x.responseId)?.status ?? x.status, json: realmDetails.get(x.responseId)?.json ?? null })))
+    ? realmList((live.realmSweep ?? []).map((x) => ({ slug: x.slug, status: realmDetails.get(x.responseId)?.status ?? x.status, json: realmDetails.get(x.responseId)?.json ?? null })), {
+      // 0.10.1: internal realms (not in a connected realm connected-realm/index lists) and locks (search/connected-realm).
+      listed: listedConnectedRealms(bodies.get('data.connected-realm-index') ?? null),
+      connected: connectedRealmsFromSearch([bodies.get('search.connected-realm')].filter(Boolean)),
+    })
     : null;
   if (realms && live.realmSweepCapped) realms.capped = live.realmSweepCapped;
   const rulesetIdx = bodies.get('data.ruleset-index');
   const rulesetsListed = Array.isArray(rulesetIdx?.rulesets) ? rulesetIdx.rulesets.map((r) => (typeof r?.name === 'string' ? r.name : r?.id !== undefined ? `id ${r.id}` : null)).filter(Boolean) : null;
   answers.push(...realmAnswers({ version: scope.version, realms, rulesetsListed, indexStatus: entries.find((e) => e.id === 'data.realm-index')?.attempts.map((a) => a.status ?? 'no answer').join('/') || 'not asked' }));
+
+  // 0.10.1: the static namespace check, and whether the probe's own character (and others per kind of realm) answered.
+  const versionName = versionById(scope.version)?.name ?? scope.version;
+  if (versionById(scope.version)?.staticPlain) answers.unshift(staticAnswer({ check: live.staticCheck ?? null, detected: live.namespaces?.staticDetected ?? null, versionName, entries }));
+  const primaryEntry = entries.find((e) => e.id === 'character.profile');
+  const primaryStatuses = primaryEntry?.attempts.map((a) => a.status) ?? [];
+  const primaryMissing = primaryStatuses.length > 0 && !primaryStatuses.includes(200);
+  const characterEntries = entries.filter((e) => e.id.startsWith('character.')).map((e) => ({ id: e.id, statuses: e.attempts.map((a) => a.status) }));
+  const charAnswers = characterAnswers({ primary: opts.primary ?? null, primaryStatuses, primaryEndpoints: characterEntries, realms, checks: live.characterChecks ?? null, versionName });
+  answers.unshift(...charAnswers.filter((a) => a.id === 'primary-character'));
+  answers.push(...charAnswers.filter((a) => a.id !== 'primary-character'));
 
   const here = statisticCatalog(bodies.get('character.achievement-statistics') ?? null);
   const foreverRows = await db.query(
@@ -480,7 +553,7 @@ export async function analyseProbe(db, runId, live, options = null) {
   answers.push({
     id: 'boards', module: 'Boards', question: 'How many boards would this version get (rule A7: every numeric value a board)?',
     verdict: boards.total > 0 ? 'yes' : 'unknown',
-    text: `${boards.total.toLocaleString('en-US')} boards from one character's answers: ${boards.groups.map((g) => `${g.group} ${g.boards}`).join(', ') || 'none'}. ${boards.skipped.length} field shapes skipped (the list says why). One character can't show boards only others have values for.`,
+    text: primaryMissing ? 'Not measured: the probe’s character answered no profile, so there are no character answers to count boards from (this is not zero boards).' : `${boards.total.toLocaleString('en-US')} boards from one character's answers: ${boards.groups.map((g) => `${g.group} ${g.boards}`).join(', ') || 'none'}. ${boards.skipped.length} field shapes skipped (the list says why). One character can't show boards only others have values for.`,
     evidence: Object.keys(FEED_ENTRIES),
   });
 
@@ -488,7 +561,10 @@ export async function analyseProbe(db, runId, live, options = null) {
     kind: 'probe',
     version: scope.version,
     region: scope.region,
-    versionName: versionById(scope.version)?.name ?? scope.version,
+    versionName,
+    primaryMissing,
+    staticCheck: live.staticCheck ?? null,
+    characterChecks: live.characterChecks ?? null,
     realms,
     statistics,
     groups,
@@ -578,7 +654,7 @@ export function probeBoardsCsv(summary) {
   for (const x of summary.boards?.overlaps ?? []) lines.push(['overlap', cell(x.key, { text: true }), cell('the same value as a collections family board: listed once, as the family', { text: true }), '', cell(x.family, { text: true }), ''].join(','));
   for (const r of summary.realms?.realms ?? []) {
     lines.push(['realm', cell(r.slug, { text: true }), cell(r.name ?? '', { text: true }), cell(r.type ? `${r.type.type ?? ''} (${r.type.name ?? ''})` : '', { text: true }), cell(r.category ?? '', { text: true }),
-      cell(r.answered ? [r.timezone, r.locale, r.isTournament ? 'tournament' : null].filter(Boolean).join(' · ') : `not answered (${r.status ?? 'no answer'})`, { text: true })].join(','));
+      cell(r.answered ? [r.excluded ? `EXCLUDED: ${r.excluded}` : null, r.locked === true ? 'locked' : r.locked === false ? 'open' : null, r.timezone, r.locale, r.isTournament ? 'tournament' : null].filter(Boolean).join(' · ') : `not answered (${r.status ?? 'no answer'})`, { text: true })].join(','));
   }
   return `${lines.join('\r\n')}\r\n`;
 }

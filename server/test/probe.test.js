@@ -96,6 +96,48 @@ function retail(path, ns, auth) {
   return [404, { code: 404 }];
 }
 
+// ---- 0.10.1: a fake Classic shaped like probe #6 (fixture names and numbers only). Its links name two versioned static
+// builds, where every static index 404s; the plain namespace has the data. One realm is open ("Active"), one locked
+// ("Legacy", its characters 404), one internal (its connected realm isn't listed).
+const K_PROF = 'profile-classic-us';
+const K_DYN = 'dynamic-classic-us';
+const K_PLAIN = 'static-classic-us';
+const K_OLD = 'static-5.5.0_100-classic-us';
+const K_NEW = 'static-5.5.4_200-classic-us';
+const isClassic = (ns) => [K_PROF, K_DYN, K_PLAIN, K_OLD, K_NEW].includes(ns);
+const kChar = (realm, name, level, id) => ({ name, id, level, realm: { slug: realm, name: realm }, character: { href: `${API}/profile/wow/character/${realm}/${name.toLowerCase()}?namespace=${K_PROF}` }, playable_class: { key: { href: `${API}/data/wow/playable-class/4?namespace=${K_OLD}` }, name: 'Rogue' } });
+const kRealm = (id, slug, category, cr) => ({ id, slug, name: slug, category, type: { type: 'NORMAL', name: 'PvE' }, timezone: 'America/New_York', locale: 'enUS', is_tournament: false, connected_realm: { href: `${API}/data/wow/connected-realm/${cr}?namespace=${K_DYN}` } });
+function classic(path, ns, auth) {
+  if (path === '/profile/user/wow' && ns === K_PROF) {
+    if (auth !== `Bearer ${USER_TOKEN}`) return [401, {}];
+    return { wow_accounts: [{ characters: [
+      kChar('fixture-legacy', 'Lockedy', 80, 41), kChar('fixture-legacy', 'Legacytoo', 75, 42), kChar('fixture-open', 'Openy', 70, 43),
+      kChar('fixture-internal', 'Inny', 90, 44), kChar('fixture-open', 'Lowy', 5, 45),
+    ] }], _links: { race: { href: `${API}/data/wow/playable-race/1?namespace=${K_NEW}` } } };
+  }
+  if (path === '/profile/wow/character/fixture-open/openy' && ns === K_PROF) return { id: 43, name: 'Openy', level: 70, realm: { id: 1, slug: 'fixture-open' } };
+  if (path === '/data/wow/realm/index' && ns === K_DYN) return { realms: [{ id: 1, slug: 'fixture-open' }, { id: 2, slug: 'fixture-legacy' }, { id: 3, slug: 'fixture-internal' }] };
+  if (path === '/data/wow/realm/fixture-open' && ns === K_DYN) return kRealm(1, 'fixture-open', 'Active', 100);
+  if (path === '/data/wow/realm/fixture-legacy' && ns === K_DYN) return kRealm(2, 'fixture-legacy', 'Legacy', 200);
+  if (path === '/data/wow/realm/fixture-internal' && ns === K_DYN) return kRealm(3, 'fixture-internal', 'United States', 300);
+  if (path === '/data/wow/connected-realm/index' && ns === K_DYN) {
+    return { _links: { self: { href: `${API}/data/wow/connected-realm/?namespace=${K_DYN}` }, other: { href: `${API}/data/wow/playable-race/1?namespace=${K_NEW}` } }, connected_realms: [100, 200].map((id) => ({ href: `${API}/data/wow/connected-realm/${id}?namespace=${K_DYN}` })) };
+  }
+  if (path === '/data/wow/search/connected-realm' && ns === K_DYN) {
+    return { page: 1, pageCount: 1, results: [
+      { key: { href: `${API}/data/wow/connected-realm/100?namespace=${K_DYN}` }, data: { id: 100, population: { type: 'HIGH' }, status: { type: 'UP' }, realms: [{ id: 1, slug: 'fixture-open', category: { en_US: 'Active' } }] } },
+      { key: { href: `${API}/data/wow/connected-realm/200?namespace=${K_DYN}` }, data: { id: 200, population: { type: 'LOCKED' }, status: { type: 'UP' }, realms: [{ id: 2, slug: 'fixture-legacy', category: { en_US: 'Legacy' } }] } },
+    ] };
+  }
+  if (ns === K_PLAIN) {
+    if (path === '/data/wow/playable-class/index') return { classes: [{ id: 1 }, { id: 4 }] };
+    if (path === '/data/wow/playable-race/index') return { races: [{ id: 1 }, { id: 2 }, { id: 3 }] };
+    if (path === '/data/wow/achievement/index') return { achievements: [{ id: 6 }] };
+    if (path === '/data/wow/achievement/6') return { id: 6, name: 'Fixture achievement' };
+  }
+  return [404, { code: 404 }];
+}
+
 async function fakeFetch(url, init = {}) {
   const u = new URL(url);
   const auth = init.headers?.Authorization ?? null;
@@ -109,7 +151,7 @@ async function fakeFetch(url, init = {}) {
   if (u.origin !== API) throw new Error('the test fetch refuses other hosts');
   if (onCall) await onCall(u);
   const ns = u.searchParams.get('namespace');
-  const out = isRetail(ns) ? retail(u.pathname, ns, auth) : blizzard(u.pathname, ns, auth, u.searchParams);
+  const out = isRetail(ns) ? retail(u.pathname, ns, auth) : isClassic(ns) ? classic(u.pathname, ns, auth) : blizzard(u.pathname, ns, auth, u.searchParams);
   return Array.isArray(out) ? json(out[1], out[0]) : json(out);
 }
 
@@ -387,4 +429,74 @@ test('0.10.0: a Retail probe (a realm version, disabled for players): realm path
   // Nothing written outside the probe's own records: no character, statistic, decision, group choice, guild,
   // realm category, realm or id mapping.
   assert.deepEqual(await counts(), before);
+});
+
+test('0.10.1: a Classic probe: the plain static namespace when the versioned one is empty, internal realms excluded, locked realms, a character that 404s said plainly', async () => {
+  const c = t.client();
+  // The prefill: an open realm's character over higher-level ones on a locked realm; never one on an internal realm.
+  const pre = await c.get('/api/admin/discovery/probe-characters?version=classic&region=us', admin);
+  assert.equal(pre.status, 200, JSON.stringify(pre.json));
+  assert.deepEqual([pre.json.pick.name, pre.json.pick.realmSlug], ['Openy', 'fixture-open']);
+  assert.equal(pre.json.characters.find((x) => x.name === 'Inny').realm.internal, true);
+  assert.equal(pre.json.characters.find((x) => x.name === 'Lockedy').realm.locked, true);
+  assert.match(pre.json.note, /open realm over higher-level characters on locked realms/);
+
+  // The probe as run #6 was: the locked realm's character.
+  calls.length = 0;
+  const queued = await startProbe({ version: 'classic', region: 'us', name: 'Lockedy', realm: 'fixture-legacy', guild: 'Fixture Guild' });
+  assert.equal(queued.status, 201, JSON.stringify(queued.json));
+  await runQueued();
+  const run = await getRun(queued.json.run.id);
+  assert.equal(run.status, 'done', run.problem);
+  const s = run.summary;
+
+  // 1. Static: the detected versioned namespace, the newest linked build and the plain one were each asked; the plain one
+  // had the data and every static entry after it used it.
+  assert.equal(s.staticCheck.detected, K_OLD);
+  assert.deepEqual(s.staticCheck.candidates.map((x) => [x.ns, x.real]), [[K_OLD, false], [K_NEW, false], [K_PLAIN, true]]);
+  assert.equal(s.staticCheck.chosen, K_PLAIN);
+  assert.equal(s.namespaces.staticUsed, K_PLAIN);
+  assert.equal(entry(s, 'data.achievement-index').attempts[0].namespace, K_PLAIN);
+  assert.equal(entry(s, 'data.achievement-index').outcome, 'answered');
+  assert.equal(entry(s, 'data.achievement').outcome, 'answered');
+  assert.equal(answer(s, 'static-namespace').verdict, 'yes');
+
+  // 2. The probe's character 404'd: said plainly, and nothing from it is a zero.
+  assert.equal(s.primaryMissing, true);
+  assert.equal(answer(s, 'primary-character').verdict, 'no');
+  assert.match(answer(s, 'primary-character').text, /not measured, not zero/);
+  assert.match(answer(s, 'primary-character').text, /category is "Legacy", locked/);
+  assert.match(answer(s, 'boards').text, /^Not measured/);
+  // Other characters per kind of realm: the other locked one (404) and the open one (200); never the internal realm's,
+  // the level 5 one, or the probe's own character again.
+  assert.deepEqual(s.characterChecks.map((x) => [x.name, x.status]).sort(), [['Legacytoo', 404], ['Openy', 200]]);
+  assert.ok(!calls.some((x) => x.url.includes('/character/fixture-internal/')), 'no character on an internal realm is asked');
+  assert.match(answer(s, 'realm-characters').text, /Legacy · locked: 0 of 2 answered/);
+  assert.match(answer(s, 'realm-characters').text, /Active · open: 1 of 1 answered/);
+
+  // 3. Internal realms: excluded by the connected-realm rule, listed apart, in no count.
+  assert.equal(s.realms.players, 2);
+  assert.deepEqual(s.realms.excluded.map((x) => x.slug), ['fixture-internal']);
+  assert.deepEqual(s.realms.byCategory.map((x) => x.value).sort(), ['Active', 'Legacy']);
+  assert.equal(answer(s, 'internal-realms').verdict, 'yes');
+  assert.match(answer(s, 'locked-realms').text, /every "Legacy" realm is locked and every "Active" realm is open/);
+
+  // 4. Re-analysis from the stored responses gives the same answers (it asks Blizzard nothing).
+  const before = calls.length;
+  const again = await c.post(`/api/admin/discovery/runs/${run.id}/reanalyse`, {}, admin);
+  assert.equal(again.status, 200);
+  assert.equal(calls.length, before);
+  assert.deepEqual(again.json.run.summary.realms.excluded, s.realms.excluded);
+  assert.equal(again.json.run.summary.staticCheck.chosen, K_PLAIN);
+});
+
+test('0.10.1: Forever keeps its static namespace exactly as before: no check, no plain namespace asked', async () => {
+  calls.length = 0;
+  const queued = await startProbe();
+  await runQueued();
+  const s = (await getRun(queued.json.run.id)).summary;
+  assert.equal(s.staticCheck, null);
+  assert.equal(s.namespaces.staticUsed, STATIC_NS);
+  assert.ok(!calls.some((x) => /namespace=static-forever-us/.test(x.url)), 'the plain Forever namespace (403) is never asked');
+  assert.ok(!s.answers.some((a) => a.id === 'static-namespace'));
 });

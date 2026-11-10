@@ -43,7 +43,12 @@ async function fakeFetch(url, opts = {}) {
     return json(404, {});
   }
   // ---- Retail (realms): profile-us / dynamic-us
-  if (ns === 'dynamic-us' && u.pathname === '/data/wow/realm/area-52') return json(200, { id: 3676, name: 'Area 52', slug: 'area-52', type: { type: 'NORMAL', name: 'Normal' } });
+  if (ns === 'dynamic-us' && u.pathname === '/data/wow/realm/area-52') return json(200, { id: 3676, name: 'Area 52', slug: 'area-52', type: { type: 'NORMAL', name: 'Normal' }, connected_realm: { href: `${API}/data/wow/connected-realm/3676?namespace=dynamic-us` } });
+  // 0.10.1: an internal realm (fixture): its connected realm isn't one connected-realm/index lists.
+  if (ns === 'dynamic-us' && u.pathname === '/data/wow/connected-realm/index') return json(200, { connected_realms: [{ href: `${API}/data/wow/connected-realm/3676?namespace=dynamic-us` }] });
+  if (ns === 'dynamic-us' && u.pathname === '/data/wow/realm/fixture-internal') return json(200, { id: 9001, name: 'US9 Fixture CSI 1', slug: 'fixture-internal', category: 'United States', type: { type: 'NORMAL', name: 'Normal' }, connected_realm: { href: `${API}/data/wow/connected-realm/9001?namespace=dynamic-us` } });
+  if (ns === 'profile-us' && u.pathname.startsWith('/profile/wow/character/fixture-internal/')) return json(200, { id: 777, name: 'Insider', level: 80, realm: { id: 9001, slug: 'fixture-internal' } });
+  if (ns === 'profile-us' && u.pathname.startsWith('/data/wow/guild/fixture-internal/')) return json(200, { id: 778, name: 'Inside Guild', slug: 'inside-guild', realm: { id: 9001, slug: 'fixture-internal' } });
   if (ns === 'profile-us' && u.pathname.startsWith('/profile/wow/character/area-52/thrall')) {
     const sub = u.pathname.slice('/profile/wow/character/area-52/thrall'.length);
     if (sub === '') {
@@ -202,6 +207,26 @@ test('a realm character with the SAME Blizzard ids as a Forever one: two charact
   assert.equal(res.json.character.name, 'Vexa');
   const search = await t.client().get('/api/search?q=thr');
   assert.ok(!JSON.stringify(search.json ?? {}).includes('Thrall'));
+});
+
+test('0.10.1: a character or guild on an internal realm is never fetched, stored or given a realm category', async () => {
+  const cats = (await t.db.one("SELECT count(*)::int AS n FROM rulesets WHERE game_version = 'retail'")).n;
+  const mark = calls.length;
+  const done = await fetchItem({ key: 'fixture-internal/insider', priority: PRIORITY.lookup, mode: 'full', version: 'retail', region: 'us' });
+  assert.equal(done.outcome, 'excluded: internal realm');
+  const g = await fetchItem({ kind: 'guild', key: 'fixture-internal/inside-guild', priority: PRIORITY.lookup, version: 'retail', region: 'us' });
+  assert.equal(g.outcome, 'excluded: internal realm');
+  const asked = calls.slice(mark);
+  assert.ok(asked.some((c) => c.path === '/data/wow/realm/fixture-internal'), 'its realm is read');
+  assert.ok(!asked.some((c) => c.path.startsWith('/profile/wow/character/fixture-internal/') || c.path.startsWith('/data/wow/guild/fixture-internal/')), 'the character and guild are never asked');
+  assert.equal((await t.db.one("SELECT count(*)::int AS n FROM characters WHERE realm_slug = 'fixture-internal'")).n, 0);
+  assert.equal((await t.db.one("SELECT count(*)::int AS n FROM guilds WHERE realm_slug = 'fixture-internal'")).n, 0);
+  const realm = await t.db.one("SELECT excluded, category_id, type_key, connected_realm_id FROM realms WHERE slug = 'fixture-internal'");
+  assert.match(realm.excluded, /internal realm/);
+  assert.deepEqual([realm.category_id, realm.type_key, Number(realm.connected_realm_id)], [null, null, 9001]);
+  assert.equal((await t.db.one("SELECT count(*)::int AS n FROM rulesets WHERE game_version = 'retail'")).n, cats, 'no realm category from an internal realm');
+  // A player realm is unaffected: its connected realm is listed.
+  assert.equal((await t.db.one("SELECT excluded FROM realms WHERE slug = 'area-52'")).excluded, null);
 });
 
 test('a disabled version is never queued, claimed or asked', async () => {

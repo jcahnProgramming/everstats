@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.10.1",
+      "date": "2026-11-09",
+      "title": "Groundwork fixes for other WoW versions",
+      "sections": {
+        "Fixed": [
+          "The groundwork for other versions of World of Warcraft now reads Blizzard’s game data from the right place, and leaves Blizzard’s own internal and test realms out of everything. Nothing changes for WoW Forever."
+        ]
+      }
+    },
+    {
       "version": "0.10.0",
       "date": "2026-11-09",
       "title": "Groundwork for more WoW versions, and a leaderboard for every number",
