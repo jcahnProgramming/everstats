@@ -52,8 +52,17 @@ const TITLES = [
 /** The fixed title of a path: a string, null (the home page: the site's name alone), or undefined (no entry: Not found). */
 export function pageTitleFor(pathname) {
   for (const [re, title] of TITLES) if (re.test(pathname)) return title;
+  // 0.11.1: a game version's pages live under /{version}/{region}/… with the same names (core/versionRoutes.js); a
+  // character or guild there is two segments (realm, name). The same table names them.
+  const m = VERSION_PREFIX.exec(String(pathname ?? ''));
+  if (!m) return undefined;
+  const rest = m[1].replace(TWO_SEGMENTS, '/$1/$2~$3');
+  for (const [re, title] of TITLES) if (VERSION_PAGE.test(rest) && re.test(rest)) return title;
   return undefined;
 }
+const VERSION_PREFIX = /^\/[a-z0-9-]{2,32}\/[a-z]{2}(\/.+)$/;
+const VERSION_PAGE = /^\/(?:c|g|leaderboards|guilds|tiers)(?:\/|$)/;
+const TWO_SEGMENTS = /^\/(c|g)\/([^/]+)\/([^/]+)/;
 
 /** "<title> · Everstats", or the site's name alone. */
 export const fullTitle = (title) => (title ? `${title} · ${SITE_NAME}` : SITE_NAME);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link } from '../scope.jsx';
+import { Link, useScope } from '../scope.jsx';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Segmented, Toggle } from '../components/Controls.jsx';
@@ -30,6 +30,8 @@ const SCREENS = [
   { id: 'pets', label: 'Pets', kinds: ['pets', 'hunter-pets'] },
   { id: 'toys', label: 'Toys', kinds: ['toys'] },
   { id: 'heirlooms', label: 'Heirlooms', kinds: ['heirlooms'] },
+  // 0.11.1: housing decor, on a game version that has it (the server lists the section only there).
+  { id: 'decor', label: 'Decor', kinds: ['decor'] },
   { id: 'titles', label: 'Titles', kinds: ['titles'] },
   { id: 'achievements', label: 'Achievements', kinds: ['achievements'] },
   { id: 'reputations', label: 'Reputations', kinds: ['reputations'] },
@@ -40,7 +42,7 @@ const SCREENS = [
   { id: 'legacy', label: 'Legacy', kinds: ['achievements'] },
 ];
 // Which screen a section header opens, and the glyph each kind wears.
-const SCREEN_OF = { transmog: 'transmog', mounts: 'mounts', pets: 'pets', 'hunter-pets': 'pets', toys: 'toys', heirlooms: 'heirlooms', titles: 'titles', achievements: 'achievements', reputations: 'reputations', professions: 'professions', dungeons: 'dungeons-raids', raids: 'dungeons-raids', quests: 'quests', 'quests-completed': 'quests', pvp: 'pvp' };
+const SCREEN_OF = { transmog: 'transmog', mounts: 'mounts', pets: 'pets', 'hunter-pets': 'pets', toys: 'toys', heirlooms: 'heirlooms', titles: 'titles', achievements: 'achievements', reputations: 'reputations', professions: 'professions', dungeons: 'dungeons-raids', raids: 'dungeons-raids', quests: 'quests', 'quests-completed': 'quests', pvp: 'pvp', decor: 'decor' };
 const GLYPH_OF = { appearances: 'transmog', exalted: 'reputations', revered: 'reputations', 'pets-rare': 'pets', 'boss-kills': 'dungeons', quests: 'quests', legacy: 'legacy', 'quests-completed': 'quests', raids: 'dungeons' };
 const glyphFor = (k) => GLYPH_OF[k] ?? k;
 const POLL_MS = 3000;
@@ -97,6 +99,13 @@ export function CollectionsView({ character: c, screen = '' }) {
           ))}
         </div>
       </nav>
+      {/* 0.11.1 (owner's decision 6): said on every Collections page of a version whose collections are account-wide. */}
+      {data.accountWide && (
+        <div className="note small" role="note">
+          <Icon name="info" />
+          <span>Account-wide on {data.versionName ?? 'this game version'}: collections belong to the whole Battle.net account (the Warband), so this player’s alts share these numbers, and characters with the same number share a rank on a board.{data.onDemand ? ' Everstats fetches them when someone looks the character up, signs in with it or opens this tab, then weekly.' : ''}</span>
+        </div>
+      )}
       <RefreshLine data={data} slug={c.slug} onQueued={load} />
       {current.id === '' ? <Overview data={data} base={base} character={c} onReload={load} />
         : <Screen id={current.id} label={current.label} data={data} character={c} refreshing={data.refreshing} onRetry={load} />}
@@ -153,15 +162,17 @@ function RefreshLine({ data, slug, onQueued }) {
 function usePins() {
   const session = useSession();
   const toast = useToasts();
+  const scope = useScope();
   const [pins, setPins] = useState(null);
   useEffect(() => {
-    if (!session.signedIn) return undefined;
+    // Pins are the primary game version's statistics (the dashboard's cards): offered there only.
+    if (!session.signedIn || !scope.primary) return undefined;
     let live = true;
     api('/api/account/pins').then((r) => { if (live) setPins(r.pinIds); }, () => {});
     return () => {
       live = false;
     };
-  }, [session.signedIn]);
+  }, [session.signedIn, scope.primary]);
   const toggle = async (id, name) => {
     const next = pins.includes(id) ? pins.filter((x) => x !== id) : [...pins, id];
     try {
@@ -286,6 +297,7 @@ function summaryText(s) {
   switch (s.id) {
     case 'transmog': return of(m.have, m.total, 'appearances');
     case 'mounts': case 'toys': case 'heirlooms': return of(m.have, m.total, 'collected');
+    case 'decor': return `${formatNumber(m.have)} different pieces · ${formatNumber(m.owned)} in all`;
     case 'pets': return `${of(m.have, m.total, 'species')}${m.owned !== m.have ? ` · ${formatNumber(m.owned)} pets` : ''}${m.maxLevel ? ` · highest level ${m.maxLevel}` : ''}`;
     case 'hunter-pets': return `${formatNumber(m.have)} tamed · hunters only`;
     case 'titles': return `${of(m.have, m.total, 'earned')}${m.active ? ` · active: “${m.active}”` : ''}`;
@@ -487,6 +499,7 @@ function Screen({ id, label, data, character: c, refreshing, onRetry }) {
     case 'mounts': return <GridScreen slug={c.slug} kind="mounts" title="Mounts" count={count('mounts')} ruleset={rs} what="mounts" />;
     case 'toys': return <GridScreen slug={c.slug} kind="toys" title="Toys" count={count('toys')} ruleset={rs} what="toys" />;
     case 'heirlooms': return <GridScreen slug={c.slug} kind="heirlooms" title="Heirlooms" count={count('heirlooms')} ruleset={rs} what="heirlooms" />;
+    case 'decor': return <GridScreen slug={c.slug} kind="decor" title="Decor" count={count('decor-kinds')} ruleset={rs} what="decor pieces" />;
     case 'pets': return <PetsScreen slug={c.slug} count={count('pets')} ruleset={rs} hunter={data.sections.some((s) => s.id === 'hunter-pets')} />;
     case 'titles': return <TitlesScreen slug={c.slug} count={count('titles')} ruleset={rs} />;
     case 'achievements': return <AchievementsScreen slug={c.slug} count={count('achievements')} ruleset={rs} />;
@@ -527,7 +540,7 @@ function FilterBar({ f, catalog, label }) {
 }
 
 function CollectedOnlyNote({ what }) {
-  return <div className="note small"><Icon name="info" /><span>Blizzard’s full list of {what} isn’t available right now, so this shows what’s collected only: no missing {what}, no totals.</span></div>;
+  return <div className="note small"><Icon name="info" /><span>The full list of {what} isn’t available here yet, so this shows what’s collected only: no missing {what}, no totals.</span></div>;
 }
 
 function GridScreen({ slug, kind, title, count, ruleset, what }) {

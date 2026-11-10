@@ -14,6 +14,12 @@ test('every page has its own title: fixed ones from one table, unknown paths say
   assert.equal(pageTitleFor('/c/path-vexley/collections/share'), 'Share card');
   assert.equal(pageTitleFor('/leaderboards/2/60'), 'Leaderboard');
   assert.equal(pageTitleFor('/no/such/page'), undefined);
+  // 0.11.1: a game version's pages, under its prefix, a character and a guild as realm + name.
+  assert.equal(pageTitleFor('/retail/us/leaderboards'), 'Leaderboards');
+  assert.equal(pageTitleFor('/retail/us/c/area-52/thrall'), 'Character');
+  assert.equal(pageTitleFor('/retail/us/c/area-52/thrall/collections/mounts'), 'Collections');
+  assert.equal(pageTitleFor('/retail/us/g/hyjal/fixture-guild/boards/7'), 'Guild members board');
+  assert.equal(pageTitleFor('/retail/us/settings'), undefined, 'only version pages live under a version prefix');
   // The server writes the same title into the HTML for a page without a card preview.
   const { linkPreviewFor } = await import('../cards/meta.js');
   assert.equal((await linkPreviewFor(null, '/leaderboards', {})).title, 'Leaderboards');

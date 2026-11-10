@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
-import { Link, useParams } from '../scope.jsx';
+import { useSearchParams } from 'react-router-dom';
+import { Link, useParams, useScope } from '../scope.jsx';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Sortable } from '../components/Sortable.jsx';
@@ -49,17 +49,18 @@ export function encodeOptions(o) {
 function useSubject(type) {
   const { slug, ruleset, statistic } = useParams();
   const [params] = useSearchParams();
-  const location = useLocation();
+  // 0.11.1: the page's path without its game-version prefix (scope.jsx), so both address shapes read the same.
+  const { rest } = useScope();
   return useMemo(() => {
     if (type === 'character' || type === 'tier' || type === 'collections') return { c: slug };
     if (type === 'guild') return { g: slug };
-    const guilds = location.pathname.startsWith('/leaderboards/guilds/');
+    const guilds = rest.startsWith('/leaderboards/guilds/');
     return {
       ruleset, statistic,
       period: ['week', 'rolling'].includes(params.get('period')) ? params.get('period') : 'overall',
       ...(guilds ? { g: params.get('g') ?? '', mode: params.get('mode') === 'average' ? 'average' : 'total' } : { c: params.get('c') ?? '' }),
     };
-  }, [type, slug, ruleset, statistic, params, location.pathname]);
+  }, [type, slug, ruleset, statistic, params, rest]);
 }
 
 const queryOf = (type, s) => new URLSearchParams(Object.entries({ type, ...s }).filter(([, v]) => v !== undefined && v !== null && v !== '')).toString();
@@ -129,7 +130,9 @@ function Maker({ type, state, back, period, onPeriod, onSaved }) {
   const [opened] = useState(() => JSON.stringify(opts));
   useEditing(JSON.stringify(opts) !== opened);
   const fmt = state.formats.find((f) => f.id === opts.format);
-  const url = `/card.png?${state.query}&o=${encodeOptions(opts)}`;
+  // 0.11.1: a game version's cards are rendered under its own prefix (/{version}/{region}/card.png).
+  const { prefix } = useScope();
+  const url = `${prefix}/card.png?${state.query}&o=${encodeOptions(opts)}`;
 
   // The preview: the old image stays (dimmed) while the next one is generated; a failure keeps the choices.
   const [shown, setShown] = useState(null);

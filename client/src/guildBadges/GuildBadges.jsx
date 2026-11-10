@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { Link } from '../scope.jsx';
+import { Link, useScope } from '../scope.jsx';
 import { api } from '../api.js';
 import { usePopover } from '../badges/Badges.jsx';
 import { Icon } from '../chrome/Icon.jsx';
@@ -260,8 +260,10 @@ export function GuildBadgeArea({ data, guild, canManage }) {
 /** Next unlocks (progress-strip.md): the 3 levelled badges closest to their next level, and the rally line. */
 export function NextUnlocks({ items, measuring, guild, canManage = false }) {
   const toast = useToast();
+  const { prefix } = useScope();
   const copy = async () => {
-    const url = `${window.location.origin}/g/${encodeURIComponent(guild.slug)}`;
+    // The guild page's own address (never a tracking parameter); under its game version's prefix when it has one.
+    const url = `${window.location.origin}${prefix}/g/${String(guild.slug).split('/').map(encodeURIComponent).join('/')}`;
     try {
       await navigator.clipboard.writeText(url);
       toast({ kind: 'ok', title: 'Sign-up link copied', body: url });

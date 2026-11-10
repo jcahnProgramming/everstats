@@ -134,7 +134,7 @@ function FeatureCard({ feature: f, all, names, settings, onChanged, onSettings }
       </dl>
       {locked && (
         <p className="muted xsmall">
-          <Icon name="lock" size="sm" /> {f.locked === 'primary' ? 'The primary version can’t be switched off: every page needs it.' : 'Decided in code (and GAME_VERSIONS= in .env) until 0.11.0 builds its pages; it can’t be switched here yet.'}
+          <Icon name="lock" size="sm" /> {f.locked === 'primary' ? 'The primary version can’t be switched off: every page needs it.' : f.locked === 'env' ? 'Left out of GAME_VERSIONS= in this server’s .env, so it can’t be switched on here.' : 'Not built yet: its pages, crawl and boards don’t exist, so it can’t be switched on.'}
         </p>
       )}
       <OwnSettings feature={f} settings={settings} onSaved={onSettings} />
