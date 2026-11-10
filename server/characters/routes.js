@@ -66,8 +66,10 @@ async function charactersById(db, ids) {
   if (!ids.length) return new Map();
   const rows = await db.query(
     `SELECT c.id, c.slug, c.name, c.surname, c.level, c.race, c.class, c.faction, g.name AS guild, g.slug AS guild_slug
-       FROM characters c LEFT JOIN guilds g ON g.id = c.guild_id WHERE c.id = ANY($1::bigint[]) LIMIT 200`,
-    [ids],
+       FROM characters c LEFT JOIN guilds g ON g.id = c.guild_id WHERE c.id = ANY($1::bigint[]) LIMIT $2`,
+    // 0.9.2: bounded by the ids asked for. A fixed LIMIT 200 cut the leaderboards index's top-3 lookups (hundreds of
+    // boards × 3) at an arbitrary 200 characters, and everyone past it showed as a blank row.
+    [ids, ids.length],
   );
   return new Map(rows.map((r) => [r.id, r]));
 }
