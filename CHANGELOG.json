@@ -1,6 +1,25 @@
 {
   "releases": [
     {
+      "version": "0.9.1",
+      "date": "2026-11-09",
+      "title": "A leaderboard for every collection, and your guilds on your home page",
+      "sections": {
+        "New": [
+          "A leaderboard for every collection: rare-or-better pets, reputations at Revered or higher, hunter pets (hunters only, ranked among hunters), dungeon and raid boss kills, achievements earned in each achievement category, appearances collected in each transmog slot, boss kills in each instance, and every number in the PvP summary, on top of the counts 0.9.0 ranked. Each works like any leaderboard: per ruleset, overall, this week and the rolling window, ties shared, zeros not ranked, pinnable and shareable. A board appears only once Blizzard returns the data for it on Forever, so there are no empty ones.",
+          "All of them, and the gold boards, sit in one “Collections” group on the leaderboards page, collapsed like the other groups. A character’s Collections tab links every count to its board and lists the rest under “More collection leaderboards”.",
+          "“Your guilds” on your home page. Every guild your characters are in appears by itself as a compact card: its tracked members, pinned guild badge, best guild-board placement, the next one or two badge levels it’s closest to, its members by tier, and a Manage link if you run it. Follow any other guild with “Pin to dashboard” on its page (up to 10). Drag the cards into any order, unpin a guild you follow from its card, or hide one of your own guilds (and show it again)."
+        ],
+        "Fixed": [
+          "The character page’s gear and core stats fill the whole sheet again (since 0.9.0 the gear block had shrunk to the left half).",
+          "No more stray one-pixel scrollbar on the “Statistics & gear | Collections” tabs, and on phones the gear icon strips no longer make the character sheet wider than the screen. Strips meant to scroll sideways on a phone (gear icons, the collection screens, transmog slots, wide tables) scroll without a scrollbar track.",
+          "A guild’s roster no longer scrolls sideways on tablets and narrow desktop windows: its columns wrap.",
+          "Two transmog slots Blizzard calls “Chest” (chest and robe) now have different names on their leaderboards.",
+          "Behind the scenes: daily pinned-statistic ranks older than Blizzard’s 30-day limit are now always deleted, including just after midnight UTC."
+        ]
+      }
+    },
+    {
       "version": "0.9.0",
       "date": "2026-11-09",
       "title": "Collections, the transmog tracker, Legacy Points and opt-in gold",

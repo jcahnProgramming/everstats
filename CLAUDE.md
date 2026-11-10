@@ -56,7 +56,8 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Account merge steps | `server/account/merge.js` | how each account-owned table moves on a merge |
 | Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks`, `retention`, `guild-totals`, `guild-fetch`, `tiers`, `badges`, `guild-badges`, `catalogs` |
 | Guild badges | `guild_badge_definitions` (data; seeded from `server/guildBadges/catalog.js` SEED_GUILD_BADGES) | id, family, levelled + measure + thresholds, automatic rule or staff-granted, kept-while-held, status mark; new Deeds badges from the template on /admin/guild-badges |
-| Collections | `server/collections/registry.js` | KINDS (one per character endpoint: path, parse, when, empty rule) and COUNTS (the counts that are statistics: id from DERIVED_BASE, name, short, kind, how "shared" is known) |
+| Collections | `server/collections/registry.js` | KINDS (one per character endpoint: path, parse, when, empty rule) COUNTS (the counts that are statistics: id from DERIVED_BASE, name, short, kind, how "shared" is known, lazy, population) and FAMILIES (0.9.1: a board per achievement category / transmog slot / instance / PvP field) |
+| Your guilds | `server/guilds/follow.js` | the dashboard's guild cards (own guilds automatically + followed ones), `account_guilds` choices |
 | Static catalogs | `server/collections/catalog.js` CATALOGS | kind, index path/field, detail and media paths: what a catalog refresh asks for |
 | Activity kinds | `server/activity/count.js` ACTIVITY_KINDS | the event kinds the admin Activity panel counts (a kind and a number per hour, nothing else) |
 | Badges | `badge_definitions` (data; seeded from `server/badges/catalog.js` SEED_BADGES) + catalog.js TEMPLATES | id, family, name, how, art, manual or automatic rule, kept-while-held; new ones from templates on /admin/badges, no deploy |
@@ -231,6 +232,15 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   kind, PRIORITY.roster): an index step, then detail steps of `DETAIL_CHUNK` rows (detail + media each), so no item runs
   long. `collection_catalog_state` counts every request and byte (the measured cost on /admin → Collections). Nothing is
   asked until a character response has named the versioned static namespace (stored as state kind 'namespace').
+- **0.9.1: a board for every collection.** Fixed COUNTS (ids DERIVED_BASE + n, n < 1000) now include rare-or-better pets,
+  Revered+, boss kills and hunter pets; `lazy` ones are registered only once someone has a value above zero (Forever's
+  encounter lists were empty in every sample), `population: 'hunters'` ranks among hunters (`stats/boards.js` POPULATIONS,
+  fixed SQL). FAMILIES give one board per thing Blizzard returns (`achcat:{id}`, `slot:{TYPE}`, `instance:{id}`,
+  `pvp:{field}`): `ensureDerivedId` allocates an id from DERIVED_DYNAMIC (advisory lock, unique `statistics.derived`,
+  migration 024) the first time a value above zero appears; a family's names are built from Blizzard's names and age out
+  with the window (the name sweep spares only fixed keys, those without ':'). Pets at max level is NOT built: Blizzard
+  states no maximum pet level for Forever and every sampled pet is level 1. The leaderboards index's Collections category
+  carries `extra: 'gold'` and shows the gold boards inside it.
 - **Counts are statistics** (registry COUNTS, ids from `DERIVED_BASE` = 2,000,000,000): written to `character_statistics`
   like Blizzard's (dated by the data they were counted from), so boards, pins, snapshots, gains and guild totals need no
   second system. `statistics.derived` holds the registry key; Blizzard's statistics refresh never deletes them (`< DERIVED_BASE`);
@@ -259,6 +269,16 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   has a row keyed to the CURRENT owner ("Show my gold stats publicly", default off). Gold boards
   (`/leaderboards/gold/{ruleset}/{money|gained|lost|items}`) rank only those, say so, zero never ranked; off removes at once.
 - Retention: Blizzard data; past the window it's deleted and the page says "Gold updates when the owner signs in".
+
+## Your guilds (0.9.1: `server/guilds/follow.js`, `pages/YourGuilds.jsx`, `/api/account/followed-guilds`)
+
+- The signed-in home page lists every guild one of the account's characters is in (automatically; a hidden character's
+  guild too, since only the owner sees the dashboard) plus guilds followed with "Pin to dashboard" on a guild page, at
+  most `dashboard.maxPinnedGuilds` (admin, default 10; own guilds don't count). One order for all, saved from the shared
+  drag-and-drop list. Followed guilds are unpinned from their card or page; own guilds can only be hidden (and shown
+  again from the line under the section). `account_guilds` (ours, no FK to guilds) keeps ids and choices only; cards are
+  built live from `guildView` / `guildBadgesView` / the tier distribution. `/api/account/guilds` is Settings' guild
+  management list: don't reuse it.
 
 ## Guild fetch (0.9.0: `server/guilds/fetchAll.js`, `fetchRoutes.js`, `pages/GuildFetch.jsx`)
 
@@ -790,6 +810,13 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
 - **A one-letter platform id failed the database check** (found here, 0.8.1): `account_social_links.platform` needed two
   characters, so an X handle (`x`) could never be saved (500) since 0.4.2, and the test saved X as empty. Migration 018
   fixed the check. Test every registry entry with a real value, not just the ones that look interesting.
+- **A one-pixel scrollbar on the character tabs** (found here, 0.9.0): the current tab's underline was a border pulled
+  1px over the bar's border with a negative margin, so the content was 1px taller than the bar, and `overflow-x: auto`
+  made it a scrollbar. Underlines are inset shadows now; the tab bar doesn't scroll at all. And `.sheet-body`'s
+  `align-items: start` shrank the gear block to its narrowest content (renders paused): children stretch.
+- **DOMParser reports style="" against the CSP** (found here, 0.9.1): parsing the badge SVGs logged a violation for
+  every style attribute (16 on a guild page) though React drew them through the CSSOM. They're renamed to
+  `data-es-style` before parsing.
 - **Tool and shell layers eat backslashes** (found here): regex escapes written through heredocs or the editor's escape
   decoding came out as plain letters (`\s` → `s`). Build such regexes from `String.fromCharCode(92)` and test them.
 - **The design draws things the rules forbid** (found here, design v1): an admin link for the owner, a last-four of
@@ -809,6 +836,10 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
   `.env` or the shell.
 - Verify a fix's test catches the bug by running it against unfixed code.
 - Visual pass in **all three themes**, plus phone width (390 px), with no horizontal scroll.
+- **Overflow check (0.9.1):** `node scripts/check-overflow.js <base-url> [/c/name-surname] [/g/guild-slug]` opens the
+  character page (both tabs), the transmog screen, a guild page and the leaderboards index at 1920–390 px in all three
+  themes and fails on the page scrolling sideways or any scroll box whose content overflows, except the listed phone
+  strips (sideways only, at ≤ 719 px, no track). Run it in every visual pass.
 
 ## Changelog and versioning
 

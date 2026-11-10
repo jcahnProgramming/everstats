@@ -42,7 +42,7 @@ export function YourGuilds() {
         <span className="muted small">Your characters’ guilds, and any you pin from a guild page ({formatNumber(data.pinnedCount)} of {formatNumber(data.maxPinned)} pinned)</span>
       </div>
       {data.guilds.length > 0 && (
-        <Sortable items={data.guilds} labelOf={(g) => g.name} className="grid-auto col-md gap-14" itemClassName="yg-item" ariaLabel="Your guilds, in order" onReorder={reorder}
+        <Sortable items={data.guilds} labelOf={(g) => g.name} className="yg-list" itemClassName="yg-item" ariaLabel="Your guilds, in order" onReorder={reorder}
           renderItem={(g, { grip }) => (
             <>
               <span className="pin-grip">{grip}</span>

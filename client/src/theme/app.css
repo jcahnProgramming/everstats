@@ -587,3 +587,4 @@ details.panel > summary { cursor: pointer; font-weight: var(--es-weight-semibold
 .yg-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--es-space-6) var(--es-space-10); min-width: 0; }
 .yg-name { overflow-wrap: anywhere; text-decoration: none; }
 .yg-actions { margin-top: auto; }
+.yg-list { display: grid; gap: var(--es-space-14); grid-template-columns: repeat(auto-fill, minmax(min(var(--es-size-col-min-md), 100%), 1fr)); }
