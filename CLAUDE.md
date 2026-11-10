@@ -35,9 +35,10 @@ request as hostile: CSRF origin check, rate limits, httpOnly cookies, nothing se
 - **Accounts are optional** (see "Accounts"). Battle.net OAuth, Discord OAuth, passkeys; optional TOTP 2FA.
 - **Three themes**: Forever (default), Alliance, Horde. Logged-out visitors always see Forever.
 - **Admin**: passkey-only, one person, with an API key manager, settings and crawler status. Visitors never see it.
-- **Not in 1.0:** the MCP server (room left: separate container and port, read-only database role). Plan (owner,
-  0.10.0): 0.11.0 Retail and Classic, 0.12.0 the companion addon, 1.0.0 all regions (EU/KR/TW; US only before then; see
-  "Game versions and regions").
+- **Not in 1.0:** the MCP server (room left: separate container and port, read-only database role). Plan (owner):
+  0.11.1 World of Warcraft (Retail, US) on dev, 0.11.2+ Classic / Era / Anniversary, released together as 0.12.0; the
+  companion addon after; 1.0.0 all regions (EU/KR/TW; US only before then; see "Game versions and regions" and
+  "World of Warcraft (Retail)").
 
 **1.0.0 is the public US launch** with character pages, per-statistic leaderboards, tiers, guild pages, both
 logins, passkeys, 2FA and the three themes live. Until then, a page whose feature isn't built says "Coming soon"
@@ -55,7 +56,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Admin settings | `server/admin/settings.js` | key, label, help, type, bounds, default |
 | Statistics / categories / leaderboards | `server/stats/catalog.js` | the `statistics` table (grows from crawls) + discovery decisions, else suggestions |
 | Account merge steps | `server/account/merge.js` | how each account-owned table moves on a merge |
-| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks`, `retention`, `guild-totals`, `guild-fetch`, `tiers`, `badges`, `guild-badges`, `catalogs` |
+| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `realms`, `mythic-seed` (0.11.1), `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks`, `retention`, `guild-totals`, `guild-fetch`, `tiers`, `badges`, `guild-badges`, `catalogs` |
 | Guild badges | `guild_badge_definitions` (data; seeded from `server/guildBadges/catalog.js` SEED_GUILD_BADGES) | id, family, levelled + measure + thresholds, automatic rule or staff-granted, kept-while-held, status mark; new Deeds badges from the template on /admin/guild-badges |
 | Collections | `server/collections/registry.js` | KINDS (one per character endpoint: path, parse, when, empty rule) COUNTS (the counts that are statistics: id from DERIVED_BASE, name, short, kind, how "shared" is known, lazy, population) and FAMILIES (0.9.1: a board per achievement category / transmog slot / instance / PvP field) |
 | Your guilds | `server/guilds/follow.js` | the dashboard's guild cards (own guilds automatically + followed ones), `account_guilds` choices |
@@ -72,6 +73,8 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Admin pages | `client/src/admin/shell/nav.js` NAV / PAGES / REDIRECTS | the sidebar, every admin address with its version scope, old addresses → new homes |
 | Audit log types | `server/audit/log.js` TYPES | admin_events type → area, label, target link |
 | Moderation permissions | `server/moderation/permissions.js` PERMISSIONS | permission → admin / moderator yes or no; every moderation route asks `can(actor, …)` |
+| Feed skip rules | `server/stats/feeds.js` SKIP_RULES | id, reason (shown in Discovery), test; `pathOnly` rules also retire a board that already exists |
+| Season boards | `server/stats/seasons.js` + gameVersions.js `seasons` | which season feeds a version has; keys `season:mplus:{id}:…`, `season:pvp:{id}:{bracket}:…` |
 
 - Statistics, categories and rulesets come from Blizzard's API (discovery pass), stored as data, never typed in
   from memory. A new statistic in a game patch must be data, not a deploy.
@@ -323,9 +326,10 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 - **Realm categories:** a `rulesets` row is a realm category of one version and region: Forever's rulesets, or a realm
   version's realm TYPE (`category_key`, from `realm/{slug}`, kept in `realms`). Tiers and boards grade within one; copy
   says the registry's word ("ruleset" / "realm type").
-- **Not visible yet:** only enabled versions are queued, claimed, read at sign-in or crawled; `/{version}/{region}/…` pages
-  and `/api/v/…` answer 404 until 0.11.0 (the primary prefix redirects to the unprefixed URL). Rosters are expanded only
-  for the primary version (capped seeding elsewhere: a guild someone opens).
+- **Visibility:** only enabled versions are queued, claimed, read at sign-in or crawled; a version that isn't on answers a
+  plain 404 for `/{version}/{region}/…` and `/api/v/…` (the primary prefix redirects to the unprefixed URL). 0.11.1: a BUILT
+  version (`switchable`: Retail) is switched on per environment at Features; see "World of Warcraft (Retail)". Rosters are
+  expanded only for the primary version (capped seeding elsewhere).
 - **Budget:** one budget for every region (admin `crawler.budgetScope`, or one per region if Blizzard confirms per-region
   quotas); `crawler.versionShares` is each version's CEILING (lookups first within it). Back-off is per version + endpoint.
 - **Per-version settings:** the tier settings (`PER_VERSION_KEYS`) are stored at `{key}@{version}`; the primary version's
@@ -336,11 +340,68 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   Guild feeds aren't boards yet (guild boards rank member totals; a guild's own number needs its own table: 0.11.0).
 - **Tier decisions by GROUP** (`tiers/groups.js`, Discovery "Tier groups"): per version, a group (category label) is
   'counts' | 'category' | 'none'; a statistic's own complete decision, a rejection or a `group_exempt` marker wins; name +
-  number statistics and Everstats' derived boards never count through a group. Forever's 0.9.2 decisions became group
+  number statistics never count through a group. 0.11.1: Everstats' derived boards sit in groups of their own that start
+  at "Doesn't count" and follow group choices like any group (see "World of Warcraft (Retail)", decision 3). Forever's 0.9.2 decisions became group
   choices ONCE (worker tiers job, `pipeline_facts tier_groups_migrated_at`), with exemptions so the plan is identical:
   proven inside the transaction or rolled back. Other versions start undecided; Forever's choices are only a suggestion.
 - **Rollback to 0.9.2:** `scripts/rollback-027.sql` (tested by `scripts/measure-migration-027.js`); before/after proof:
   `scripts/forever-fingerprint.sql` (runs on both schemas).
+
+## World of Warcraft (Retail) (0.11.1: the first version besides Forever; on dev only until 0.12.0)
+
+- **Switching it on:** `switchable: true` in the registry = built. The admin turns it on at Features → Game versions (the
+  boolean setting `versions.retail`, default OFF on every environment, reason required, audit-logged).
+  `core/versionSwitch.js` keeps each process's copy fresh (≤ 5 s); `GAME_VERSIONS=` in `.env` can still forbid it.
+  **Production stays off until the 0.12.0 release.** Off = its addresses 404, nothing of it is read, crawled or shown, no
+  switcher; nothing stored is deleted.
+- **The request's scope (`core/scope.js`, AsyncLocalStorage):** the public routers are mounted twice, at `/api` (primary)
+  and `/api/v/{version}/{region}` (`core/versionRoutes.js versionApi`), where the SAME handlers run inside
+  `runInScope`. `scopeSql()`, `loadCatalog(db)`, `rulesetList(db)`, `tierSettings(db)` and the collection catalogs mean
+  `currentScope()` when no version is named: the primary one outside a scoped request. The crawler runs each item in its
+  own scope too. Code holding a character or guild ROW uses the row's `game_version` (profiles and dashboards mix
+  versions). Node-only: never import scope.js from anything the client bundles.
+- **Addresses:** `/{version}/{region}/c/{realm}/{name}`, `…/g/{realm}/{guild}`, `…/leaderboards/…`, `…/guilds`, `…/tiers`;
+  Forever's are unchanged. API answers write a slug the way URLs do (`pathSlug`: "realm/name"); inside the routers the
+  two segments travel as one key "realm~name" (`joinRealmKeys`). Look-ups go through `characters/find.js` (`characterKey`,
+  `guildKey`, `findCharacter`, `findGuild`), never `parseSlug` + `slug = $1`. Rows on pages that mix versions carry
+  `version`. Client: `client/src/scope.jsx` replaces react-router's Link / NavLink / Navigate / useNavigate / useParams in
+  every public page (a version page's links and `api()` calls stay in its version; `scope={version}` names one outright).
+  **A new public page imports those from scope.jsx, and a new version-scoped API head goes in its `VERSION_API` list.**
+- **The header switcher** (`chrome/GameVersion.jsx`) is the admin's version menu (`components/VersionMenu.jsx`, shared),
+  styled from `theme/app.css .pub-vs`; shown only when more than one version is on; the choice is remembered in
+  localStorage (a convenience) and decides home, search and the header's links on pages of no version.
+- **Owner's decisions (2026-11-10), as built:**
+  1. **One pool per region** (`realmCategory.source: 'region'`): one `rulesets` row per version + region ("US realms",
+     key `region:us`). `characters.realm_type` (NORMAL, RP; migration 032) is only a board FILTER (`?realmType=RP`,
+     `stats/boards.js filterSql`: ranks and "of N" are recounted inside it); tiers never use it.
+  2. **Retail's group choices** live in the registry (`tierGroups`) and are written ONCE (`seedVersionGroups`). Blizzard's
+     "Legacy" category is filed as "Past seasons" there (`categoryRenames`).
+  3. **Everstats-made boards have their own groups** (`discovery/suggest.js` `derivedGroup`: Season ratings, Character
+     stats (gear), Reputations, Profession skills, Battleground maps, Collections), default "Doesn't count", covered by
+     group choices once `migrateDerivedGroups` (worker tiers job, pipeline fact `derived_groups_migrated_at`) has proved,
+     per version inside one transaction, that the grading plan is identical (exemptions where needed, else rollback).
+  4. **The trim:** SKIP_RULES by meaning, every version (no equipment boards; one board per faction: `standing.raw`, or
+     `renown_level`; no guild numbers; ceilings, display, sell price, durability, requirements, rating_normalized,
+     weapon min/max/speed, power, `mana_regen`, spell_penetration). A retired board leaves the catalog at once
+     (`feedKeySkipped`), its values at the next fetch. `boards.minIndexEntries` (25) keeps per-faction / per-instance /
+     per-slot boards off the leaderboards INDEX only.
+  5. **Season boards** (`stats/seasons.js`): the current Mythic+ season (from `mythic-keystone/season/index`
+     `current_season`, never a listed id: retired seasons 403) and pvp-bracket 2v2 / 3v3 / rbg; +4 requests a full fetch.
+     Solo Shuffle and Blitz are NOT built: probe #7's pvp-summary listed no brackets to read their names from.
+  6. **Collections on demand** (`collections.backfill: false`): fetched on a look-up, a sign-in or opening the tab, weekly
+     after; no backfill. Pages and boards say "Account-wide on Retail". No Retail collection catalogs are built yet, so
+     its collection screens are collected-only (no totals, no "missing"). **Never fetch commodities** (19.9 MB a request).
+  7. **Decor** is a collection kind (`/collections/decor`): counts `decor-kinds` and `decor-total`.
+  8. **Finding characters** (`crawler/seeding.js`): look-ups, sign-ins, rosters of guilds people open
+     (`seeding.openedGuildsPerDay`, 200) and the current Mythic+ leaderboards one connected realm a step
+     (`seeding.mythicPlusPerDay`, 100; job `mythic-seed`), all at PRIORITY.roster inside the version's budget share.
+     **No realm-wide crawl.** The realm list comes from `search/connected-realm` (job `realms`).
+  9. **The probe** can pick its character from a leaderboard (`discovery/probe/leaderboardCharacters.js`): the Mythic+
+     path first, then the PvP leaderboards. No separate challenge-mode path is verified.
+  11. **Faction is never inferred from a guild:** a guild shows its own; a member's is from its own profile or roster entry.
+- **Shapes** (probe #7, production run, 2026-11-10): see the headers of `stats/seasons.js`, `crawler/seeding.js` and
+  `collections/parse.js parseDecor`. A Retail full fetch = 9 requests (profile, statistics, attributes, equipment, media,
+  Mythic+ season, 3 brackets); an unchanged daily check = 1.
 
 ## Collections (0.9.0: `server/collections/`, `client/src/collections/`, `/c/{slug}/collections[/{screen}]`)
 
@@ -1052,6 +1113,10 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
   every panel's register effect, whose cleanup removed the state, which was reported again: "Maximum update depth
   exceeded", and no admin link changed the page. Stable functions and changing state live in separate contexts. The
   tests didn't catch it (no client tests render React); clicking through the real app did.
+- **A server that caches index.html serves the OLD bundle after a client rebuild** (found here, 0.11.1's visual pass:
+  every page "drew nothing"). `spaWithPreviews` reads index.html once; restart the web process after `vite build`.
+- **A page that mounts before the session knows which versions are on asks the wrong API** (0.11.1): the
+  `/:version/:region` routes wait for the session (`App.jsx VersionGate`).
 - **A clipped overflow is invisible to a scroll check** (found here, 0.10.4): four admin tables ran outside their cards on
   dev at 1568px while check-overflow passed. `.es` clips sideways (`overflow-x: clip`), so the page never scrolled, and
   the tables sat in `overflow: visible` wrappers, so nothing was a scroll box; the check also ran on short synthetic
@@ -1079,6 +1144,8 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
   strips (sideways only, at ≤ 719 px, no track). Run it in every visual pass. 0.10.3: `--admin=<es_admin cookie of a
   LOCAL server> --admin-ids=account:ID,guild:ID,feedback:ID` checks every admin page in `shell/nav.js` PAGES instead.
   From Git Bash, prefix `MSYS_NO_PATHCONV=1` or `/c/…` arguments become `C:/…`.
+  **0.11.1:** `--pages=/a,/b` adds addresses (another game version's character, guild and boards; the seed script
+  prints them with a session cookie of an account that has characters on both versions); `--shots=<folder>` saves pictures.
   **0.10.4:** widths 1920, 1568 (the owner's window), 1440, 1024, 720, 390; it also fails on content CLIPPED rather than
   scrolled (`.es` has `overflow-x: clip`, so a spill never scrolled the page) and on a table or card escaping the bordered
   box around it; version-scoped admin pages are checked on a second version too (`?v=retail`). `--only=a,b` and

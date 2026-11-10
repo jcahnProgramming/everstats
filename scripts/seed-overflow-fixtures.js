@@ -144,6 +144,57 @@ if (accounts.length) {
            SELECT $1, id, 'held', 'admin', 'Fixture grant', true, true, true FROM badge_definitions WHERE family = 'partner' ORDER BY sort LIMIT 1
            ON CONFLICT DO NOTHING`, [accounts[0]]);
 }
+// 0.11.1: a BUILT second game version (World of Warcraft: realms, one pool per region), switched on, with what its
+// pages draw: two realms (one Roleplaying: the board filter), characters addressed by realm + a 12-letter name with no
+// surname, values on its statistics, season boards (Mythic+ and a PvP bracket), a cross-faction guild, and one
+// account that owns characters on both versions (the dashboard's groups). Everything synthetic, as above.
+const built = GAME_VERSIONS.find((v) => v.switchable);
+let playerCookie = null;
+if (built) {
+  const pool = rulesetOf[built.id];
+  await q(`UPDATE rulesets SET name = $2, category_key = $3 WHERE id = $1`, [pool, `${REGION.toUpperCase()} realms`, `region:${REGION}`]);
+  const REALM_ROWS = [['fixture-realm', 'Fixture Realm of Storms', 'NORMAL', 'Normal', 9301], ['fixture-roleplay-realm', 'Fixture Roleplaying Realm', 'RP', 'Roleplaying', 9302]];
+  for (const [slug, name, type, typeName, connected] of REALM_ROWS) {
+    await q(`INSERT INTO realms (game_version, region, slug, blizzard_id, name, type_key, type_name, category_id, connected_realm_id, fetched_at) VALUES ($1, '${REGION}', $2, $3, $4, $5, $6, $7, $3, now())
+             ON CONFLICT (game_version, region, slug) DO NOTHING`, [built.id, slug, connected, name, type, typeName, pool]);
+  }
+  const letters = (n) => String.fromCharCode(97 + (n % 26)) + String.fromCharCode(97 + (Math.floor(n / 26) % 26));
+  const theirs = await q('SELECT id FROM characters WHERE game_version = $1 ORDER BY id', [built.id]);
+  for (const [n, row] of theirs.rows.entries()) {
+    const name = (cap(word(n + 2, 4)).slice(0, 10) + letters(n)).slice(0, 12); // 12 letters: the longest a name can be
+    const realm = REALM_ROWS[n % 3 === 0 ? 1 : 0];
+    await q(`UPDATE characters SET name = $2, surname = '', slug = $3, realm_slug = $4, realm_type = $5, faction = $6, guild_id = $7 WHERE id = $1`,
+      [row.id, name, name.toLowerCase(), realm[0], realm[2], n % 2 ? 'Horde' : 'Alliance', guilds[1]]);
+  }
+  await q(`UPDATE guilds SET faction = 'Horde' WHERE id = $1`, [guilds[1]]);
+  await q(`INSERT INTO guild_roster (guild_id, character_id, rank, level, fetched_at) SELECT $1, id, (id % 4)::smallint, 80, now() FROM characters WHERE game_version = $2 ON CONFLICT DO NOTHING`, [guilds[1], built.id]);
+  // Season boards and a few boards Everstats makes, in their own groups (ids in the derived range).
+  const DERIVED = [
+    ['season:mplus:15:rating', 'Mythic+ rating (season 15)'], ['season:mplus:15:best_level', 'Mythic+ highest key level (season 15)'],
+    ['season:pvp:40:2v2:rating', 'PvP 2v2 rating (season 40)'], ['season:pvp:40:2v2:played', 'PvP 2v2 games played (season 40)'], ['season:pvp:40:2v2:won', 'PvP 2v2 games won (season 40)'],
+    ['feed:profile:equipped_item_level', 'Equipped item level (profile)'], ['mounts', 'Mounts collected'],
+    ['feed:reputations:reputations[faction-72].standing.raw', 'Fixture Faction of the Extraordinarily Long Name: Standing: Raw (reputations)'],
+  ];
+  for (const [k, [derived, name]] of DERIVED.entries()) {
+    await q(`INSERT INTO statistics (id, name, category_path, derived, last_seen_at, game_version) VALUES ($1, $2, '[]'::jsonb, $3, now(), $4) ON CONFLICT (id) DO NOTHING`, [2_000_900_000 + k, name, derived, built.id]);
+  }
+  await q(`UPDATE characters SET collections_fetched_at = now(), collections_first_at = now() WHERE game_version = $1`, [built.id]);
+  await q(`INSERT INTO character_statistics (character_id, statistic_id, ruleset_id, value, fetched_at)
+           SELECT c.id, s.id, c.ruleset_id, ((c.id * 7 + s.id * 13) % 2997) + 1, now() FROM characters c JOIN statistics s ON s.game_version = c.game_version
+            WHERE c.game_version = $1 ON CONFLICT DO NOTHING`, [built.id]);
+  await q(`INSERT INTO settings (key, value, updated_at) VALUES ($1, 'true'::jsonb, now()) ON CONFLICT (key) DO UPDATE SET value = 'true'::jsonb`, [`versions.${built.id}`]);
+  // One account with characters on both versions, and a signed-in session for it (check-overflow --cookie). Not one of
+  // the first twelve: those carry a moderation warning, whose notice would cover every page.
+  if (accounts.length > 13) {
+    await q(`UPDATE characters SET owner_account_id = $1 WHERE id IN (SELECT id FROM characters WHERE game_version = $2 ORDER BY id LIMIT 3)`, [accounts[13], versions[0]]);
+    await q(`UPDATE characters SET owner_account_id = $1 WHERE id IN (SELECT id FROM characters WHERE game_version = $2 ORDER BY id LIMIT 4)`, [accounts[13], built.id]);
+    const s = randomBytes(32).toString('base64url');
+    await q(`INSERT INTO sessions (id_hash, account_id, stage, method, expires_at) VALUES ($1, $2, 'full', 'fixture', now() + interval '2 hours')`, [createHash('sha256').update(s).digest('hex'), accounts[13]]);
+    const first = await q('SELECT slug, realm_slug FROM characters WHERE game_version = $1 ORDER BY id LIMIT 1', [built.id]);
+    const u = await q('SELECT username FROM accounts WHERE id = $1', [accounts[13]]);
+    playerCookie = { s, character: `/${built.id}/${REGION}/c/${first.rows[0].realm_slug}/${first.rows[0].slug}`, guild: `/${built.id}/${REGION}/g/fixture-realm/fixture-guild-1`, boards: `/${built.id}/${REGION}/leaderboards`, pool, profile: `/u/${u.rows[0].username}` };
+  }
+}
 // An admin session for THIS local database (2 hours), for check-overflow --admin.
 const token = randomBytes(32).toString('base64url');
 await q(`INSERT INTO admin_sessions (id_hash, expires_at) VALUES ($1, now() + interval '2 hours')`, [createHash('sha256').update(token).digest('hex')]);
@@ -151,3 +202,8 @@ await q('COMMIT');
 await db.end();
 console.log(`Fixtures in. ${accounts.length} accounts, 150 characters, 10 guilds, 300 crawl items, ${versions.length} versions.`);
 console.log(`node scripts/check-overflow.js <base> --admin=${token} --admin-ids=account:${accounts[0]},guild:${guilds[0]},feedback:${feedbackId}`);
+if (playerCookie) {
+  // 0.11.1: the second game version's pages, and the dashboard of an account with characters on both versions.
+  const p = playerCookie;
+  console.log(`node scripts/check-overflow.js <base> --cookie=es_session=${p.s} --profile=${p.profile} --pages=${[p.character, `${p.character}/collections`, p.guild, p.boards, `${p.boards}?realmType=RP`, `${p.boards}/${p.pool}/2000900000`, `${p.boards}/${p.pool}/9200037`, '/search?q=fixture'].join(',')}`);
+}

@@ -319,6 +319,7 @@ export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now
   }
 
   async function runEntry(e) {
+    if (e.never) return skip(e, e.never);
     if (e.auth === 'user' && !grant) return skip(e, 'needs user token: authorize Battle.net on the Discovery page first');
     if (e.realms) {
       const why = realmState();

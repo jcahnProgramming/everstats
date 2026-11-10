@@ -37,7 +37,12 @@ const ADMIN_PAGES = flags.admin === undefined ? [] : (await import('../client/sr
   .map((p) => p.replace('/accounts/:id', `/accounts/${adminIds.account ?? ''}`).replace('/guilds/:id', `/guilds/${adminIds.guild ?? ''}`).replace('/feedback/:id', `/feedback/${adminIds.feedback ?? ''}`))
   .filter((p) => !p.includes(':') && !p.includes('//') && !p.split('?')[0].endsWith('/'));
 const PAGES = flags.admin !== undefined ? ADMIN_PAGES : [character, `${character}/collections`, `${character}/collections/transmog`, guild, '/leaderboards',
-  ...(flags.profile ? [flags.profile] : []), ...(flags.cookie ? ['/'] : [])];
+  ...(flags.profile ? [flags.profile] : []), ...(flags.cookie ? ['/'] : []),
+  // 0.11.1: --pages=/a,/b adds any other addresses (another game version's character, guild and boards; the seed
+  // script prints them). A comma never appears in an Everstats address.
+  ...(flags.pages ? flags.pages.split(',').filter(Boolean) : [])];
+// 0.11.1: --shots=<folder> also saves a picture of every page at every width in the Forever theme, for the eye.
+const SHOTS = flags.shots || null;
 // --only=a,b keeps the pages whose path contains one of them; --widths=1568,390 picks widths (0.10.4).
 const ONLY = (flags.only ?? '').split(',').filter(Boolean);
 const CHECKED = ONLY.length ? PAGES.filter((p) => ONLY.some((o) => p.includes(o))) : PAGES;
@@ -70,6 +75,7 @@ for (const width of WIDTHS) {
     for (const theme of THEMES) {
       await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
       await page.waitForTimeout(100);
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}/${width}-${theme}-${path.replace(/[^a-z0-9]+/gi, '_').slice(0, 80)}.png`, fullPage: false });
       const found = await page.evaluate(({ intended, phone }) => {
         const out = [];
         const label = (e) => `${e.tagName.toLowerCase()}${e.className && typeof e.className === 'string' ? `.${e.className.trim().split(/\s+/).join('.')}` : ''}`;

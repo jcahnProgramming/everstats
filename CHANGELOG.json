@@ -1,6 +1,32 @@
 {
   "releases": [
     {
+      "version": "0.11.1",
+      "date": "2026-11-10",
+      "title": "World of Warcraft (Retail, US): characters, guilds and leaderboards",
+      "kind": "dev",
+      "sections": {
+        "New": [
+          "World of Warcraft (Retail, US) joins WoW Forever. Pick the game at the top of any page: the switcher remembers your choice, and Leaderboards, Guilds and the search follow it.",
+          "Look up a World of Warcraft character by name and realm. Its page shows its realm, gear, core stats, every statistic with its rank, and its overall tier.",
+          "This season at a glance: Mythic+ rating and highest key, and 2v2, 3v3 and rated battleground ratings with games played and won. Each number has its own leaderboard, and a new season starts fresh boards by itself.",
+          "World of Warcraft leaderboards rank every US realm together. A filter narrows any board to Roleplaying or Normal realms.",
+          "World of Warcraft guild pages, found by realm and name. A guild shows its own faction, and each member keeps theirs.",
+          "Collections for World of Warcraft characters, including housing decor. They belong to the whole Battle.net account there, so the pages say plainly that alts share those numbers.",
+          "Search finds characters and guilds in both games, and every result says which game and realm it is.",
+          "Signed in, your home page lists your World of Warcraft characters and guilds next to your WoW Forever ones, grouped by game."
+        ],
+        "Improved": [
+          "Fewer, more meaningful leaderboards: numbers that say nothing about a character (an item’s sell price or durability, colour values, caps that are the same for everyone) no longer get a board, and each faction has one reputation board instead of several.",
+          "The leaderboards index leaves out boards for a single faction, dungeon or transmog slot until 25 characters are ranked on them. They still exist, and a character’s page links to every board it is on.",
+          "A long statistic name no longer pushes a leaderboard’s table out of its card."
+        ],
+        "Fixed": [
+          "A twelve-letter character name in the large heading of a featured character broke in the middle of the word. Names now shrink to fit and only wrap between words."
+        ]
+      }
+    },
+    {
       "version": "0.11.0",
       "date": "2026-11-10",
       "title": "Partner badge logos, tidier leaderboards and profiles",

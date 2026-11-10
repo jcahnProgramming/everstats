@@ -638,6 +638,9 @@ details.panel > summary { cursor: pointer; font-weight: var(--es-weight-semibold
    display size or, when the longest word wouldn't fit, the size at which it does (Cinzel's capitals run about 0.8em a
    letter with its tracking). Words stay whole; a name and a surname may wrap between them. */
 .fit-name-box { container-type: inline-size; min-width: 0; }
+/* In a wrapping row (the dashboard's featured card) the name's column keeps a real width of its own, so the name isn't
+   squeezed by what sits beside it; the neighbours wrap under it first. */
+.row > .fit-name-box.flex-fill { flex: 1 1 var(--es-size-col-min-lg); }
 .fit-name { overflow-wrap: normal; word-break: keep-all; hyphens: none; font-size: min(var(--es-fs-display), calc(100cqi / (var(--name-len, 8) * 0.8))); }
 @media (max-width: 719px) { .fit-name { font-size: min(var(--es-fs-26), calc(100cqi / (var(--name-len, 8) * 0.8))); } }
 
@@ -730,3 +733,9 @@ details.panel > summary { cursor: pointer; font-weight: var(--es-weight-semibold
   .maint-banner-in { flex-wrap: wrap; row-gap: var(--es-space-2); }
   .maint-banner-until { margin-left: 0; }
 }
+/* 0.11.1: a ranked board fits its card on desktop. The value column's heading is the statistic's own name, and with a
+   long one (or a long guild name, or a realm on the detail line) the table ran wider than its card and scrolled
+   sideways inside it. Headings, the character cell and the guild cell wrap; ranks and values never do. */
+.tbl.to-list th { white-space: normal; }
+.tbl.to-list td:nth-child(2), .tbl.to-list td.t2 { white-space: normal; overflow-wrap: anywhere; }
+.tbl.to-list th.r { min-width: 6em; }

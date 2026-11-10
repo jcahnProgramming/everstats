@@ -177,9 +177,11 @@ function Featured({ data, onPick, onReordered }) {
   return (
     <section className="sheet sheet-pad stack gap-20" aria-labelledby="featured-h">
       <div className="row gap-16">
-        <div className="stack gap-6 flex-fill">
+        {/* 0.11.1: the name never breaks inside a word: it is sized from its longest word against this column
+            (theme/app.css .fit-name). A 12-letter name broke mid-word here at 1568 px. */}
+        <div className="stack gap-6 flex-fill fit-name-box">
           <span className="eyebrow">{data.featuredChosen ? 'Featured character' : 'Featured: your highest level'}</span>
-          <h2 className="h-display char-name" id="featured-h"><Link scope={f.version} to={`/c/${encodeURIComponent(f.slug)}`}>{f.name} <span className="surname">{f.surname}</span></Link></h2>
+          <h2 className="h-display char-name fit-name" style={{ '--name-len': Math.max(4, ...`${f.name ?? ''} ${f.surname ?? ''}`.split(' ').map((w) => w.length)) }} id="featured-h"><Link scope={f.version} to={`/c/${encodeURIComponent(f.slug)}`}>{f.name} <span className="surname">{f.surname}</span></Link></h2>
           <span className="t2">{[several ? data.versions.find((v) => v.id === f.version)?.name : null, f.level ? `Level ${f.level}` : null, f.race, f.class, f.realm, f.ruleset?.name].filter(Boolean).join(' · ')}</span>
           <Fresh at={f.fetchedAt} prefix="Data as of " />
         </div>

@@ -267,7 +267,9 @@ test('a probe tries every endpoint, takes real ids, records 404s, skips with rea
   assert.equal(entry(s, 'data.toy').attempts.length, 0);
   assert.match(entry(s, 'data.toy').skipped, /no real toyId to try \(toy-index 404\/404; collections-toys 404\)/);
   assert.match(entry(s, 'data.connected-realm').skipped, /no connected realms/);
-  assert.match(entry(s, 'data.auctions-commodities').skipped, /no connected realms/);
+  // 0.11.1: commodities are never fetched on any version (19.9 MB a request): a recorded skip with that reason.
+  assert.match(entry(s, 'data.auctions-commodities').skipped, /never fetched: 19.9 MB/);
+  assert.equal(entry(s, 'data.auctions-commodities').attempts.length, 0);
   // Search: the minimal query is part of the stored path.
   assert.equal(entry(s, 'search.mount').attempts[0].path, '/data/wow/search/mount?orderby=id&_page=1');
   assert.equal(entry(s, 'search.mount').outcome, 'answered');

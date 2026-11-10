@@ -205,7 +205,7 @@ function FeaturedSection({ section }) {
           {/* 0.11.1: the name never breaks inside a word. It is sized from its LONGEST word (--name-len, through the
               CSSOM) against this column's width, so a 12-letter name shrinks to fit one line; a name and surname may
               still wrap between the two words. (At 1568 px a 12-letter name used to break mid-word.) */}
-          <Link className="h-display char-name fit-name" style={{ '--name-len': Math.max(4, ...`${c.name ?? ''} ${c.surname ?? ''}`.split(/\s+/).map((w) => w.length)) }} scope={c.version} to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link>
+          <Link className="h-display char-name fit-name" style={{ '--name-len': Math.max(4, ...`${c.name ?? ''} ${c.surname ?? ''}`.split(' ').map((w) => w.length)) }} scope={c.version} to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link>
           <span className="t2">{[c.level ? `Level ${c.level}` : null, c.race, c.class, c.realm, c.ruleset?.name].filter(Boolean).join(' · ')}</span>
           <TierBrief brief={c.tierBrief} slug={c.slug} scope={c.version} />
           <Link className="btn sm self-start" scope={c.version} to={`/c/${encodeURIComponent(c.slug)}`}>Character page</Link>

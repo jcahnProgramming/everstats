@@ -131,7 +131,9 @@ export const PROBE_ENDPOINTS = [
   d('auctions', 'realms', 'connected-realm/{connectedRealmId}/auctions', D, { from: ['data.connected-realm'], realms: true }),
   d('auctions-index', 'realms', 'connected-realm/{connectedRealmId}/auctions/index', D, { from: ['data.connected-realm'], realms: true, classic: true }),
   d('auctions-house', 'realms', 'connected-realm/{connectedRealmId}/auctions/{auctionHouseId}', D, { from: ['data.auctions-index'], realms: true, classic: true }),
-  d('auctions-commodities', 'realms', 'auctions/commodities', D, { realms: true }),
+  // 0.11.1 (owner's decision): never fetched. Probe #7 measured it once: 19.9 MB a request, and nothing on Everstats
+  // uses commodity prices. The entry stays so the probe's list still matches Blizzard's docs; it is recorded as a skip.
+  d('auctions-commodities', 'realms', 'auctions/commodities', D, { realms: true, never: 'never fetched: 19.9 MB a request (measured by probe #7), and Everstats uses no commodity prices' }),
   d('token-index', 'other', 'token/index', D),
 
   // ---- search (once each, a minimal query): early, because some details take their ids from search results
