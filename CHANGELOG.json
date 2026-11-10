@@ -1,6 +1,28 @@
 {
   "releases": [
     {
+      "version": "0.9.2",
+      "date": "2026-11-09",
+      "title": "Your guilds across the dashboard, named transmog, and fixes from a full sweep",
+      "sections": {
+        "Improved": [
+          "“Your guilds” uses the whole dashboard: one guild is a single wide card, several fill even rows, and a last card on its own stretches across. Members-by-tier bars show just the letter where “S 17” wouldn’t fit, with every count in the line under the bar.",
+          "The transmog tracker names your appearances and shows their icons from Blizzard’s own data, groups the slots into Armour and Weapons, and calls the robe slot “Chest (robe)”. Until Blizzard’s full appearance list has been read, it shows what you’ve collected only, without a Missing filter; once the list is complete, missing appearances appear by themselves.",
+          "Collections fill in for every tracked character, a batch a day, not only for characters someone has looked up since 0.9.0.",
+          "Clearer tiers: the header says “#629 of 4,431 with an overall letter” and explains how that relates to everyone tier-eligible on the ruleset; “Why this tier” shows every category name in full; a category with nothing above zero says “No PvP statistics above zero yet” instead of “No ranks yet”; and “own tier only” now reads “own category letter, not in the overall tier”.",
+          "Every page has its own browser-tab title, and link previews match. The beta banner shows only to visitors who aren’t signed in, and Settings says “Beta Tester since …” on one line.",
+          "On a guild page without a Guild Master on Everstats, signed-in players are told that only the Guild Master’s Battle.net account can manage it, instead of being asked to sign in."
+        ],
+        "Fixed": [
+          "The character page’s Progress section said Everstats keeps a daily snapshot “forever”. It keeps them for the last 29 days (Blizzard allows at most 30), and now says so; so do the chart placeholder and an old changelog line.",
+          "Leaderboard previews on the leaderboards page no longer show a rank with no name (it happened once there were more than about 70 boards); every Collections board now shows its leader.",
+          "Leaderboard preview titles wrap instead of being cut off, and “1 with any” stays on one line. Board names read alike (“Rath’mael kills”, not “Kills” in some and “kills” in others).",
+          "The Collections tab’s count cards fill their rows; “Expand all” changes to “Collapse all” only when every section is open, and opening a section no longer moves the page; the Transmog section previews your best slots; and tiles show their full names on hover.",
+          "A guild’s badge row keeps “+N more” on the same line. Profile pinned statistics no longer end in a stray “—”, and the featured character is balanced."
+        ]
+      }
+    },
+    {
       "version": "0.9.1",
       "date": "2026-11-09",
       "title": "A leaderboard for every collection, and your guilds on your home page",

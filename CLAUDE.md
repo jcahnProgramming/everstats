@@ -232,6 +232,19 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   kind, PRIORITY.roster): an index step, then detail steps of `DETAIL_CHUNK` rows (detail + media each), so no item runs
   long. `collection_catalog_state` counts every request and byte (the measured cost on /admin → Collections). Nothing is
   asked until a character response has named the versioned static namespace (stored as state kind 'namespace').
+- **0.9.2 catalogs never start over:** a build is busy while one of its crawl items is queued or running (a worker restart
+  re-queues the running one, so the chain carries on). A stuck or failed build inside its refresh age RESUMES from the
+  detail steps with its start time unchanged (rows refreshed so far keep their fetched_at); only a stale or never-built
+  catalog starts from the index. A row that still answers 429/5xx/nothing on the chunk's `ROW_GIVE_UP`-th (3rd) attempt
+  is recorded `unavailable` and skipped (the state's detail counts them), never failing the build or looping.
+  The tracker is collected-only until a build has FINISHED (`catalogTotals`), but names, items and icons come from
+  whatever rows exist; after it finishes, a character's collected appearances the catalog doesn't list are looked up on
+  their own (`catalog:appearance:ids:{characterId}`, at most 60 per item).
+- **0.9.2 first collections fetch = the backfill** (`collections/backfill.js`, job `collections-backfill`, admin
+  `collections.backfill` on/off + `collections.backfillPerDay`, default 1,000; progress in Admin → Crawler). The weekly
+  refresh (`maybeQueueCollections`) only refreshes characters that HAVE collections: queued from daily checks, first
+  fetches sat behind thousands of check items and the boards stayed empty. A person (lookup, sign-in, the tab) still
+  fetches at once. `collection_backfill_days` (ours) counts per UTC day.
 - **0.9.1: a board for every collection.** Fixed COUNTS (ids DERIVED_BASE + n, n < 1000) now include rare-or-better pets,
   Revered+, boss kills and hunter pets; `lazy` ones are registered only once someone has a value above zero (Forever's
   encounter lists were empty in every sample), `population: 'hunters'` ranks among hunters (`stats/boards.js` POPULATIONS,
@@ -269,6 +282,17 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   has a row keyed to the CURRENT owner ("Show my gold stats publicly", default off). Gold boards
   (`/leaderboards/gold/{ruleset}/{money|gained|lost|items}`) rank only those, say so, zero never ranked; off removes at once.
 - Retention: Blizzard data; past the window it's deleted and the page says "Gold updates when the owner signs in".
+
+## Rows that fill, titles, names (0.9.2)
+
+- `components/fillGrid.js` + `.fillgrid` (a wrapping flex row; `fillStyle(n, { lg, md, sm })`; the last row grows): use it,
+  not auto-fill, wherever a short last row would leave a gap ("Your guilds", count cards, "Why this tier" categories).
+- Tier bars: a segment narrower than its label shows the letter only (`Tier.jsx` `useNarrowSegments`; cards:
+  `cards-layout.js` `tierLetters`), the counts in the words line.
+- Page titles: `server/core/pageTitles.js` is the one table (shell + server `<title>`); data pages call `usePageTitle`.
+  Board and statistic names go through `stats/names.js` `displayName` (display only: "… Kills (…)" → "… kills (…)").
+- Admin panels flow in CSS columns (`.admin-flow`); a worker job reports `{ worked: true }` or `{ lastWorkAt }` so the jobs
+  table shows when it last DID its work, apart from when it last checked.
 
 ## Your guilds (0.9.1: `server/guilds/follow.js`, `pages/YourGuilds.jsx`, `/api/account/followed-guilds`)
 
@@ -652,7 +676,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 
 - Blizzard Developer API Terms of Use, section 2: "a maximum 30-day TTL (time-to-live) policy for all Data". Blizzard's
   forum FAQ: stay close to 30 days; anonymising is not an accepted alternative. **Everstats complies.**
-- ONE setting, `retention.window` (default 30). Above 30 only with a note recording Blizzard's written permission
+- ONE setting, `retention.window` (default 30), labelled as Blizzard's MAXIMUM (0.9.2): the database deletes at window − 1. Above 30 only with a note recording Blizzard's written permission
   (logged). `policy.js`: keep = window − 1 (slack for a late sweep) = **29 days** in the database (0.5.0: backups hold
   no Blizzard data, so they no longer take 3 days of the window); worst case ≈ 29 days 1 hour anywhere. "Last N days"
   boards and the privacy page follow keep-days. **Never put Blizzard data in a backup**: a new Blizzard table goes in
@@ -817,6 +841,11 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
 - **DOMParser reports style="" against the CSP** (found here, 0.9.1): parsing the badge SVGs logged a violation for
   every style attribute (16 on a guild page) though React drew them through the CSSOM. They're renamed to
   `data-es-style` before parsing.
+- **PGlite behind the socket interleaved two connections' Parse/Bind** (found here, 0.9.2): the guild-fetch test failed at
+  random with "bind message supplies 1 parameters, but prepared statement requires 2". The socket server runs each
+  protocol message exclusively and keeps a connection's messages together only inside a transaction. `helpers.js`
+  `wholeSequences` hands each connection's messages over up to its Sync as one piece. (A one-connection pool was tried
+  first: it deadlocks.)
 - **Tool and shell layers eat backslashes** (found here): regex escapes written through heredocs or the editor's escape
   decoding came out as plain letters (`\s` → `s`). Build such regexes from `String.fromCharCode(92)` and test them.
 - **The design draws things the rules forbid** (found here, design v1): an admin link for the owner, a last-four of
@@ -836,7 +865,8 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
   `.env` or the shell.
 - Verify a fix's test catches the bug by running it against unfixed code.
 - Visual pass in **all three themes**, plus phone width (390 px), with no horizontal scroll.
-- **Overflow check (0.9.1):** `node scripts/check-overflow.js <base-url> [/c/name-surname] [/g/guild-slug]` opens the
+- **Overflow check (0.9.1; 0.9.2 adds `--profile=/u/name` and `--cookie=es_session=…` for a profile and the dashboard):**
+  `node scripts/check-overflow.js <base-url> [/c/name-surname] [/g/guild-slug]` opens the
   character page (both tabs), the transmog screen, a guild page and the leaderboards index at 1920–390 px in all three
   themes and fails on the page scrolling sideways or any scroll box whose content overflows, except the listed phone
   strips (sideways only, at ≤ 719 px, no track). Run it in every visual pass.
