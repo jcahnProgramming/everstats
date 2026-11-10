@@ -115,12 +115,15 @@ jobs:
           # paths are compared with that root removed: /mnt/user/x and /mnt/cache/x count as the same folder. Two paths
           # clash when they are equal or one is inside the other.
           norm() { printf '%s' "$1" | sed -e 's#/*$##' -e 's#^/mnt/[^/]*/#/#'; }
+          # sh has no local variables: clash() keeps its working values in names no caller uses (_clash_*). Run #25
+          # failed because it wrote `a` and `b`, the self-check's own loop variables, so each folder was compared with
+          # itself. server/test/compose-guard.test.js runs this block (norm() to the first `[ "$bad" = 0 ]`) with real paths.
           clash() {
-            a=$(norm "$1"); b=$(norm "$2")
-            [ -n "$a" ] && [ -n "$b" ] || return 1
-            [ "$a" = "$b" ] && return 0
-            case "$a/" in "$b/"*) return 0 ;; esac
-            case "$b/" in "$a/"*) return 0 ;; esac
+            _clash_a=$(norm "$1"); _clash_b=$(norm "$2")
+            [ -n "$_clash_a" ] && [ -n "$_clash_b" ] || return 1
+            [ "$_clash_a" = "$_clash_b" ] && return 0
+            case "$_clash_a/" in "$_clash_b/"*) return 0 ;; esac
+            case "$_clash_b/" in "$_clash_a/"*) return 0 ;; esac
             return 1
           }
           # Production's folders: from its Gitea variables AND from what its running containers actually mount (and
@@ -138,12 +141,20 @@ jobs:
               if clash "$d" "$p"; then echo "::error::Dev folder $d is, contains or sits inside production's $p. Refusing to deploy."; bad=1; fi
             done
           done
-          # Dev's own four folders must be four different places too.
-          set -- "$DEV_DEPLOY_DIR" "$DEV_PG_DATA_DIR" "$DEV_PG_SNAPSHOT_DIR" "$DEV_BACKUP_DIR"
-          for a in "$@"; do for b in "$@"; do
-            [ "$a" = "$b" ] && continue
-            if clash "$a" "$b"; then echo "::error::Dev folders $a and $b overlap. Each needs its own folder."; bad=1; fi
-          done; done
+          # Dev's own four folders must be four different places too. Each PAIR of different variables is compared
+          # once (by position, not by value), so a folder is never compared with itself, while two variables set to the
+          # same folder are still caught.
+          dev_vars="DEV_DEPLOY_DIR DEV_PG_DATA_DIR DEV_PG_SNAPSHOT_DIR DEV_BACKUP_DIR"
+          i=0
+          for x in $dev_vars; do
+            i=$((i + 1)); j=0
+            for y in $dev_vars; do
+              j=$((j + 1))
+              [ "$j" -gt "$i" ] || continue
+              eval "vx=\${$x}; vy=\${$y}"
+              if clash "$vx" "$vy"; then echo "::error::Dev folders $x ($vx) and $y ($vy) overlap. Each needs its own folder."; bad=1; fi
+            done
+          done
           for p in "$DEV_WEB_PORT" "$DEV_WORKER_PORT"; do
             if [ "$p" = "$PROD_WEB_PORT" ] || [ "$p" = "$PROD_WORKER_PORT" ]; then echo "::error::Dev port $p is production's."; bad=1; fi
           done

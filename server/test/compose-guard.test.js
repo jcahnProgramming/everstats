@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
@@ -200,4 +201,80 @@ test('a rollback runs only after the restart itself ran, so an early failure res
     assert.ok(rollback.body.indexOf('case "$RESTART_OUTCOME"') < rollback.body.indexOf('docker image tag'));
     assert.match(stepsOf(text).find((s) => /restart/i.test(s.name) && !s.name.startsWith('Roll back')).body, /id: restart/);
   }
+});
+
+// 0.10.2 fix (dev run #25): the folder guards themselves, run as the workflows run them (sh), with the real layout.
+// Each test takes the guard block straight out of the workflow file: from `norm() {` to the first
+// `[ "$bad" = 0 ] || exit 1`. Docker is stubbed out (no running containers), so only the variables count.
+const SH = spawnSync('sh', ['-c', 'echo ok'], { encoding: 'utf8' });
+const noSh = SH.error || SH.stdout.trim() !== 'ok' ? 'needs a POSIX sh on PATH (Git Bash on Windows; every CI image has one)' : false;
+
+function guardBlock(text) {
+  const start = text.indexOf('norm() {');
+  const endMark = '[ "$bad" = 0 ] || exit 1';
+  const end = text.indexOf(endMark, start) + endMark.length;
+  assert.ok(start > 0 && end > start, 'the guard block was found');
+  const lineStart = text.lastIndexOf('\n', start) + 1;
+  const indent = start - lineStart;
+  return text.slice(lineStart, end).split('\n').map((l) => l.slice(indent)).join('\n');
+}
+function runGuard(text, vars) {
+  const assign = Object.entries(vars).map(([k, v]) => `${k}='${v}'`).join('\n');
+  const script = ['set -eu', assign, 'docker() { return 1; }', guardBlock(text), 'echo GUARDS-OK'].join('\n');
+  const r = spawnSync('sh', ['-c', script], { encoding: 'utf8' });
+  return { ok: r.status === 0 && r.stdout.includes('GUARDS-OK'), out: `${r.stdout}${r.stderr}` };
+}
+
+// The real layout on the host (paths only; they are also in the Gitea variables).
+const PROD_DIRS = {
+  PROD_DEPLOY_DIR: '/mnt/cache/appdata/everstats', PROD_PG_DATA_DIR: '/mnt/cache/appdata/everstats-pg',
+  PROD_PG_SNAPSHOT_DIR: '/mnt/disk1/everstats/pg-snapshots', PROD_BACKUP_DIR: '/mnt/user/backups/everstats',
+};
+const DEV_DIRS = {
+  DEV_DEPLOY_DIR: '/mnt/cache/appdata/everstats-dev', DEV_PG_DATA_DIR: '/mnt/cache/appdata/everstats-dev-pg',
+  DEV_PG_SNAPSHOT_DIR: '/mnt/disk1/everstats/pg-snapshots-dev', DEV_BACKUP_DIR: '/mnt/user/backups/everstats-dev',
+};
+const DEV_RUN = { ...PROD_DIRS, ...DEV_DIRS, PROD_CONTAINERS: 'everstats', DEV_WEB_PORT: '3270', DEV_WORKER_PORT: '3271', PROD_WEB_PORT: '3260', PROD_WORKER_PORT: '3261' };
+const PROD_RUN = {
+  DEPLOY_DIR: PROD_DIRS.PROD_DEPLOY_DIR, PG_DATA_DIR: PROD_DIRS.PROD_PG_DATA_DIR, PG_SNAPSHOT_DIR: PROD_DIRS.PROD_PG_SNAPSHOT_DIR,
+  BACKUP_DIR: PROD_DIRS.PROD_BACKUP_DIR, ...DEV_DIRS, DEV_CONTAINERS: 'everstats-dev',
+};
+
+test('the dev folder guard passes the real layout: no folder is compared with itself (run #25)', { skip: noSh }, () => {
+  const r = runGuard(devWorkflow, DEV_RUN);
+  assert.ok(r.ok, r.out);
+  assert.doesNotMatch(r.out, /overlap|::error::/);
+});
+
+test('the dev folder guard still refuses real overlaps', { skip: noSh }, () => {
+  // A data folder inside dev's deploy folder.
+  let r = runGuard(devWorkflow, { ...DEV_RUN, DEV_PG_DATA_DIR: '/mnt/cache/appdata/everstats-dev/pg' });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /Dev folders DEV_DEPLOY_DIR \(\/mnt\/cache\/appdata\/everstats-dev\) and DEV_PG_DATA_DIR \(\/mnt\/cache\/appdata\/everstats-dev\/pg\) overlap/);
+  // Two dev variables set to the same folder (the same folder through two Unraid views, even).
+  r = runGuard(devWorkflow, { ...DEV_RUN, DEV_BACKUP_DIR: '/mnt/user/appdata/everstats-dev-pg' });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /DEV_PG_DATA_DIR .* and DEV_BACKUP_DIR .* overlap/);
+  // A dev folder that is production's, seen through another Unraid view.
+  r = runGuard(devWorkflow, { ...DEV_RUN, DEV_BACKUP_DIR: '/mnt/cache/backups/everstats' });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /Dev folder \/mnt\/cache\/backups\/everstats is, contains or sits inside production's \/mnt\/user\/backups\/everstats/);
+  // A dev folder inside production's deploy folder.
+  r = runGuard(devWorkflow, { ...DEV_RUN, DEV_PG_SNAPSHOT_DIR: '/mnt/cache/appdata/everstats/snapshots-dev' });
+  assert.equal(r.ok, false);
+  // Production's port.
+  r = runGuard(devWorkflow, { ...DEV_RUN, DEV_WEB_PORT: '3260' });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /Dev port 3260 is production's/);
+});
+
+test('production\'s folder guard passes the real layout and refuses dev\'s folders', { skip: noSh }, () => {
+  const ok = runGuard(workflow, PROD_RUN);
+  assert.ok(ok.ok, ok.out);
+  const r = runGuard(workflow, { ...PROD_RUN, PG_DATA_DIR: '/mnt/user/appdata/everstats-dev-pg' });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /Production folder \/mnt\/user\/appdata\/everstats-dev-pg is, contains or sits inside dev's \/mnt\/cache\/appdata\/everstats-dev-pg/);
+  // Dev not set up yet (no DEV_* variables): production deploys as before.
+  const bare = runGuard(workflow, { ...PROD_RUN, DEV_DEPLOY_DIR: '', DEV_PG_DATA_DIR: '', DEV_PG_SNAPSHOT_DIR: '', DEV_BACKUP_DIR: '' });
+  assert.ok(bare.ok, bare.out);
 });
