@@ -13,12 +13,37 @@ import { clearCatalogCache, currentDecisions } from '../stats/catalog.js';
 import { requestTierRecompute } from '../tiers/store.js';
 import { guessValueType } from './analyze.js';
 import { parseGuildSlug } from '../stats/slug.js';
-import { analyseProbe, probeCsv } from './probe/run.js';
+import { analyseProbe, probeBoardsCsv, probeCsv } from './probe/run.js';
+import { GAME_VERSIONS, PRIMARY_VERSION, blizzardContext, isRegionEnabled, publicVersions, versionById } from '../core/gameVersions.js';
+import { PRIMARY_SCOPE } from '../core/config.js';
+import { SourceError } from '../sources/blizzard.js';
+import { openSource } from '../sources/registry.js';
+import { grantToken } from './grant.js';
+import { parseAccountCharacters, parseProfile } from '../crawler/parse.js';
 
 const isProbe = (run) => run?.options?.kind === 'probe';
 const MAX_EXPORT_BODY = 20_000; // characters of each raw body in a probe's JSON export (the page has every body in full)
 /** A guild name as typed ("Post Nerf Clarity") or a slug → Blizzard's slug (post-nerf-clarity), or null. */
 const guildSlugOf = (input) => parseGuildSlug(String(input ?? '').trim().toLowerCase().replace(/\s+/g, '-'));
+/** 0.10.0: a realm as typed ("Area 52", "Aerie Peak") or its slug → the slug Blizzard uses (area-52), or null. */
+const realmSlugOf = (input) => {
+  const v = String(input ?? '').normalize('NFC').trim().toLowerCase().replace(/['’]/g, '').replace(/\s+/g, '-');
+  return /^[\p{L}\p{N}][\p{L}\p{N}-]{0,59}$/u.test(v) ? v : null;
+};
+/** A realm version's character name: letters only (Blizzard lower-cases it in the path). */
+const realmNameOf = (input) => {
+  const v = String(input ?? '').normalize('NFC').trim();
+  return /^[\p{L}\p{M}]{2,24}$/u.test(v) ? v : null;
+};
+/** The version and region a probe asks about: any version in the registry (enabled or not), an enabled region. */
+function probeScopeOf(body) {
+  const version = String(body?.version ?? PRIMARY_SCOPE.version);
+  const region = String(body?.region ?? PRIMARY_SCOPE.region);
+  const v = versionById(version);
+  if (!v) throw new HttpError(400, 'Pick a game version.', 'invalid');
+  if (!isRegionEnabled(region) || !v.regions.includes(region)) throw new HttpError(400, 'Pick a region Everstats covers.', 'invalid');
+  return { version, region, v };
+}
 
 /**
  * /api/admin/discovery/*: mounted INSIDE the admin router, after its gate, so without an admin session every one of
@@ -169,7 +194,8 @@ export function catalogCsv(catalog) {
   return `${lines.join('\r\n')}\r\n`;
 }
 
-export function createDiscoveryRouter({ db, limits, networkOf, limitBy }) {
+export function createDiscoveryRouter({ db, limits, networkOf, limitBy, fetch = globalThis.fetch }) {
+  const deps = { fetch };
   const r = express.Router();
   const writes = limitBy(limits.writes, networkOf);
   const source = getSource('blizzard');
@@ -214,30 +240,115 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy }) {
   }));
 
   /** One run at a time, discovery or probe: the worker claims the oldest queued one. */
-  const queueRun = (options, eventType) => db.tx(async (q) => {
+  const queueRun = (options, eventType, scope = PRIMARY_SCOPE) => db.tx(async (q) => {
     await q.query('LOCK TABLE discovery_runs IN SHARE ROW EXCLUSIVE MODE');
     const busy = await q.one("SELECT id FROM discovery_runs WHERE status IN ('queued', 'running') LIMIT 1");
     if (busy) throw new HttpError(409, `Run #${busy.id} hasn't finished yet.`, 'busy');
-    const created = await q.one("INSERT INTO discovery_runs (status, options) VALUES ('queued', $1::jsonb) RETURNING *", [JSON.stringify(options)]);
+    const created = await q.one(
+      "INSERT INTO discovery_runs (status, options, game_version, region) VALUES ('queued', $1::jsonb, $2, $3) RETURNING *",
+      [JSON.stringify(options), scope.version, scope.region],
+    );
     await q.query('INSERT INTO admin_events (type, detail) VALUES ($1, $2::jsonb)', [eventType, JSON.stringify({ run: created.id })]);
     return created;
   });
 
-  // 0.8.3: the endpoint probe (discovery/probe/): every endpoint in Blizzard's docs, tried once against Forever.
+  // 0.8.3: the endpoint probe (discovery/probe/): every endpoint in Blizzard's docs, tried once. 0.10.0: against any
+  // game version in the registry (enabled or not) and region; a realm version's character is realm + name.
   r.post('/probes', writes, route(async (req, res) => {
     if (!(await isConfigured(db, source.credential))) throw new HttpError(409, 'Enter the Blizzard API keys in the key manager first.', 'not_configured');
-    const slug = characterSlug(req.body?.name, req.body?.surname);
-    if (!slug.ok) throw new HttpError(400, slug.problem, 'invalid');
+    const { version, region, v } = probeScopeOf(req.body);
+    let primary;
+    if (v.realms) {
+      const name = realmNameOf(req.body?.name);
+      const realmSlug = realmSlugOf(req.body?.realm);
+      if (!name) throw new HttpError(400, 'Enter the character’s name (letters only).', 'invalid');
+      if (!realmSlug) throw new HttpError(400, 'Enter the character’s realm.', 'invalid');
+      primary = { name, surname: '', realmSlug, slug: name.toLowerCase() };
+    } else {
+      const slug = characterSlug(req.body?.name, req.body?.surname);
+      if (!slug.ok) throw new HttpError(400, slug.problem, 'invalid');
+      primary = { name: String(req.body.name).trim(), surname: String(req.body.surname).trim(), slug: slug.slug };
+    }
     const guildName = String(req.body?.guild ?? '').trim().slice(0, 120);
     const guildSlug = guildSlugOf(guildName);
     if (!guildSlug) throw new HttpError(400, 'Enter the guild’s name (letters, digits, spaces, apostrophes or hyphens).', 'invalid');
+    const guildRealm = v.realms ? (realmSlugOf(req.body?.guildRealm) ?? primary.realmSlug) : null;
     const options = {
       kind: 'probe',
-      primary: { name: String(req.body.name).trim(), surname: String(req.body.surname).trim(), slug: slug.slug },
-      guild: { name: guildName, slug: guildSlug },
+      version,
+      region,
+      primary,
+      guild: { name: guildName, slug: guildSlug, ...(guildRealm ? { realmSlug: guildRealm } : {}) },
       requestsPerSecond: await getSetting(db, 'discovery.requestsPerSecond'),
     };
-    res.status(201).json({ run: runView(await queueRun(options, 'discovery.probe_queued')) });
+    res.status(201).json({ run: runView(await queueRun(options, 'discovery.probe_queued', { version, region })) });
+  }));
+
+  // 0.10.0: the versions a probe can ask about (the client's pickers), whatever is enabled for players.
+  r.get('/probe-versions', route(async (req, res) => {
+    res.json({ versions: publicVersions().map((x) => ({ ...x, enabledForPlayers: x.enabled })), primary: PRIMARY_VERSION.id });
+  }));
+
+  /**
+   * 0.10.0: the admin's own characters on a version, to prefill a probe: /profile/user/wow in that version's profile
+   * namespace with the Discovery Battle.net token, then the highest-level one's profile for its guild. STORES NOTHING:
+   * the answer goes to the admin's browser only (no characters row, no discovery_responses row, nothing logged but
+   * the fact of the request).
+   */
+  r.get('/probe-characters', route(async (req, res) => {
+    const { version, region, v } = probeScopeOf(req.query);
+    if (!(await isConfigured(db, source.credential))) throw new HttpError(409, 'Enter the Blizzard API keys in the key manager first.', 'not_configured');
+    const grant = await grantToken(db);
+    if (!grant) return res.json({ version, region, grant: false, characters: [], pick: null, guild: null, note: 'Authorize Battle.net on this page first: your character list is read with that token.' });
+    const ctx = blizzardContext(version, region);
+    let src;
+    try {
+      src = await openSource(db, 'blizzard', { fetch: deps.fetch, maxAttempts: 1, perSecond: 10, region });
+    } catch (err) {
+      throw new HttpError(409, err instanceof SourceError ? err.message : 'Couldn’t open the Blizzard source.', 'source');
+    }
+    const list = await src.get(ctx.paths.accountCharacters, { namespace: ctx.namespaces.profile, auth: 'user', userToken: grant.token });
+    if (list.status === 404) return res.json({ version, region, grant: true, characters: [], pick: null, guild: null, note: `Your Battle.net account has no characters on ${v.name} (Blizzard answered 404). Type one in: ${v.realms ? 'realm and name' : 'name and surname'}.` });
+    if (list.status !== 200 || !list.json) return res.json({ version, region, grant: true, characters: [], pick: null, guild: null, note: `Blizzard didn’t give the character list (${list.status === null ? `no answer: ${list.error ?? 'error'}` : `HTTP ${list.status}`}). Type one in.` });
+    const characters = parseAccountCharacters(list.json, { realms: ctx.realms }).map((c) => ({
+      id: c.id, name: c.name, surname: c.surname, realmSlug: c.realmSlug ?? null, level: c.level, class: c.class, race: c.race, faction: c.faction,
+    }));
+    if (!characters.length) return res.json({ version, region, grant: true, characters, pick: null, guild: null, note: `Your Battle.net account lists no characters on ${v.name}. Type one in: ${v.realms ? 'realm and name' : 'name and surname'}.` });
+    const pick = [...characters].sort((a, b) => (b.level ?? 0) - (a.level ?? 0) || a.id - b.id)[0];
+    let guild = null;
+    if (!ctx.realms || pick.realmSlug) {
+      const prof = await src.get(ctx.characterPath({ realmSlug: pick.realmSlug, slug: (ctx.realms ? pick.name : `${pick.name}-${pick.surname}`).toLowerCase() }), { namespace: ctx.namespaces.profile });
+      const pp = prof.status === 200 ? parseProfile(prof.json, { realms: ctx.realms }) : null;
+      if (pp?.guild) guild = { name: pp.guild.name, slug: pp.guild.slug, realmSlug: pp.guild.realm?.slug ?? null };
+    }
+    res.json({ version, region, grant: true, characters, pick, guild, note: guild ? null : `${pick.name} is in no guild Blizzard names (or its profile didn’t answer): type a guild in.` });
+  }));
+
+  // 0.10.0: the admin's eyes on the render: does it draw the race Blizzard names? Kept in the run's live record, so a
+  // re-analyse keeps it.
+  r.post('/runs/:id/render-check', writes, route(async (req, res) => {
+    const id = intParam(req.params.id);
+    const verdict = req.body?.verdict;
+    if (!['right', 'wrong', null].includes(verdict ?? null)) throw new HttpError(400, 'Right race, wrong race, or clear.', 'invalid');
+    const run = await db.one('SELECT * FROM discovery_runs WHERE id = $1', [id]);
+    if (!run) throw new HttpError(404, 'Not found');
+    if (!isProbe(run) || !run.summary?.live) throw new HttpError(409, 'Only a finished endpoint probe has a render to check.', 'not_done');
+    const live = { ...run.summary.live, renderCheck: verdict ? { verdict, at: new Date().toISOString() } : null };
+    const summary = await analyseProbe(db, id, live, run.options);
+    await db.tx(async (q) => {
+      await q.query('UPDATE discovery_runs SET summary = $2::jsonb WHERE id = $1', [id, JSON.stringify(summary)]);
+      await q.query("INSERT INTO admin_events (type, detail) VALUES ('discovery.render_checked', $1::jsonb)", [JSON.stringify({ run: id, verdict: verdict ?? 'cleared' })]);
+    });
+    res.json({ run: runView(await db.one('SELECT * FROM discovery_runs WHERE id = $1', [id])) });
+  }));
+
+  r.get('/runs/:id/export-boards.csv', route(async (req, res) => {
+    const id = intParam(req.params.id);
+    const run = await db.one('SELECT id, options, summary FROM discovery_runs WHERE id = $1', [id]);
+    if (!run || !isProbe(run)) throw new HttpError(404, 'Not found');
+    if (!run.summary) throw new HttpError(409, 'That probe has no results yet.', 'not_done');
+    res.set('Content-Disposition', `attachment; filename="everstats-probe-${id}-boards.csv"`);
+    res.type('text/csv; charset=utf-8').send(probeBoardsCsv(run.summary));
   }));
 
   // Stop a probe: a queued one never starts; a running one stops before its next request and keeps what it has.
@@ -396,7 +507,7 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy }) {
       res.set('Content-Disposition', `attachment; filename="everstats-probe-${id}.json"`);
       return res.json({
         exportedAt: new Date().toISOString(),
-        note: `Everstats endpoint probe export. "summary.answers" answers the Collections questions in words; "summary.entries" is every endpoint in Blizzard's docs as tried on WoW Forever (status, size, item count, values tried and why, or why it was skipped); "summary.skeletons" each answer's field outline by response id; "raw" every request with its body cut to ${MAX_EXPORT_BODY} characters (body_cut). Blizzard data: delete this file within 30 days.`,
+        note: `Everstats endpoint probe export (${versionById(run.options?.version ?? PRIMARY_VERSION.id)?.name ?? run.options?.version}, ${run.options?.region ?? PRIMARY_SCOPE.region}). "summary.answers" answers the questions in words; "summary.realms" every realm and its type; "summary.statistics" the statistic catalog compared with Forever's; "summary.groups" each group with Forever's choice as a suggestion (nothing applied); "summary.boards.list" every board rule A7 would make and "summary.boards.skipped" every field that isn't one, with why; "summary.render" the render check; "summary.entries" is every endpoint in Blizzard's docs as tried on this version (status, size, item count, values tried and why, or why it was skipped); "summary.skeletons" each answer's field outline by response id; "raw" every request with its body cut to ${MAX_EXPORT_BODY} characters (body_cut). Blizzard data: delete this file within 30 days.`,
         run: runView(run, { skeletons: true }),
         raw,
       });

@@ -1,4 +1,5 @@
 import { getSetting } from '../admin/settings.js';
+import { PRIMARY_VERSION, enabledVersions } from '../core/gameVersions.js';
 import { loadCatalog, loadCatalogFresh } from '../stats/catalog.js';
 import { isGraded, letterForScore } from '../stats/tiers.js';
 import { gradingPlan, whatCounts } from './counting.js';
@@ -32,23 +33,27 @@ const WRITE_BATCH = 2000;
 export const ELIGIBLE = `c.ruleset_id = $1 AND c.stats_fetched_at IS NOT NULL AND NOT c.hidden AND c.missing_since IS NULL
   AND c.profile_state = 'ok' AND c.level >= 10`;
 
-/** The tier settings now (admin settings). */
-export async function tierSettings(db) {
+/**
+ * The tier settings now (admin settings), for one game version (0.10.0: the tier settings are per version; the primary
+ * version's are the values it always had).
+ */
+export async function tierSettings(db, version = PRIMARY_VERSION.id) {
+  const opt = { version };
   return {
-    shares: await getSetting(db, 'tiers.shares'),
-    minPopulation: await getSetting(db, 'grading.minPopulation'),
-    categoryHalf: await getSetting(db, 'tiers.categoryHalf'),
-    overallHalf: await getSetting(db, 'tiers.overallHalf'),
+    shares: await getSetting(db, 'tiers.shares', opt),
+    minPopulation: await getSetting(db, 'grading.minPopulation', opt),
+    categoryHalf: await getSetting(db, 'tiers.categoryHalf', opt),
+    overallHalf: await getSetting(db, 'tiers.overallHalf', opt),
     // 0.8.0: weighted categories. Stored with each grading, so a one-character grading uses the same weighting as
     // the full grading it is placed against (a grading stored without it was graded with equal weights).
     weighting: 'sqrt',
-    weights: await getSetting(db, 'tiers.weights'),
+    weights: await getSetting(db, 'tiers.weights', opt),
   };
 }
 
 /** What counts, from the catalog and the owner's decisions. fresh: bypass this process's 60-second catalog cache. */
-export async function countingNow(db, { fresh = false } = {}) {
-  const catalog = fresh ? await loadCatalogFresh(db) : await loadCatalog(db);
+export async function countingNow(db, { fresh = false, version = PRIMARY_VERSION.id } = {}) {
+  const catalog = fresh ? await loadCatalogFresh(db, { version }) : await loadCatalog(db, { version });
   const counts = whatCounts(catalog);
   return { catalog, counts, plan: gradingPlan(counts) };
 }
@@ -57,14 +62,17 @@ export async function eligibleCount(db, rulesetId) {
   return (await db.one(`SELECT count(*)::int AS n FROM characters c WHERE ${ELIGIBLE}`, [rulesetId])).n;
 }
 
-/** Rulesets with tier-eligible characters, or with tiers stored from before. */
+/**
+ * Realm categories (rulesets) with tier-eligible characters, or with tiers stored from before. → [{ id, version }]
+ * 0.10.0: a category belongs to one game version and region; it is graded with that version's plan and settings.
+ */
 async function rulesetsToGrade(db) {
   const rows = await db.query(
-    `SELECT id FROM rulesets r WHERE EXISTS (SELECT 1 FROM characters c WHERE c.ruleset_id = r.id AND c.stats_fetched_at IS NOT NULL)
+    `SELECT id, game_version FROM rulesets r WHERE EXISTS (SELECT 1 FROM characters c WHERE c.ruleset_id = r.id AND c.stats_fetched_at IS NOT NULL)
         OR EXISTS (SELECT 1 FROM tier_rulesets t WHERE t.ruleset_id = r.id)
-      ORDER BY id LIMIT 100`,
+      ORDER BY id LIMIT 400`,
   );
-  return rows.map((r) => r.id);
+  return rows.map((r) => ({ id: r.id, version: r.game_version }));
 }
 
 /** Every counted statistic's values on a ruleset, for the eligible characters → { ids, valueOf }. */
@@ -137,26 +145,42 @@ async function writeRuleset(q, rulesetId, result, { plan, settings, at }) {
  * Grades every ruleset (FULL). `settings` and `counting` default to the live ones; `write: false` computes without
  * storing anything (the admin preview). → { rulesets: [{ rulesetId, population, graded, distribution, ms }], ms }
  */
-export async function gradeAll(db, { settings = null, counting = null, write = true, now = Date.now } = {}) {
+export async function gradeAll(db, { settings = null, counting = null, write = true, now = Date.now, version = null } = {}) {
   const started = now();
-  const s = settings ?? await tierSettings(db);
-  const { plan } = counting ?? await countingNow(db, { fresh: true });
+  // `settings` / `counting` (the admin preview, tests) are the primary version's; every other version's come from
+  // its own decisions and settings. `version` limits the grading to one version (a preview; nothing else is touched).
+  const perVersion = new Map();
+  async function forVersion(v) {
+    if (!perVersion.has(v)) {
+      const own = v === PRIMARY_VERSION.id;
+      perVersion.set(v, {
+        s: own && settings ? settings : await tierSettings(db, v),
+        plan: (own && counting ? counting : await countingNow(db, { fresh: true, version: v })).plan,
+      });
+    }
+    return perVersion.get(v);
+  }
   const out = [];
-  const rulesets = await rulesetsToGrade(db);
-  for (const rulesetId of rulesets) {
+  const all = await rulesetsToGrade(db);
+  const listed = version ? all.filter((r) => r.version === version) : all;
+  const rulesets = listed.map((r) => r.id);
+  for (const { id: rulesetId, version: v } of listed) {
+    const { s, plan } = await forVersion(v);
     const t0 = Date.now();
     const { ids, valueOf } = await loadRuleset(db, rulesetId, plan.statisticIds);
     const result = gradeRuleset({ characterIds: ids, valueOf, plan, settings: s });
     if (write) await db.tx((q) => writeRuleset(q, rulesetId, result, { plan, settings: s, at: new Date(now()) }));
-    out.push({ rulesetId, population: result.population, graded: result.graded, distribution: result.graded ? distributionOf(result, plan) : null, ms: Date.now() - t0 });
+    out.push({ rulesetId, version: v, population: result.population, graded: result.graded, distribution: result.graded ? distributionOf(result, plan) : null, ms: Date.now() - t0 });
   }
-  if (write && rulesets.length) {
+  if (write && rulesets.length && !version) {
     // A character that moved ruleset, or a ruleset nobody is on any more, leaves no stale rows behind.
     await db.query('DELETE FROM character_category_tiers WHERE NOT (ruleset_id = ANY($1::int[]))', [rulesets]);
     await db.query('DELETE FROM character_tiers WHERE NOT (ruleset_id = ANY($1::int[]))', [rulesets]);
     await db.query('DELETE FROM tier_rulesets WHERE NOT (ruleset_id = ANY($1::int[]))', [rulesets]);
   }
-  return { rulesets: out, ms: now() - started, counted: plan.statisticIds.length };
+  // "counted" is the primary version's (or the one asked for): what the admin's Tiers page shows.
+  const counted = (await forVersion(version ?? PRIMARY_VERSION.id)).plan.statisticIds.length;
+  return { rulesets: out, ms: now() - started, counted };
 }
 
 /**
@@ -266,14 +290,17 @@ export async function dueReason(db, { now = Date.now } = {}) {
   const age = now() - new Date(last.finished_at).getTime();
   if (age >= FULL_EVERY_MS) return { reasons: ['scheduled'] };
   // A ruleset that crossed the minimum (either way) since the last full grading.
-  const minPopulation = await getSetting(db, 'grading.minPopulation');
-  const crossed = await db.one(
-    `SELECT r.id FROM rulesets r LEFT JOIN tier_rulesets t ON t.ruleset_id = r.id
-      WHERE coalesce(t.graded, false) <> ((SELECT count(*) FROM characters c WHERE ${ELIGIBLE.replace(/\$1/g, 'r.id')}) >= $1)
-      LIMIT 1`,
-    [minPopulation],
-  );
-  if (crossed) return { reasons: ['a ruleset crossed the minimum'] };
+  // 0.10.0: each version's categories against that version's own minimum.
+  for (const v of enabledVersions()) {
+    const minPopulation = await getSetting(db, 'grading.minPopulation', { version: v.id });
+    const crossed = await db.one(
+      `SELECT r.id FROM rulesets r LEFT JOIN tier_rulesets t ON t.ruleset_id = r.id
+        WHERE r.game_version = $2 AND coalesce(t.graded, false) <> ((SELECT count(*) FROM characters c WHERE ${ELIGIBLE.replace(/\$1/g, 'r.id')}) >= $1)
+        LIMIT 1`,
+      [minPopulation, v.id],
+    );
+    if (crossed) return { reasons: ['a ruleset crossed the minimum'] };
+  }
   // After the daily refresh: nothing of it left in the queue, and characters fetched since the last grading.
   if (age >= AFTER_REFRESH_MIN_MS) {
     const { PRIORITY } = await import('../crawler/queue.js');
@@ -312,9 +339,9 @@ export async function runDueTierWork(db, { now = Date.now, log = console } = {})
 }
 
 /** The preview for the admin: what each ruleset's letters would be with `settings`, nothing written. */
-export async function previewTiers(db, settings) {
-  const counting = await countingNow(db, { fresh: true });
-  const result = await gradeAll(db, { settings, counting, write: false });
+export async function previewTiers(db, settings, { version = PRIMARY_VERSION.id } = {}) {
+  const counting = await countingNow(db, { fresh: true, version });
+  const result = await gradeAll(db, { settings: version === PRIMARY_VERSION.id ? settings : null, counting: version === PRIMARY_VERSION.id ? counting : null, write: false, version });
   const names = new Map((await db.query('SELECT id, name FROM rulesets LIMIT 100')).map((r) => [r.id, r.name]));
   const labels = new Map(counting.plan.categories.map((c) => [c.key, c.label]));
   return {

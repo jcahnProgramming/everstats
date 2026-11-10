@@ -1,3 +1,4 @@
+import { PRIMARY_VERSION, versionById } from '../core/gameVersions.js';
 import { COLLECTIONS_CATEGORY, COUNTS, DERIVED_BASE, DERIVED_DYNAMIC, DERIVED_MAX, FAMILIES, KINDS, kindById } from './registry.js';
 import { catalogMap } from './catalog.js';
 
@@ -70,17 +71,27 @@ const CATEGORY_PATH = JSON.stringify([{ id: null, name: COLLECTIONS_CATEGORY }])
  * DERIVED_DYNAMIC on (under an advisory lock, so two crawler items can't take the same id). Its name is refreshed, and
  * its last_seen_at: a family name is built from Blizzard's names, so it ages out with the window like Blizzard's.
  */
-export async function ensureDerivedId(q, { key, name, id = null }) {
-  const found = await q.one('SELECT id, name FROM statistics WHERE derived = $1', [key]);
+export async function ensureDerivedId(q, { key, name, id = null, version = PRIMARY_VERSION.id, category = null }) {
+  // 0.10.0: a derived statistic belongs to one game version (the same count on two versions is two boards). A fixed
+  // count's own id (DERIVED_BASE + n) is the native version's; any other version's is allocated like a family's.
+  if (!versionById(version)?.nativeIds) id = null;
+  const found = await q.one('SELECT id, name FROM statistics WHERE game_version = $2 AND derived = $1', [key, version]);
   if (found) {
     await q.query("UPDATE statistics SET name = $2, last_seen_at = now() WHERE id = $1 AND (name IS DISTINCT FROM $2 OR last_seen_at < now() - interval '1 hour')", [found.id, name]);
     return Number(found.id);
   }
   await q.query("SELECT pg_advisory_xact_lock(hashtext('everstats.derived_ids'))");
-  const again = await q.one('SELECT id FROM statistics WHERE derived = $1', [key]);
+  const again = await q.one('SELECT id FROM statistics WHERE game_version = $2 AND derived = $1', [key, version]);
   if (again) return Number(again.id);
   const next = id ?? Number((await q.one('SELECT coalesce(max(id), $1) + 1 AS n FROM statistics WHERE id >= $1 AND id < $2', [DERIVED_DYNAMIC, DERIVED_MAX])).n);
-  await q.query('INSERT INTO statistics (id, name, category_path, derived) VALUES ($1, $2, $3::jsonb, $4) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, derived = EXCLUDED.derived, last_seen_at = now()', [next, name, CATEGORY_PATH, key]);
+  // A feed's board (stats/feeds.js) is filed under its feed's group; a collection count under Collections.
+  const path = category ? JSON.stringify([{ id: null, name: category }]) : CATEGORY_PATH;
+  const source = key.startsWith('feed:') ? key.split(':')[1] : 'collections';
+  await q.query(
+    `INSERT INTO statistics (id, name, category_path, derived, game_version, source) VALUES ($1, $2, $3::jsonb, $4, $5, $6)
+     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, derived = EXCLUDED.derived, last_seen_at = now()`,
+    [next, name, path, key, version, source],
+  );
   const { clearCatalogCache } = await import('../stats/catalog.js');
   clearCatalogCache();
   return next;
@@ -100,8 +111,10 @@ async function writeValue(q, ch, characterId, statisticId, value, fetchedAt) {
 }
 
 export async function deriveCounts(q, characterId) {
-  const ch = await q.one('SELECT ruleset_id, hidden FROM characters WHERE id = $1', [characterId]);
+  const ch = await q.one('SELECT ruleset_id, hidden, game_version FROM characters WHERE id = $1', [characterId]);
   if (!ch || ch.ruleset_id === null) return 0;
+  const version = ch.game_version;
+  const native = Boolean(versionById(version)?.nativeIds);
   await recordDerivedStatistics(q);
   const rows = await collectionsOf(q, characterId);
   const ctx = { achievementCatalog: rows.has('achievements') ? await achievementCatalog(q) : null, rows };
@@ -114,7 +127,7 @@ export async function deriveCounts(q, characterId) {
     const entries = f.entries(row.data, ctx).filter((e) => Number.isFinite(e.value));
     const keep = [];
     for (const e of entries.filter((x) => x.value > 0)) {
-      const id = await ensureDerivedId(q, e);
+      const id = await ensureDerivedId(q, { ...e, version });
       await writeValue(q, ch, characterId, id, e.value, row.fetchedAt);
       keep.push(id);
       written += 1;
@@ -129,16 +142,20 @@ export async function deriveCounts(q, characterId) {
     if (!row?.data || !row.fetchedAt) continue; // never returned: nothing to count from
     const value = c.count(row.data, ctx);
     if (value === null || !Number.isFinite(value)) continue;
-    if (c.lazy && value > 0) await ensureDerivedId(q, { key: c.key, name: c.name, id: c.id });
+    if (c.lazy && value > 0 && native) await ensureDerivedId(q, { key: c.key, name: c.name, id: c.id, version });
+    // On any version but the native one a fixed count has an allocated id (its fixed id is the native version's).
+    const countId = native ? c.id : value > 0 ? await ensureDerivedId(q, { key: c.key, name: c.name, version })
+      : (await q.one('SELECT id FROM statistics WHERE game_version = $1 AND derived = $2', [version, c.key]))?.id ?? null;
+    if (countId === null) continue;
     if (value > 0) {
       await q.query(
         `INSERT INTO character_statistics (character_id, statistic_id, ruleset_id, hidden, value, text, blizzard_updated_at, fetched_at)
          VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6)
          ON CONFLICT (character_id, statistic_id) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, hidden = EXCLUDED.hidden, value = EXCLUDED.value, fetched_at = EXCLUDED.fetched_at`,
-        [characterId, c.id, ch.ruleset_id, ch.hidden, value, row.fetchedAt],
+        [characterId, countId, ch.ruleset_id, ch.hidden, value, row.fetchedAt],
       );
     } else {
-      await q.query('DELETE FROM character_statistics WHERE character_id = $1 AND statistic_id = $2', [characterId, c.id]);
+      await q.query('DELETE FROM character_statistics WHERE character_id = $1 AND statistic_id = $2', [characterId, countId]);
     }
     written += 1;
   }

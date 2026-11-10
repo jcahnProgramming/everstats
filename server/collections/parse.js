@@ -37,7 +37,7 @@ const quality = (q) => {
 };
 
 /** The versioned static namespace Blizzard's own links name ("static-1.60.1_70399-forever-us"), or null. */
-export function staticNamespaceIn(json, region = 'us') {
+export function staticNamespaceIn(json, region) {
   const m = /namespace=(static-[A-Za-z0-9._-]{1,60})/.exec(JSON.stringify(json ?? null));
   return m && m[1].endsWith(`-${region}`) ? m[1] : null;
 }

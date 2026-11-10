@@ -35,8 +35,9 @@ request as hostile: CSRF origin check, rate limits, httpOnly cookies, nothing se
 - **Accounts are optional** (see "Accounts"). Battle.net OAuth, Discord OAuth, passkeys; optional TOTP 2FA.
 - **Three themes**: Forever (default), Alliance, Horde. Logged-out visitors always see Forever.
 - **Admin**: passkey-only, one person, with an API key manager, settings and crawler status. Visitors never see it.
-- **Not in 1.0:** the MCP server (room left: separate container and port, read-only database role), EU/KR/TW
-  (`REGION` is config; only `us` is accepted).
+- **Not in 1.0:** the MCP server (room left: separate container and port, read-only database role). Plan (owner,
+  0.10.0): 0.11.0 Retail and Classic, 0.12.0 the companion addon, 1.0.0 all regions (EU/KR/TW; US only before then; see
+  "Game versions and regions").
 
 **1.0.0 is the public US launch** with character pages, per-statistic leaderboards, tiers, guild pages, both
 logins, passkeys, 2FA and the three themes live. Until then, a page whose feature isn't built says "Coming soon"
@@ -207,6 +208,43 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   A failure there never fails the sign-in.
 - Lookups: a character fully fetched in the last 10 minutes is served without asking Blizzard; only a lookup that asks
   Blizzard counts against the per-network limit.
+
+## Game versions and regions (0.10.0: `server/core/gameVersions.js`, `core/localIds.js`, `core/versionRoutes.js`)
+
+- **The registry is the ONE place** a version, region, API/OAuth host or namespace is written (`server/test/game-versions.test.js`
+  greps for strays; the theme id `forever` and migration backfills are the only exceptions). Versions: `forever` (primary,
+  realmless, `nativeIds`, enabled), `retail`, `classic` (progression), `classic-era` (classic1x), `classic-anniversary`
+  (classicann: Blizzard's own namespace, not classic1x). Regions us (enabled) / eu / kr / tw. Static namespaces are
+  only ever DETECTED and must match the version's `staticPattern` (a build segment starts with a digit, so retail's never
+  matches `static-classic-us`). `GAME_VERSIONS=` in the environment can only narrow what's enabled. The client imports
+  `crawler/queue.js` → gameVersions.js: both stay browser-safe (a test follows the imports; once they weren't and every
+  page was blank).
+- **Ids:** on the native version Everstats' id IS Blizzard's (nothing existing moved). Every other version's characters,
+  guilds, realm categories and statistics get ids from their own sequences (`blizzard_ids`, migration 027), so per-character
+  tables need no version column. Characters/guilds carry `game_version, region, realm_slug, blizzard_id`; the slug is unique
+  per (version, region, realm). Crawl keys: slug, or `{realmSlug}/{slug}` on a realm version. Page lookups use
+  `scopeSql()` (config.js): the primary scope.
+- **Realm categories:** a `rulesets` row is a realm category of one version and region: Forever's rulesets, or a realm
+  version's realm TYPE (`category_key`, from `realm/{slug}`, kept in `realms`). Tiers and boards grade within one; copy
+  says the registry's word ("ruleset" / "realm type").
+- **Not visible yet:** only enabled versions are queued, claimed, read at sign-in or crawled; `/{version}/{region}/…` pages
+  and `/api/v/…` answer 404 until 0.11.0 (the primary prefix redirects to the unprefixed URL). Rosters are expanded only
+  for the primary version (capped seeding elsewhere: a guild someone opens).
+- **Budget:** one budget for every region (admin `crawler.budgetScope`, or one per region if Blizzard confirms per-region
+  quotas); `crawler.versionShares` is each version's CEILING (lookups first within it). Back-off is per version + endpoint.
+- **Per-version settings:** the tier settings (`PER_VERSION_KEYS`) are stored at `{key}@{version}`; the primary version's
+  keep their bare key. Badges whose rules read characters carry `badge_definitions.game_version`.
+- **Every feed is a leaderboard** (rule A7, `stats/feeds.js` + `feedStore.js`): every number a character feed returns is a
+  derived statistic `feed:{feed}:{path}` (one skip list, `SKIP_RULES`), per version, named "… (feed label)". PvP summary
+  fields stay the 0.9.1 `pvp:` family (same feed, same board). A feed value has a gain only once its baseline held it.
+  Guild feeds aren't boards yet (guild boards rank member totals; a guild's own number needs its own table: 0.11.0).
+- **Tier decisions by GROUP** (`tiers/groups.js`, Discovery "Tier groups"): per version, a group (category label) is
+  'counts' | 'category' | 'none'; a statistic's own complete decision, a rejection or a `group_exempt` marker wins; name +
+  number statistics and Everstats' derived boards never count through a group. Forever's 0.9.2 decisions became group
+  choices ONCE (worker tiers job, `pipeline_facts tier_groups_migrated_at`), with exemptions so the plan is identical:
+  proven inside the transaction or rolled back. Other versions start undecided; Forever's choices are only a suggestion.
+- **Rollback to 0.9.2:** `scripts/rollback-027.sql` (tested by `scripts/measure-migration-027.js`); before/after proof:
+  `scripts/forever-fingerprint.sql` (runs on both schemas).
 
 ## Collections (0.9.0: `server/collections/`, `client/src/collections/`, `/c/{slug}/collections[/{screen}]`)
 

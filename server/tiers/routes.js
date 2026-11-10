@@ -1,6 +1,7 @@
 import express from 'express';
 import { TIER_SETTING_KEYS, checkSetting, getSetting, setSetting } from '../admin/settings.js';
 import { HttpError, route } from '../core/errors.js';
+import { PRIMARY_VERSION, versionById } from '../core/gameVersions.js';
 import { rulesetList } from '../characters/routes.js';
 import { weightsProblem } from './engine.js';
 import { countingNow, previewTiers, requestTierRecompute } from './store.js';
@@ -22,12 +23,20 @@ const FIELDS = { shares: 'tiers.shares', minPopulation: 'grading.minPopulation',
  * The tier settings from a request body, each validated by the settings registry, and the weight pins also against
  * the live categories (an older admin page that doesn't send weights keeps the saved pins).
  */
+// 0.10.0: the tier settings are per game version ({ version } in the body or query; default the primary).
+const versionOf = (x) => {
+  const v = String(x ?? PRIMARY_VERSION.id);
+  if (!versionById(v)) throw new HttpError(400, 'Unknown game version', 'invalid');
+  return v;
+};
+
 async function settingsFrom(db, body) {
+  const version = versionOf(body?.version);
   const out = {};
   for (const [field, key] of Object.entries(FIELDS)) {
-    out[field] = field === 'weights' && body?.weights === undefined ? await getSetting(db, key) : checkSetting(key, body?.[field]);
+    out[field] = field === 'weights' && body?.weights === undefined ? await getSetting(db, key, { version }) : checkSetting(key, body?.[field]);
   }
-  const { plan } = await countingNow(db, { fresh: true });
+  const { plan } = await countingNow(db, { fresh: true, version });
   const problem = weightsProblem(plan, out.weights);
   if (problem) throw new HttpError(400, problem, 'invalid');
   return { ...out, weighting: 'sqrt' };
@@ -70,22 +79,24 @@ export function createTierRouter({ db }) {
 
 export function createAdminTierRouter({ db, writes }) {
   const r = express.Router();
-  r.get('/tiers', route(async (req, res) => res.json(await adminTierState(db))));
+  r.get('/tiers', route(async (req, res) => res.json(await adminTierState(db, { version: versionOf(req.query.version) }))));
 
   r.post('/tiers/preview', writes, route(async (req, res) => {
+    const version = versionOf(req.body?.version);
     const settings = await settingsFrom(db, req.body);
-    res.json({ settings, preview: await previewTiers(db, settings) });
+    res.json({ settings, preview: await previewTiers(db, settings, { version }) });
   }));
 
   r.put('/tiers/settings', writes, route(async (req, res) => {
+    const version = versionOf(req.body?.version);
     const settings = await settingsFrom(db, req.body);
     await db.tx(async (q) => {
       for (const [field, key] of Object.entries(FIELDS)) {
-        const now = await getSetting(q, key);
-        if (JSON.stringify(now) !== JSON.stringify(settings[field])) await setSetting(q, key, settings[field], { q });
+        const now = await getSetting(q, key, { version });
+        if (JSON.stringify(now) !== JSON.stringify(settings[field])) await setSetting(q, key, settings[field], { q, version });
       }
     });
-    res.json(await adminTierState(db));
+    res.json(await adminTierState(db, { version }));
   }));
 
   r.post('/tiers/regrade', writes, route(async (req, res) => {

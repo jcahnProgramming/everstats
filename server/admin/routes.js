@@ -2,6 +2,7 @@ import express from 'express';
 import { HttpError, route } from '../core/errors.js';
 import { limitBy } from '../core/rateLimit.js';
 import { createDiscoveryRouter } from '../discovery/routes.js';
+import { createGroupRouter } from '../discovery/groupRoutes.js';
 import { newToken, sha256Hex } from '../credentials/crypto.js';
 import { listPublic, removeCredential, saveCredential, testCredential } from '../credentials/store.js';
 import { clearCookie, COOKIE, readCookie, setCookie } from '../auth/cookies.js';
@@ -129,7 +130,8 @@ export function createAdminRouter({ db, limits, networkOf, fetch = globalThis.fe
   }));
 
   // Discovery (the Blizzard API catalog): behind the same gate, so a plain 404 without an admin session.
-  r.use('/discovery', createDiscoveryRouter({ db, limits, networkOf, limitBy }));
+  r.use('/discovery', createDiscoveryRouter({ db, limits, networkOf, limitBy, fetch }));
+  r.use('/', createGroupRouter({ db, writes }));
   // Players (usernames, allowances, grants, reclaims) and the reserved list: behind the same gate.
   r.use('/', createPlayersRouter({ db, writes }));
   // Tier settings, the preview and "What counts" (0.6.0): behind the same gate.

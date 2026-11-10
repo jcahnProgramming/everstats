@@ -1,6 +1,17 @@
 import { PRIORITY, enqueue } from '../crawler/queue.js';
 import { RetryableError } from '../crawler/fetch.js';
 import { indexOf, mediaAsset, parseAchievementDetail, parseAppearanceDetail, parseItemSearch, renderUrl } from './parse.js';
+import { PRIMARY_SCOPE, scopeSql } from '../core/config.js';
+import { isStaticNamespace } from '../core/gameVersions.js';
+/**
+ * 0.10.0: catalogs are per game version and region (a static namespace is one version's build in one region). In this
+ * build only the PRIMARY scope's catalogs are built and read (the catalogs job and every collections page are the primary
+ * version's); every statement names that scope, so another version's rows can never be read here. Building catalogs
+ * per version arrives with the version itself (0.11.0).
+ */
+const CATALOG_SCOPE = scopeSql();
+const CATALOG_SCOPE_S = scopeSql('s');
+
 
 /**
  * Blizzard's static catalogs (0.9.0): every mount, pet, toy, title, achievement, appearance … that exists, shared by
@@ -78,15 +89,17 @@ export const catalogByKind = new Map(CATALOGS.map((c) => [c.kind, c]));
 
 // ---- the static namespace
 
-export async function staticNamespace(db) {
-  return (await db.one("SELECT detail FROM collection_catalog_state WHERE kind = 'namespace'"))?.detail ?? null;
+/** The static namespace a character response named for this scope (a version's build in a region), or null. */
+export async function staticNamespace(db, scope = PRIMARY_SCOPE) {
+  return (await db.one(`SELECT detail FROM collection_catalog_state WHERE ${scopeSql('', scope)} AND kind = 'namespace'`))?.detail ?? null;
 }
-export async function recordStaticNamespace(db, ns) {
-  if (!ns) return;
+/** Records it, only if it really is this version's static namespace in this region (gameVersions.js staticPattern). */
+export async function recordStaticNamespace(db, ns, scope = PRIMARY_SCOPE) {
+  if (!ns || !isStaticNamespace(scope.version, scope.region, ns)) return;
   await db.query(
-    `INSERT INTO collection_catalog_state (kind, state, detail, fetched_at, finished_at) VALUES ('namespace', 'ok', $1, now(), now())
-     ON CONFLICT (kind) DO UPDATE SET detail = EXCLUDED.detail, fetched_at = now(), finished_at = now()`,
-    [ns],
+    `INSERT INTO collection_catalog_state (kind, state, detail, fetched_at, finished_at, game_version, region) VALUES ('namespace', 'ok', $1, now(), now(), $2, $3)
+     ON CONFLICT (game_version, region, kind) DO UPDATE SET detail = EXCLUDED.detail, fetched_at = now(), finished_at = now()`,
+    [ns, scope.version, scope.region],
   );
 }
 
@@ -95,22 +108,22 @@ export async function recordStaticNamespace(db, ns) {
 async function setState(db, kind, fields) {
   const keys = Object.keys(fields);
   await db.query(
-    `INSERT INTO collection_catalog_state (kind, state) VALUES ($1, $2) ON CONFLICT (kind) DO NOTHING`,
+    `INSERT INTO collection_catalog_state (kind, state) VALUES ($1, $2) ON CONFLICT (game_version, region, kind) DO NOTHING`,
     [kind, fields.state ?? 'queued'],
   );
   if (!keys.length) return;
   const sets = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
-  await db.query(`UPDATE collection_catalog_state SET ${sets} WHERE kind = $1`, [kind, ...keys.map((k) => fields[k])]);
+  await db.query(`UPDATE collection_catalog_state SET ${sets} WHERE ${CATALOG_SCOPE} AND kind = $1`, [kind, ...keys.map((k) => fields[k])]);
 }
 
 async function tally(db, kind, requests, bytes) {
-  await db.query('UPDATE collection_catalog_state SET requests = requests + $2, bytes = bytes + $3 WHERE kind = $1', [kind, requests, bytes]);
+  await db.query(`UPDATE collection_catalog_state SET requests = requests + $2, bytes = bytes + $3 WHERE ${CATALOG_SCOPE} AND kind = $1`, [kind, requests, bytes]);
 }
 
 /** Which catalogs are due (never built, or older than REFRESH_DAYS, or stuck for a day): queued at the lowest priority. */
 export async function queueDueCatalogs(db) {
   if (!(await staticNamespace(db))) return { queued: 0, why: 'waiting for a character fetch to name the static namespace' };
-  const states = new Map((await db.query("SELECT kind, state, started_at, finished_at, fetched_at FROM collection_catalog_state WHERE kind <> 'namespace' LIMIT 50")).map((r) => [r.kind, r]));
+  const states = new Map((await db.query(`SELECT kind, state, started_at, finished_at, fetched_at FROM collection_catalog_state WHERE ${CATALOG_SCOPE} AND kind <> 'namespace' LIMIT 50`)).map((r) => [r.kind, r]));
   let queued = 0;
   for (const c of CATALOGS) {
     const s = states.get(c.kind);
@@ -125,7 +138,7 @@ export async function queueDueCatalogs(db) {
     // RESUME (never start over) a build that stopped part-way: stuck, or failed (a step gave up), still inside its
     // refresh age. Its rows refreshed so far keep their fetched_at; the detail steps pick up the rest.
     const resumable = c.detail && s && (building || s.state === 'failed') && started && Date.now() - started < REFRESH_DAYS * day
-      && (await db.one('SELECT count(*)::int AS n FROM collection_catalog WHERE kind = $1', [c.kind])).n > 0;
+      && (await db.one(`SELECT count(*)::int AS n FROM collection_catalog WHERE ${CATALOG_SCOPE} AND kind = $1`, [c.kind])).n > 0;
     if (resumable) {
       if (s.state === 'failed' && s.finished_at && Date.now() - new Date(s.finished_at).getTime() < 60 * 60 * 1000) continue; // an hour's rest
       await setState(db, c.kind, { state: 'building', detail: null });
@@ -175,14 +188,14 @@ export async function fetchCatalogStep({ db, client }, item) {
 
 async function upsertRows(db, kind, rows, { started }) {
   // Rows Blizzard no longer lists go; listed rows keep their details until the detail steps refresh them.
-  await db.query('DELETE FROM collection_catalog WHERE kind = $1 AND NOT (id = ANY($2::bigint[]))', [kind, rows.map((r) => r.id)]);
+  await db.query(`DELETE FROM collection_catalog WHERE ${CATALOG_SCOPE} AND kind = $1 AND NOT (id = ANY($2::bigint[]))`, [kind, rows.map((r) => r.id)]);
   for (let i = 0; i < rows.length; i += 500) {
     const part = rows.slice(i, i + 500);
     await db.query(
       `INSERT INTO collection_catalog (kind, id, name, data, fetched_at)
        SELECT $1, v.id, v.name, v.data::jsonb, CASE WHEN $5 THEN now() ELSE $6::timestamptz END
          FROM unnest($2::bigint[], $3::text[], $4::text[]) AS v(id, name, data)
-       ON CONFLICT (kind, id) DO UPDATE SET name = EXCLUDED.name,
+       ON CONFLICT (game_version, region, kind, id) DO UPDATE SET name = EXCLUDED.name,
          data = collection_catalog.data || EXCLUDED.data,
          fetched_at = CASE WHEN $5 THEN now() ELSE collection_catalog.fetched_at END`,
       [kind, part.map((r) => r.id), part.map((r) => r.name), part.map((r) => JSON.stringify(r.data ?? {})), !started, started ?? new Date(0)],
@@ -202,7 +215,7 @@ async function indexStep(db, c, ask, item) {
   }
   // New rows are marked a second older than this build's start, so the detail steps (fetched_at < started_at) pick
   // them up; still recent, so the hourly retention sweep can't delete them mid-build.
-  const started = c.detail ? new Date(new Date((await db.one('SELECT started_at FROM collection_catalog_state WHERE kind = $1', [c.kind])).started_at).getTime() - 1000) : null;
+  const started = c.detail ? new Date(new Date((await db.one(`SELECT started_at FROM collection_catalog_state WHERE ${CATALOG_SCOPE} AND kind = $1`, [c.kind])).started_at).getTime() - 1000) : null;
   await upsertRows(db, c.kind, rows, { started });
   if (!rows.length) {
     await setState(db, c.kind, { state: 'empty', total: 0, finished_at: new Date(), fetched_at: new Date() });
@@ -234,9 +247,9 @@ async function appearanceIndex(ask) {
 }
 
 async function detailStep(db, c, ask, item, n) {
-  const st = await db.one('SELECT started_at, total FROM collection_catalog_state WHERE kind = $1', [c.kind]);
+  const st = await db.one(`SELECT started_at, total FROM collection_catalog_state WHERE ${CATALOG_SCOPE} AND kind = $1`, [c.kind]);
   const rows = await db.query(
-    'SELECT id, data FROM collection_catalog WHERE kind = $1 AND fetched_at < $2 ORDER BY id LIMIT $3',
+    `SELECT id, data FROM collection_catalog WHERE ${CATALOG_SCOPE} AND kind = $1 AND fetched_at < $2 ORDER BY id LIMIT $3`,
     [c.kind, st.started_at, DETAIL_CHUNK],
   );
   // 0.9.2: a 429 / 5xx / no answer retries the chunk (the crawler waits 30 s, 60 s, 120 s…, and the endpoint's own
@@ -249,7 +262,7 @@ async function detailStep(db, c, ask, item, n) {
     const r = await ask(c.detail.path(row.id));
     if (bad(r)) {
       if ((item.attempts ?? 1) < ROW_GIVE_UP) throw new RetryableError(`${c.kind} detail: ${r.status ?? 'no answer'}`, 'blizzard');
-      await db.query("UPDATE collection_catalog SET data = data || jsonb_build_object('unavailable', $3::int), fetched_at = now() WHERE kind = $1 AND id = $2", [c.kind, row.id, r.status ?? 0]);
+      await db.query(`UPDATE collection_catalog SET data = data || jsonb_build_object('unavailable', $3::int), fetched_at = now() WHERE ${CATALOG_SCOPE} AND kind = $1 AND id = $2`, [c.kind, row.id, r.status ?? 0]);
       skipped += 1;
       continue;
     }
@@ -266,12 +279,12 @@ async function detailStep(db, c, ask, item, n) {
     // A name from the detail (appearances have none in their slot lists): the first item that grants it.
     const name = typeof data.name === 'string' ? data.name : data.items?.[0]?.name ?? null;
     await db.query(
-      'UPDATE collection_catalog SET data = $3::jsonb, name = coalesce($4, name), fetched_at = now() WHERE kind = $1 AND id = $2',
+      `UPDATE collection_catalog SET data = $3::jsonb, name = coalesce($4, name), fetched_at = now() WHERE ${CATALOG_SCOPE} AND kind = $1 AND id = $2`,
       [c.kind, row.id, JSON.stringify(data), name],
     );
   }
-  const left = (await db.one('SELECT count(*)::int AS n FROM collection_catalog WHERE kind = $1 AND fetched_at < $2', [c.kind, st.started_at])).n;
-  if (skipped) await db.query("UPDATE collection_catalog_state SET detail = left(coalesce(detail || ' · ', '') || $2, 300) WHERE kind = $1", [c.kind, `${skipped} skipped after repeated Blizzard errors`]);
+  const left = (await db.one(`SELECT count(*)::int AS n FROM collection_catalog WHERE ${CATALOG_SCOPE} AND kind = $1 AND fetched_at < $2`, [c.kind, st.started_at])).n;
+  if (skipped) await db.query(`UPDATE collection_catalog_state SET detail = left(coalesce(detail || ' · ', '') || $2, 300) WHERE ${CATALOG_SCOPE} AND kind = $1`, [c.kind, `${skipped} skipped after repeated Blizzard errors`]);
   if (left && rows.length) {
     await enqueue(db, { kind: 'catalog', key: `catalog:${c.kind}:details:${n + 1}`, priority: item.priority });
     return `${c.kind}: ${rows.length} details, ${left} left${skipped ? `, ${skipped} skipped` : ''}`;
@@ -325,7 +338,7 @@ export async function unresolvedAppearances(db, characterId) {
   const row = await db.one("SELECT data FROM character_collections WHERE character_id = $1 AND kind = 'transmog'", [characterId]);
   const ids = [...new Set((row?.data?.slots ?? []).flatMap((s) => s.ids))];
   if (!ids.length) return [];
-  const have = new Set((await db.query("SELECT id FROM collection_catalog WHERE kind = 'appearance' AND id = ANY($1::bigint[]) LIMIT 20000", [ids])).map((r) => Number(r.id)));
+  const have = new Set((await db.query(`SELECT id FROM collection_catalog WHERE ${CATALOG_SCOPE} AND kind = 'appearance' AND id = ANY($1::bigint[]) LIMIT 20000`, [ids])).map((r) => Number(r.id)));
   return ids.filter((id) => !have.has(id));
 }
 async function resolveCollected(db, c, ask, item, characterId) {
@@ -342,7 +355,7 @@ async function resolveCollected(db, c, ask, item, characterId) {
     if (data.items?.length) named += 1;
     await db.query(
       `INSERT INTO collection_catalog (kind, id, name, data, fetched_at) VALUES ('appearance', $1, $2, $3::jsonb, now())
-       ON CONFLICT (kind, id) DO UPDATE SET name = EXCLUDED.name, data = EXCLUDED.data, fetched_at = now()`,
+       ON CONFLICT (game_version, region, kind, id) DO UPDATE SET name = EXCLUDED.name, data = EXCLUDED.data, fetched_at = now()`,
       [id, data.items?.[0]?.name ?? null, JSON.stringify(data)],
     );
   }
@@ -354,7 +367,7 @@ async function resolveCollected(db, c, ask, item, characterId) {
 /** { kind → total rows } for catalogs that finished at least once (state ok or empty). */
 export async function catalogTotals(db) {
   const rows = await db.query(
-    "SELECT s.kind, s.state, (SELECT count(*)::int FROM collection_catalog c WHERE c.kind = s.kind) AS n FROM collection_catalog_state s WHERE s.kind <> 'namespace' AND s.fetched_at IS NOT NULL LIMIT 50",
+    `SELECT s.kind, s.state, (SELECT count(*)::int FROM collection_catalog c WHERE c.kind = s.kind AND c.game_version = s.game_version AND c.region = s.region) AS n FROM collection_catalog_state s WHERE ${CATALOG_SCOPE_S} AND s.kind <> 'namespace' AND s.fetched_at IS NOT NULL LIMIT 50`,
   );
   return Object.fromEntries(rows.map((r) => [r.kind, r.n]));
 }
@@ -362,13 +375,13 @@ export async function catalogTotals(db) {
 /** Map(id → { id, name, ...data }) for one catalog kind, bounded. */
 export async function catalogMap(db, kind, { ids = null, limit = 50_000 } = {}) {
   const rows = ids
-    ? await db.query('SELECT id, name, data FROM collection_catalog WHERE kind = $1 AND id = ANY($2::bigint[]) LIMIT $3', [kind, ids, limit])
-    : await db.query('SELECT id, name, data FROM collection_catalog WHERE kind = $1 ORDER BY id LIMIT $2', [kind, limit]);
+    ? await db.query(`SELECT id, name, data FROM collection_catalog WHERE ${CATALOG_SCOPE} AND kind = $1 AND id = ANY($2::bigint[]) LIMIT $3`, [kind, ids, limit])
+    : await db.query(`SELECT id, name, data FROM collection_catalog WHERE ${CATALOG_SCOPE} AND kind = $1 ORDER BY id LIMIT $2`, [kind, limit]);
   return new Map(rows.map((r) => [Number(r.id), { ...r.data, id: Number(r.id), name: r.name }]));
 }
 
 /** The admin readout: each catalog's state, size and measured cost. */
 export async function catalogStatus(db) {
-  const rows = await db.query("SELECT kind, state, total, requests, bytes, detail, started_at, finished_at, fetched_at FROM collection_catalog_state ORDER BY kind LIMIT 50");
+  const rows = await db.query(`SELECT kind, state, total, requests, bytes, detail, started_at, finished_at, fetched_at FROM collection_catalog_state WHERE ${CATALOG_SCOPE} ORDER BY kind LIMIT 50`);
   return rows.map((r) => ({ ...r, requests: Number(r.requests), bytes: Number(r.bytes), label: catalogByKind.get(r.kind)?.label ?? (r.kind === 'namespace' ? 'Static namespace' : r.kind) }));
 }

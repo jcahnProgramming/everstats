@@ -1,3 +1,4 @@
+import { scopeSql } from '../core/config.js';
 import express from 'express';
 import { HttpError, route } from '../core/errors.js';
 import { isConfigured } from '../credentials/store.js';
@@ -32,7 +33,7 @@ export function createCollectionsRouter({ db, limits, networkOf }) {
   async function character(req) {
     const parsed = parseSlug(req.params.slug);
     if (!parsed) throw new HttpError(400, 'That isn’t a character name and surname.', 'invalid');
-    const row = await db.one('SELECT * FROM characters WHERE slug = $1', [parsed.slug]);
+    const row = await db.one(`SELECT * FROM characters WHERE slug = $1 AND ${scopeSql()}`, [parsed.slug]);
     const viewer = viewerOf(req);
     const mine = Boolean(viewer && row && Number(row.owner_account_id) === Number(viewer));
     if (!row || row.profile_state !== 'ok') return { status: 'not_found', slug: parsed.slug };
@@ -47,12 +48,12 @@ export function createCollectionsRouter({ db, limits, networkOf }) {
   async function refresh(req, row) {
     if ((row.level ?? 0) < 10) return 'too_low';
     if (await pending(row.slug)) {
-      await queueCollections(db, row.slug, PRIORITY.lookup); // raises a queued background refresh to lookup priority
+      await queueCollections(db, { slug: row.slug, realmSlug: row.realm_slug }, PRIORITY.lookup, { version: row.game_version, region: row.region }); // raises a queued background refresh to lookup priority
       return 'pending';
     }
     if (!(await isConfigured(db, getSource('blizzard').credential))) return 'not_configured';
     if (!limits.lookups.take(networkOf(req))) return 'rate_limited';
-    await queueCollections(db, row.slug, PRIORITY.lookup);
+    await queueCollections(db, { slug: row.slug, realmSlug: row.realm_slug }, PRIORITY.lookup, { version: row.game_version, region: row.region });
     return 'queued';
   }
 

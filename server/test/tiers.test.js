@@ -448,3 +448,59 @@ test('below the ruleset minimum nobody is graded, and the page says how many are
   assert.ok(how.categories.some((c) => c.label === 'Social' && c.farmable && c.counted.length === 1));
   await t.client().put('/api/admin/tiers/settings', { shares: { S: 5, A: 15, B: 30, C: 30, D: 20 }, minPopulation: 50, categoryHalf: 50, overallHalf: 50 }, admin);
 });
+
+// ---------------------------------------------------------------- 0.10.0: tier decisions by GROUP
+test('0.10.0: Forever’s decisions become group choices once, and every letter and score comes out identical', async () => {
+  // A Combat statistic nobody decided on: a "counts" group choice would make it count, so the migration must exempt it.
+  await t.db.query("INSERT INTO statistics (id, name, category_path) VALUES (107, 'Critters killed fixture', $1::jsonb)", [JSON.stringify([{ id: 1, name: 'Kills' }])]);
+  for (let i = 1; i <= N; i++) await t.db.query('INSERT INTO character_statistics (character_id, statistic_id, ruleset_id, value, fetched_at) VALUES ($1, 107, $2, $3, now())', [i, RS, (i * 37) % 61 + 1]);
+  await gradeNow();
+  const snap = async () => (await t.db.query(
+    `SELECT t.character_id, t.letter, t.score, coalesce(string_agg(c.category_key || ':' || coalesce(c.letter, '-') || ':' || c.score, ',' ORDER BY c.category_key), '') AS cats
+       FROM character_tiers t LEFT JOIN character_category_tiers c ON c.character_id = t.character_id GROUP BY t.character_id, t.letter, t.score ORDER BY t.character_id`,
+  )).map((r) => `${r.character_id}|${r.letter}|${r.score}|${r.cats}`);
+  const { countingNow } = await import('../tiers/store.js');
+  const { planFingerprint, migrateForever } = await import('../tiers/groups.js');
+  const { gradingPlan } = await import('../tiers/counting.js');
+  const before = await snap();
+  const planBefore = planFingerprint((await countingNow(t.db, { fresh: true })).plan);
+
+  const result = await migrateForever(t.db, { log: { log() {} } });
+  assert.equal(result.done, true);
+  const groups = await t.db.query("SELECT group_label, choice, origin FROM discovery_group_decisions WHERE game_version = 'forever' ORDER BY group_label");
+  assert.ok(groups.length > 0);
+  assert.ok(groups.every((g) => g.origin === 'migration'));
+  assert.equal(groups.find((g) => g.group_label === 'Combat')?.choice, 'counts');
+  assert.equal(groups.find((g) => g.group_label === 'Social')?.choice, 'category');
+  // Adventure: nothing approved there supports a choice (103's "counts toward" was rejected, 104's never approved), so
+  // the group stays undecided. The exception: the undecided Combat statistic keeps counting nothing.
+  assert.equal(groups.find((g) => g.group_label === 'Adventure'), undefined);
+  const exempt = (await t.db.query("SELECT statistic_id FROM discovery_decisions WHERE kind = 'group_exempt' ORDER BY statistic_id")).map((r) => Number(r.statistic_id));
+  assert.deepEqual(exempt, [107]);
+  const { counts, plan } = await countingNow(t.db, { fresh: true });
+  assert.equal(planFingerprint(plan), planBefore);
+  assert.equal(planFingerprint(gradingPlan(counts)), planBefore);
+  assert.equal(counts.statistics.get(107).via, 'exempt');
+  assert.equal(counts.statistics.get(101).via, 'own');
+  await gradeNow();
+  assert.deepEqual(await snap(), before);
+  // Once only.
+  assert.equal((await migrateForever(t.db, { log: { log() {} } })).done, false);
+
+  // A statistic that appears LATER follows its group's choice (the owner's rule): it counts.
+  await t.db.query("INSERT INTO statistics (id, name, category_path) VALUES (108, 'Beasts killed fixture', $1::jsonb)", [JSON.stringify([{ id: 1, name: 'Kills' }])]);
+  const later = (await countingNow(t.db, { fresh: true })).counts.statistics.get(108);
+  assert.deepEqual([later.role, later.via, later.grading], ['counted', 'group', 'overall']);
+  await t.db.query('DELETE FROM statistics WHERE id = 108');
+
+  // Another version's group choice changes nothing on Forever.
+  const { setGroupChoice, groupsView } = await import('../tiers/groups.js');
+  await setGroupChoice(t.db, { version: 'retail', group: 'Combat', choice: 'none' });
+  assert.equal(planFingerprint((await countingNow(t.db, { fresh: true })).plan), planBefore);
+  const view = await groupsView(t.db, 'retail');
+  assert.equal(view.groups.length, 0); // Retail has no statistics yet: nothing to show, nothing applied
+  const fv = await groupsView(t.db, 'forever');
+  const combat = fv.groups.find((g) => g.label === 'Combat');
+  assert.equal(combat.choice.choice, 'counts');
+  assert.ok(combat.exceptions.some((e) => e.id === 107));
+});

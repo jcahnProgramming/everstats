@@ -38,8 +38,15 @@ for (const width of WIDTHS) {
     await ctx.addCookies([{ name, value: rest.join('='), url: base }]);
   }
   const page = await ctx.newPage();
+  // 0.10.0: a page that throws, or draws nothing, fails too. (A client bundle that crashed on load rendered every page
+  // blank, and a blank page has no overflow: the check passed while nothing worked.)
+  let thrown = null;
+  page.on('pageerror', (e) => { thrown = String(e?.message ?? e).slice(0, 200); });
   for (const path of PAGES) {
+    thrown = null;
     await page.goto(base + path, { waitUntil: 'networkidle' });
+    const drawn = await page.evaluate(() => (document.querySelector('main')?.innerText ?? document.body.innerText).trim().length);
+    if (thrown || drawn < 20) problems.push(`${width}px ${path}: ${thrown ? `the page threw: ${thrown}` : 'the page drew nothing'}`);
     for (const theme of THEMES) {
       await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
       await page.waitForTimeout(100);

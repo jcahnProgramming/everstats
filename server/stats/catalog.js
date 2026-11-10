@@ -1,5 +1,7 @@
 import { CATEGORY_RULES, present } from '../discovery/suggest.js';
 import { guessValueType } from '../discovery/analyze.js';
+import { PRIMARY_VERSION } from '../core/gameVersions.js';
+import { localIds } from '../core/localIds.js';
 
 /**
  * The production statistics catalog: what every page and leaderboard groups and labels statistics by.
@@ -19,7 +21,20 @@ import { guessValueType } from '../discovery/analyze.js';
  */
 export const CACHE_MS = 60_000;
 const MAX_STATISTICS = 20_000;
-const DECISION_KINDS = ['category', 'bad', 'grading', 'leaderboard', 'duplicate', 'value_type'];
+const DECISION_KINDS = ['category', 'bad', 'grading', 'leaderboard', 'duplicate', 'value_type', 'group_exempt'];
+
+/**
+ * 0.10.0: the owner's GROUP choices for one version: Map(group label → { choice, decidedAt, origin }), newest per group,
+ * 'cleared' dropped. choice 'counts' | 'category' | 'none' (tiers/counting.js applies them).
+ */
+export async function currentGroupDecisions(db, version) {
+  const rows = await db.query(
+    `SELECT DISTINCT ON (group_label) group_label, choice, decided_at, origin, reasoning FROM discovery_group_decisions
+      WHERE game_version = $1 ORDER BY group_label, decided_at DESC, id DESC LIMIT 200`,
+    [version],
+  );
+  return new Map(rows.filter((r) => r.choice !== 'cleared').map((r) => [r.group_label, { choice: r.choice, decidedAt: r.decided_at, origin: r.origin, reasoning: r.reasoning }]));
+}
 
 /** The newest decision per statistic and kind: Map(statId → Map(kind → { value, decision, decidedAt })). */
 export async function currentDecisions(db, statisticIds) {
@@ -41,6 +56,7 @@ export async function currentDecisions(db, statisticIds) {
 
 const RULE_ORDER = new Map(CATEGORY_RULES.map((r, i) => [r.label, i]));
 const FARMABLE = new Set(CATEGORY_RULES.filter((r) => r.farmable).map((r) => r.label));
+const DEATHS_LABEL = CATEGORY_RULES.find((r) => r.label === 'Deaths & mishaps').label;
 
 /** One statistic's effective classification, from its row (+ the discovery catalog's analysis) and its decisions. */
 export function classify(row, discovery, decisions) {
@@ -92,6 +108,8 @@ export function classify(row, discovery, decisions) {
     // A pairing the samples suggest that the owner hasn't decided on (approve or reject) yet.
     duplicatePendingOf: dupSuggestion && dupSuggestion.decision === null && Number.isSafeInteger(dupSuggestion.value?.of) ? dupSuggestion.value.of : null,
     valueTypeSet: latest('value_type')?.decision === 'approved',
+    // 0.10.0: "follow its own decisions, not its group's choice" (an override with nothing approved = counts nothing).
+    groupExempt: latest('group_exempt')?.decision === 'approved',
   };
   return {
     id: row.id,
@@ -110,21 +128,23 @@ export function classify(row, discovery, decisions) {
   };
 }
 
-let cache = null; // { at, value, db }
+// 0.10.0: one catalog per game version (a statistic belongs to one), each cached on its own.
+const caches = new Map(); // version → { at, value, db }
 
 export function clearCatalogCache() {
-  cache = null;
+  caches.clear();
 }
 
 /** The catalog as it is right now, bypassing this process's cache (the tier grading reads decisions live). */
 export async function loadCatalogFresh(db, opts) {
-  clearCatalogCache();
+  caches.delete(opts?.version ?? PRIMARY_VERSION.id);
   return loadCatalog(db, opts);
 }
 
-export async function loadCatalog(db, { now = Date.now } = {}) {
+export async function loadCatalog(db, { now = Date.now, version = PRIMARY_VERSION.id } = {}) {
+  const cache = caches.get(version);
   if (cache && cache.db === db && now() - cache.at < CACHE_MS) return cache.value;
-  const rows = await db.query('SELECT id, name, category_path, has_text, named_example, derived FROM statistics ORDER BY id LIMIT $1', [MAX_STATISTICS]);
+  const rows = await db.query('SELECT id, name, category_path, has_text, named_example, derived, source FROM statistics WHERE game_version = $2 ORDER BY id LIMIT $1', [MAX_STATISTICS, version]);
   const ids = rows.map((r) => r.id);
   const disc = ids.length ? await db.query('SELECT * FROM discovery_catalog WHERE statistic_id = ANY($1::bigint[]) LIMIT $2', [ids, MAX_STATISTICS]) : [];
   const discById = new Map(disc.map((d) => [d.statistic_id, d]));
@@ -150,18 +170,20 @@ export async function loadCatalog(db, { now = Date.now } = {}) {
     .sort((a, b) => (RULE_ORDER.get(a.label) ?? 999) - (RULE_ORDER.get(b.label) ?? 999) || a.label.localeCompare(b.label));
   // The rules' order suits the Discovery page; a player reads achievements first: categories that count toward the
   // overall tier, then the farmable ones (their own tier only), then those where nothing is graded (deaths & mishaps).
-  const band = (c) => (!c.graded ? 2 : c.farmable ? 1 : 0);
+  // 0.10.0: Deaths & mishaps stays last, after any other ungraded category (feed boards, rule A7).
+  const band = (c) => (!c.graded ? (c.label === DEATHS_LABEL ? 3 : 2) : c.farmable ? 1 : 0);
   categories.sort((a, b) => band(a) - band(b));
   // 0.6.0: what each statistic really does for the tiers, from the owner's DECISIONS only (tiers/counting.js). Pages
   // say "counts toward the overall tier" from this, never from a suggestion.
   //   Stat.tierRole  'counted' | 'bad' | 'named' | 'duplicate' | 'undecided';  Stat.countsOverall
   //   category.tierCounted (how many of its statistics count) · category.inOverall
   const { whatCounts } = await import('../tiers/counting.js');
-  const counts = whatCounts({ statistics, categories });
+  const groups = await currentGroupDecisions(db, version);
+  const counts = whatCounts({ statistics, categories, version, groups });
   for (const [id, c] of counts.statistics) Object.assign(statistics.get(id), { tierRole: c.role, countsOverall: c.overall });
   counts.categories.forEach((k, i) => Object.assign(categories[i], { tierCounted: k.counted.length, inOverall: k.inOverall }));
-  const value = { statistics, categories };
-  cache = { at: now(), value, db };
+  const value = { statistics, categories, version, groups };
+  caches.set(version, { at: now(), value, db });
   return value;
 }
 
@@ -171,18 +193,24 @@ export const categoryKey = (label) => String(label).toLowerCase().normalize('NFK
 /**
  * Adds every statistic in `parsed` (crawler/parse.js statistics) to the catalog, or refreshes its name and category
  * path. A statistic id seen for the first time appears on the Discovery page's combined catalog at once.
+ *
+ * 0.10.0: statistics are per game version. `parsed` carries BLIZZARD's ids; on the native version Everstats' id is the
+ * same number, on any other it is allocated (core/localIds.js), so the same id on two versions is two statistics and
+ * two boards. → Map(Blizzard id → Everstats' id). `source` is the feed ('achievement-statistics').
  */
-export async function recordStatistics(q, parsed) {
-  if (!parsed.length) return 0;
-  const ids = parsed.map((s) => s.id);
+export async function recordStatistics(q, parsed, { version = PRIMARY_VERSION.id, source = 'achievement-statistics' } = {}) {
+  if (!parsed.length) return new Map();
+  const map = await localIds(q, { kind: 'statistic', version, region: '', scope: source, blizzardIds: parsed.map((x) => x.id) });
+  const ids = parsed.map((x) => map.get(Number(x.id)));
   const known = new Set((await q.query('SELECT id FROM statistics WHERE id = ANY($1::bigint[])', [ids])).map((r) => r.id));
   let added = 0;
   for (const s of parsed) {
-    if (known.has(s.id)) continue;
+    const id = map.get(Number(s.id));
+    if (known.has(id)) continue;
     await q.query(
-      `INSERT INTO statistics (id, name, category_path, has_text, named_example) VALUES ($1, $2, $3::jsonb, $4, $5)
+      `INSERT INTO statistics (id, name, category_path, has_text, named_example, game_version, blizzard_id, source) VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8)
        ON CONFLICT (id) DO NOTHING`,
-      [s.id, s.name.slice(0, 200), JSON.stringify(s.categoryPath), s.text !== null, s.text !== null ? `${s.text.slice(0, 60)}, ${s.value}` : null],
+      [id, s.name.slice(0, 200), JSON.stringify(s.categoryPath), s.text !== null, s.text !== null ? `${s.text.slice(0, 60)}, ${s.value}` : null, version, s.id, source],
     );
     added += 1;
   }
@@ -195,5 +223,5 @@ export async function recordStatistics(q, parsed) {
     [ids, parsed.map((s) => s.name.slice(0, 200)), parsed.map((s) => JSON.stringify(s.categoryPath)), parsed.map((s) => s.text !== null)],
   );
   if (added) clearCatalogCache();
-  return added;
+  return map;
 }

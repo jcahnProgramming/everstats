@@ -9,6 +9,10 @@
  *   start at most every 1 / (perSecond × share) seconds, and while one has to wait its turn the slot goes to the next
  *   request in line (the daily refresh keeps moving). A lookup is never behind one: it sorts first.
  *
+ *   0.10.0 `versionShares()` → { versionId: fraction }: each game version's CEILING. A version's requests (lookups
+ *   included) start at most every 1 / (perSecond × share); while one waits for its version's turn, the next eligible
+ *   request goes, so a version can never starve another. Within the eligible ones, priority still decides: lookups first.
+ *
  * createBackoff()   per endpoint ('profile', 'achievement-statistics', …), never per host: a 429 or 5xx on one endpoint
  *   doesn't slow the others. Each failure doubles the wait (1 s, 2 s, 4 s … 5 min, or Retry-After). Only SUSTAINED
  *   success resets it: SUCCESS_TO_RESET successes in a row (CLAUDE.md "Bugs that cost us").
@@ -17,16 +21,30 @@ import { BUDGET_SHARES, PRIORITY, PRIORITY_VALUES } from './queue.js';
 
 const defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function createBudget({ perSecond, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, shares = BUDGET_SHARES } = {}) {
+export function createBudget({ perSecond, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, shares = BUDGET_SHARES, versionShares = () => ({}) } = {}) {
   const rate = typeof perSecond === 'function' ? perSecond : () => perSecond;
-  const waiting = []; // { priority, seq, resolve }
+  const waiting = []; // { priority, version, seq, resolve }
   const shareNextAt = new Map(); // priority → earliest start of its next request
+  const versionNextAt = new Map(); // version → earliest start of its next request
   let seq = 0;
   let nextAt = 0;
   let timer = null;
   let shareWait = false; // the timer only waits for a capped priority's turn
 
   const shareOf = (p) => (Number.isFinite(shares?.[p]) && shares[p] > 0 && shares[p] < 1 ? shares[p] : null);
+  // A version's ceiling as a fraction in (0, 1), or null for none. 0 means "no requests" (the version is held).
+  const versionShareOf = (v) => {
+    if (v === null || v === undefined) return null;
+    const f = versionShares()?.[v];
+    if (!Number.isFinite(f) || f >= 1) return null;
+    return Math.max(0, f);
+  };
+  const versionReady = (w, t) => {
+    const f = versionShareOf(w.version);
+    if (f === null) return true;
+    if (f === 0) return false;
+    return (versionNextAt.get(w.version) ?? 0) <= t;
+  };
 
   function pump() {
     timer = null;
@@ -39,9 +57,10 @@ export function createBudget({ perSecond, now = Date.now, setTimer = setTimeout,
       }
       waiting.sort((a, b) => a.priority - b.priority || a.seq - b.seq);
       // The most urgent request whose priority isn't over its share right now.
-      const i = waiting.findIndex((w) => !shareOf(w.priority) || (shareNextAt.get(w.priority) ?? 0) <= t);
+      const i = waiting.findIndex((w) => (!shareOf(w.priority) || (shareNextAt.get(w.priority) ?? 0) <= t) && versionReady(w, t));
       if (i < 0) {
-        const soonest = Math.min(...waiting.map((w) => shareNextAt.get(w.priority) ?? t));
+        const times = waiting.map((w) => Math.max(shareNextAt.get(w.priority) ?? t, versionShareOf(w.version) === 0 ? t + 1000 : (versionNextAt.get(w.version) ?? t)));
+        const soonest = Math.min(...times);
         timer = setTimer(pump, Math.max(1, soonest - t));
         shareWait = true;
         return;
@@ -51,16 +70,18 @@ export function createBudget({ perSecond, now = Date.now, setTimer = setTimeout,
       nextAt = Math.max(t, nextAt) + step;
       const share = shareOf(w.priority);
       if (share) shareNextAt.set(w.priority, Math.max(t, shareNextAt.get(w.priority) ?? 0) + step / share);
+      const vshare = versionShareOf(w.version);
+      if (vshare) versionNextAt.set(w.version, Math.max(t, versionNextAt.get(w.version) ?? 0) + step / vshare);
       w.resolve();
     }
   }
 
   return {
-    take(priority = PRIORITY.roster) {
+    take(priority = PRIORITY.roster, version = null) {
       return new Promise((resolve) => {
-        waiting.push({ priority, seq: seq++, resolve });
+        waiting.push({ priority, version, seq: seq++, resolve });
         // Only capped requests were waiting for their turn: anything else may start now, not after them.
-        if (timer && shareWait && !shareOf(priority)) {
+        if (timer && shareWait && !shareOf(priority) && versionShareOf(version) === null) {
           clearTimer(timer);
           timer = null;
         }
@@ -71,6 +92,12 @@ export function createBudget({ perSecond, now = Date.now, setTimer = setTimeout,
     waiting() {
       const out = Object.fromEntries(PRIORITY_VALUES.map((p) => [p, 0]));
       for (const w of waiting) out[w.priority] = (out[w.priority] ?? 0) + 1;
+      return out;
+    },
+    /** 0.10.0: waiting requests by game version, for the admin page. */
+    waitingByVersion() {
+      const out = {};
+      for (const w of waiting) if (w.version) out[w.version] = (out[w.version] ?? 0) + 1;
       return out;
     },
   };

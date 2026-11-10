@@ -1,7 +1,10 @@
+import { NATIVE_VERSION } from '../../core/gameVersions.js';
+
 /**
  * The endpoint probe's registry (0.8.3): EVERY endpoint in Blizzard's WoW API docs (retail and classic, profile and game
- * data, as listed on community.developer.battle.net on 2026-11-09), adapted to WoW Forever, plus the Forever-only
- * guesses. A probe run (probe/run.js) walks this list IN ORDER, so an entry whose ids come from another entry comes
+ * data, as listed on community.developer.battle.net on 2026-11-09), plus the Forever-only guesses. 0.10.0: the same list
+ * runs against ANY game version in core/gameVersions.js: {C} and {G} are built by that version's blizzardContext (realm
+ * paths where it has realms), the namespaces are its own, and a guess runs only on the versions it names (`versions`). A probe run (probe/run.js) walks this list IN ORDER, so an entry whose ids come from another entry comes
  * after it (server/test/probe.test.js checks).
  *
  * Adapted to Forever:
@@ -26,6 +29,7 @@
  *   realms  true: skipped with the reason when connected-realm/index shows Forever has no realms
  *   first   true: never probed before 0.8.3          later  true: a system retail added in a later expansion
  *   classic true: in the classic docs only           guess  true: a Forever-only guess, in no docs
+ *   versions [ids]: only on these game versions (the guesses: their own version only); absent = every version
  */
 export const PROBE_AREAS = [
   { id: 'profile', label: 'Profile' },
@@ -64,6 +68,8 @@ const slugOf = (name) => String(name ?? '').toLowerCase().replace(/['’]/g, '')
 
 /** The Forever-only guesses (the list's last section): each as a character sub-path AND as /data/wow/{x}/index. */
 export const FOREVER_GUESSES = ['legacy', 'legacies', 'heritage', 'housing', 'camping', 'camp', 'skyborne', 'renown', 'account-progression', 'forever'];
+// The game version the guesses are about (core/gameVersions.js: the one with Forever's namespaces).
+const GUESS_VERSIONS = Object.freeze([NATIVE_VERSION.id]);
 
 export const PROBE_ENDPOINTS = [
   // ---- the character first: its links carry the static namespace every static entry needs
@@ -315,9 +321,14 @@ export const PROBE_ENDPOINTS = [
   d('guild-crest-emblem-media', 'other', 'media/guild-crest/emblem/{emblemId}', S, { from: ['data.guild-crest-index', 'guild.profile'] }),
 
   // ---- the Forever-only guesses (in no docs): a character sub-path and a game-data index each
-  ...FOREVER_GUESSES.map((x) => c(`guess-${x}`, 'guesses', `/${x}`, { guess: true })),
-  ...FOREVER_GUESSES.map((x) => d(`guess-${x}-index`, 'guesses', `${x}/index`, S, { guess: true })),
+  ...FOREVER_GUESSES.map((x) => c(`guess-${x}`, 'guesses', `/${x}`, { guess: true, versions: GUESS_VERSIONS })),
+  ...FOREVER_GUESSES.map((x) => d(`guess-${x}-index`, 'guesses', `${x}/index`, S, { guess: true, versions: GUESS_VERSIONS })),
 ];
+
+/** The entries a probe of `version` asks, in order: everything except guesses meant for another version. */
+export const probeEntriesFor = (version) => PROBE_ENDPOINTS.filter((e) => !e.versions || e.versions.includes(version));
+/** Areas with at least one entry for `version` (no "Forever guesses" area on Retail). */
+export const probeAreasFor = (version) => PROBE_AREAS.filter((a) => probeEntriesFor(version).some((e) => e.area === a.id));
 
 /** {param} names in a path template ({C} and {G} are the character and the guild, not params). */
 export function templateParams(path) {

@@ -3,37 +3,72 @@ import { ROLLING_START, periodStart, utcDay } from '../stats/periods.js';
 import { retentionPolicy } from '../retention/policy.js';
 import { EQUIPMENT_VERSION } from './parse.js';
 import { DERIVED_BASE } from '../collections/registry.js';
+import { PRIMARY_SCOPE } from '../core/config.js';
+import { localId, localIds } from '../core/localIds.js';
 
 /**
  * Writing what the crawler fetched. Parsed values only (crawler/parse.js): never a raw body.
  * Every function takes `q` (a transaction from db.tx) so a character's update lands whole or not at all.
+ *
+ * 0.10.0: every write is for one SCOPE { version, region } (default the primary: the existing pages). Ids that arrive
+ * here are BLIZZARD's (a profile's id, a guild's, a ruleset's); each is mapped to Everstats' id (core/localIds.js:
+ * the same number on the native version) and the function returns that id. A realm version's character and guild also
+ * keep their realm slug, and the same slug on two realms or two versions never collides (characters_slug).
  */
 const MAX_STATS_PER_CHARACTER = 5000;
+const scopeOf = (scope) => ({ version: scope?.version ?? PRIMARY_SCOPE.version, region: scope?.region ?? PRIMARY_SCOPE.region });
 
-export async function upsertRuleset(q, r, { listed = null } = {}) {
-  if (!r || !Number.isInteger(r.id)) return;
+/** A ruleset Blizzard named (id + name). → Everstats' id for it (a realm category of this version and region). */
+export async function upsertRuleset(q, r, { listed = null, scope = null } = {}) {
+  if (!r || !Number.isInteger(r.id)) return null;
+  const s = scopeOf(scope);
+  const id = await localId(q, { kind: 'ruleset', version: s.version, region: s.region, blizzardId: r.id });
   await q.query(
-    `INSERT INTO rulesets (id, name, listed) VALUES ($1, $2, coalesce($3, false))
+    `INSERT INTO rulesets (id, name, listed, game_version, region, blizzard_id) VALUES ($1, $2, coalesce($3, false), $4, $5, $6)
      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, listed = coalesce($3, rulesets.listed), updated_at = now()`,
-    [r.id, String(r.name).slice(0, 60), listed],
+    [id, String(r.name).slice(0, 60), listed, s.version, s.region, r.id],
   );
+  return id;
 }
 
-export async function upsertGuild(q, g, rulesetId) {
+/**
+ * A realm category with no Blizzard id: a realm TYPE ("NORMAL", "PVP" …) on a version whose categories are realm types
+ * (gameVersions.js realmCategory.source 'realm-type'). → Everstats' id for it.
+ */
+export async function upsertRealmCategory(q, { key, name }, { scope }) {
+  const s = scopeOf(scope);
+  const k = String(key).slice(0, 40);
+  const known = await q.one('SELECT id FROM rulesets WHERE game_version = $1 AND region = $2 AND category_key = $3', [s.version, s.region, k]);
+  if (known) {
+    await q.query('UPDATE rulesets SET name = $2, updated_at = now() WHERE id = $1', [known.id, String(name ?? k).slice(0, 60)]);
+    return known.id;
+  }
+  const row = await q.one(
+    `INSERT INTO rulesets (id, name, listed, game_version, region, category_key) VALUES (nextval('local_ruleset_ids'), $1, true, $2, $3, $4)
+     ON CONFLICT (game_version, region, category_key) WHERE category_key IS NOT NULL DO UPDATE SET updated_at = now() RETURNING id`,
+    [String(name ?? k).slice(0, 60), s.version, s.region, k],
+  );
+  return row.id;
+}
+
+/** `rulesetId` is already Everstats' id. → Everstats' id for the guild. */
+export async function upsertGuild(q, g, rulesetId, { scope = null, realmSlug = null } = {}) {
   if (!g || !Number.isFinite(g.id) || !g.slug) return null;
+  const s = scopeOf(scope);
+  const id = await localId(q, { kind: 'guild', version: s.version, region: s.region, blizzardId: g.id });
   const slug = g.slug.toLowerCase();
   await q.query(
-    `INSERT INTO guilds (id, slug, name, faction, ruleset_id) VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO guilds (id, slug, name, faction, ruleset_id, game_version, region, realm_slug, blizzard_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      ON CONFLICT (id) DO UPDATE SET slug = EXCLUDED.slug, name = EXCLUDED.name, faction = coalesce(EXCLUDED.faction, guilds.faction),
-       ruleset_id = coalesce(EXCLUDED.ruleset_id, guilds.ruleset_id), updated_at = now()`,
-    [g.id, slug, g.name, g.faction, rulesetId],
+       ruleset_id = coalesce(EXCLUDED.ruleset_id, guilds.ruleset_id), realm_slug = coalesce(EXCLUDED.realm_slug, guilds.realm_slug), updated_at = now()`,
+    [id, slug, g.name, g.faction, rulesetId, s.version, s.region, realmSlug, g.id],
   );
   // 0.5.0: every slug a guild is seen with, so /g/{old-slug} redirects to it (by id) after a rename.
   await q.query(
     `INSERT INTO guild_slugs (slug, guild_id) VALUES ($1, $2) ON CONFLICT (slug, guild_id) DO UPDATE SET seen_at = now()`,
-    [slug, g.id],
+    [slug, id],
   );
-  return g.id;
+  return id;
 }
 
 /** A guild's totals need rebuilding (a member changed, joined or left): the worker's guild-totals job picks it up. */
@@ -43,39 +78,63 @@ export async function markGuildsDirty(q, ids) {
   await q.query('UPDATE guilds SET totals_dirty_at = now() WHERE id = ANY($1::bigint[])', [list]);
 }
 
-/** The guild profile (200): header fields. The slug Blizzard answers with is the current one. */
-export async function storeGuildProfile(q, gp) {
-  await upsertRuleset(q, gp.ruleset);
-  await upsertGuild(q, { id: gp.id, slug: gp.slug, name: gp.name, faction: gp.faction }, gp.ruleset?.id ?? null);
+/**
+ * The guild profile (200): header fields. The slug Blizzard answers with is the current one. `rulesetId` (Everstats')
+ * overrides the profile's ruleset: a realm version's guild is graded within its realm's category. → Everstats' guild id.
+ */
+export async function storeGuildProfile(q, gp, { scope = null, rulesetId = undefined } = {}) {
+  const category = rulesetId !== undefined ? rulesetId : await upsertRuleset(q, gp.ruleset, { scope });
+  const id = await upsertGuild(q, { id: gp.id, slug: gp.slug, name: gp.name, faction: gp.faction }, category ?? null, { scope, realmSlug: gp.realm?.slug ?? null });
   await q.query(
     `UPDATE guilds SET profile_state = 'ok', profile_fetched_at = now(), member_count = $2, created_at_blizzard = $3 WHERE id = $1`,
-    [gp.id, gp.memberCount, gp.createdAt],
+    [id, gp.memberCount, gp.createdAt],
   );
+  return id;
 }
 
-/** The roster: replaces the guild's guild_roster rows (ids, rank numbers, levels; no names). */
-export async function storeRoster(q, guildId, members) {
+/**
+ * The roster: replaces the guild's guild_roster rows (ids, rank numbers, levels; no names). `guildId` is Everstats';
+ * member ids are Blizzard's and are mapped here (a member never fetched still gets its Everstats id, so a later fetch
+ * finds it on the roster). → the members with `localId` added.
+ */
+export async function storeRoster(q, guildId, members, { scope = null } = {}) {
+  const s = scopeOf(scope);
   await q.query('DELETE FROM guild_roster WHERE guild_id = $1', [guildId]);
   const seen = new Set();
   const list = members.filter((m) => !seen.has(m.id) && seen.add(m.id));
+  const ids = await localIds(q, { kind: 'character', version: s.version, region: s.region, blizzardIds: list.map((m) => m.id) });
+  for (const m of list) m.localId = ids.get(Number(m.id));
   if (list.length) {
     await q.query(
       `INSERT INTO guild_roster (guild_id, character_id, rank, level, fetched_at)
        SELECT $1, v.id, v.rank, v.level, now() FROM unnest($2::bigint[], $3::smallint[], $4::smallint[]) AS v(id, rank, level)`,
-      [guildId, list.map((m) => m.id), list.map((m) => m.rank), list.map((m) => (Number.isInteger(m.level) ? Math.min(m.level, 32767) : null))],
+      [guildId, list.map((m) => m.localId), list.map((m) => m.rank), list.map((m) => (Number.isInteger(m.level) ? Math.min(m.level, 32767) : null))],
     );
   }
   await q.query('UPDATE guilds SET roster_checked_at = now(), roster_members = $2 WHERE id = $1', [guildId, list.length]);
+  return list;
+}
+
+/** Frees a slug another character of the same version, region and realm held (Blizzard gave it to someone else). */
+async function releaseSlug(q, s, realmSlug, slug, id) {
+  await q.query(
+    `UPDATE characters SET slug = NULL WHERE game_version = $1 AND region = $2 AND coalesce(realm_slug, '') = coalesce($3, '') AND slug = $4 AND id <> $5`,
+    [s.version, s.region, realmSlug, slug, id],
+  );
 }
 
 /** A character Blizzard named somewhere (an account list, a roster) without its profile: tracked as known. */
-export async function upsertKnown(q, c, { source, ownerAccountId = null }) {
-  await q.query('UPDATE characters SET slug = NULL WHERE slug = $1 AND id <> $2', [c.slug, c.id]);
+export async function upsertKnown(q, c, { source, ownerAccountId = null, scope = null }) {
+  const s = scopeOf(scope);
+  const id = await localId(q, { kind: 'character', version: s.version, region: s.region, blizzardId: c.id });
+  const realmSlug = c.realmSlug ?? null;
+  await releaseSlug(q, s, realmSlug, c.slug, id);
   return q.one(
-    `INSERT INTO characters (id, slug, name, surname, faction, race, class, gender, level, account_level, profile_state, source, owner_account_id, owned_since, data_fetched_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'not_found', $11, $12, CASE WHEN $12::bigint IS NULL THEN NULL ELSE now() END, now())
+    `INSERT INTO characters (id, slug, name, surname, faction, race, class, gender, level, account_level, profile_state, source, owner_account_id, owned_since, data_fetched_at,
+                             game_version, region, realm_slug, blizzard_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'not_found', $11, $12, CASE WHEN $12::bigint IS NULL THEN NULL ELSE now() END, now(), $13, $14, $15, $16)
      ON CONFLICT (id) DO UPDATE SET
-       slug = EXCLUDED.slug, name = EXCLUDED.name, surname = EXCLUDED.surname,
+       slug = EXCLUDED.slug, name = EXCLUDED.name, surname = EXCLUDED.surname, realm_slug = coalesce(EXCLUDED.realm_slug, characters.realm_slug),
        faction = coalesce(characters.faction, EXCLUDED.faction), race = coalesce(characters.race, EXCLUDED.race),
        class = coalesce(characters.class, EXCLUDED.class), gender = coalesce(characters.gender, EXCLUDED.gender),
        level = GREATEST(characters.level, EXCLUDED.level),
@@ -86,45 +145,60 @@ export async function upsertKnown(q, c, { source, ownerAccountId = null }) {
        data_fetched_at = now(), purged_at = NULL,
        profile_state = CASE WHEN characters.profile_state = 'purged' THEN 'not_found' ELSE characters.profile_state END
      RETURNING id, profile_state, last_checked_at, stats_fetched_at`,
-    [c.id, c.slug, c.name, c.surname ?? '', c.faction ?? null, c.race ?? null, c.class ?? null, c.gender ?? null, c.level ?? null,
-      source === 'account' ? c.level ?? null : null, source, ownerAccountId],
+    [id, c.slug, c.name, c.surname ?? '', c.faction ?? null, c.race ?? null, c.class ?? null, c.gender ?? null, c.level ?? null,
+      source === 'account' ? c.level ?? null : null, source, ownerAccountId, s.version, s.region, realmSlug, c.id],
   );
 }
 
-/** The profile (200). Returns { id, previous } where previous is the row before this write (or null). */
-export async function storeProfile(q, p, { source }) {
-  const previous = await q.one('SELECT id, ruleset_id, guild_id, hidden, login_at_full, last_fetched_at, media_state FROM characters WHERE id = $1 FOR UPDATE', [p.id]);
-  await upsertRuleset(q, p.ruleset);
-  const guildId = await upsertGuild(q, p.guild, p.ruleset?.id ?? null);
-  if (p.slug) await q.query('UPDATE characters SET slug = NULL WHERE slug = $1 AND id <> $2', [p.slug, p.id]);
+/**
+ * The profile (200). `p.id` is Blizzard's. `rulesetId` (Everstats') is the realm category when the caller resolved it
+ * (a realm version: its realm's type); else the profile's own ruleset. → { id (Everstats'), previous, guildId }
+ */
+export async function storeProfile(q, p, { source, scope = null, rulesetId = undefined }) {
+  const s = scopeOf(scope);
+  const id = await localId(q, { kind: 'character', version: s.version, region: s.region, blizzardId: p.id });
+  const previous = await q.one('SELECT id, ruleset_id, guild_id, hidden, login_at_full, last_fetched_at, media_state FROM characters WHERE id = $1 FOR UPDATE', [id]);
+  const category = rulesetId !== undefined ? rulesetId : await upsertRuleset(q, p.ruleset, { scope: s });
+  const guildId = await upsertGuild(q, p.guild, category ?? null, { scope: s, realmSlug: p.guild?.realm?.slug ?? null });
+  const realmSlug = p.realm?.slug ?? null;
+  if (p.slug) await releaseSlug(q, s, realmSlug, p.slug, id);
   await q.query(
-    `INSERT INTO characters (id, slug, name, surname, ruleset_id, faction, race, class, gender, level, guild_id, last_login_at, profile_state, last_checked_at, source, data_fetched_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'ok', now(), $13, now())
+    `INSERT INTO characters (id, slug, name, surname, ruleset_id, faction, race, class, gender, level, guild_id, last_login_at, profile_state, last_checked_at, source, data_fetched_at,
+                             game_version, region, realm_slug, blizzard_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'ok', now(), $13, now(), $14, $15, $16, $17)
      ON CONFLICT (id) DO UPDATE SET
        slug = coalesce(EXCLUDED.slug, characters.slug), name = EXCLUDED.name, surname = EXCLUDED.surname,
        ruleset_id = coalesce(EXCLUDED.ruleset_id, characters.ruleset_id), faction = EXCLUDED.faction, race = EXCLUDED.race,
        class = EXCLUDED.class, gender = EXCLUDED.gender, level = EXCLUDED.level, guild_id = EXCLUDED.guild_id,
+       realm_slug = coalesce(EXCLUDED.realm_slug, characters.realm_slug),
        last_login_at = EXCLUDED.last_login_at, profile_state = 'ok', last_checked_at = now(),
        data_fetched_at = now(), missing_since = NULL, purged_at = NULL`,
-    [p.id, p.slug, p.name, p.surname, p.ruleset?.id ?? null, p.faction, p.race, p.class, p.gender, p.level, guildId, p.lastLoginAt, source],
+    [id, p.slug, p.name, p.surname, category ?? null, p.faction, p.race, p.class, p.gender, p.level, guildId, p.lastLoginAt, source, s.version, s.region, realmSlug, p.id],
   );
   // A ruleset change (a transfer, if Forever ever has them): every ranked copy follows the character.
-  if (previous && p.ruleset && previous.ruleset_id !== null && previous.ruleset_id !== p.ruleset.id) {
-    await q.query('UPDATE character_statistics SET ruleset_id = $2 WHERE character_id = $1', [p.id, p.ruleset.id]);
+  if (previous && category && previous.ruleset_id !== null && previous.ruleset_id !== category) {
+    await q.query('UPDATE character_statistics SET ruleset_id = $2 WHERE character_id = $1', [id, category]);
   }
   // 0.5.0: its guild's totals (and its old guild's, after a move) are rebuilt from the new values by the worker.
   await markGuildsDirty(q, [guildId, previous?.guild_id]);
-  return { id: p.id, previous, guildId };
+  return { id, previous, guildId };
 }
 
-/** The 404 case: a character whose profile Blizzard doesn't serve (yet). */
-export async function markProfileMissing(q, slug) {
+/** The 404 case: a character whose profile Blizzard doesn't serve (yet). `ref` is { slug, realmSlug? }. */
+export async function markProfileMissing(q, ref, { scope = null } = {}) {
+  const s = scopeOf(scope);
+  const { slug, realmSlug = null } = typeof ref === 'string' ? { slug: ref } : ref;
   // 0.4.2: a character Blizzard returned before and now doesn't (404: private, deleted, or not served for now) is
   // "missing": its current values come off every board and page at once (never shown as current when Blizzard no
   // longer returns them), and it is retried on the normal schedule. data_fetched_at keeps the date of the last success;
   // past the retention window the sweep strips its Blizzard data (retention/registry.js). One never fetched is
   // simply not found.
-  const row = await q.one('SELECT id, stats_fetched_at, guild_id FROM characters WHERE slug = $1', [slug]);
+  const row = await q.one(
+    `SELECT id, stats_fetched_at, guild_id FROM characters
+      WHERE game_version = $1 AND region = $2 AND coalesce(realm_slug, '') = coalesce($3, '') AND slug = $4`,
+    [s.version, s.region, realmSlug, slug],
+  );
+
   if (!row) return;
   await markGuildsDirty(q, [row.guild_id]);
   if (row.stats_fetched_at) {
@@ -147,10 +221,11 @@ export async function markProfileMissing(q, slug) {
  * (the old values stay, honestly dated by stats_fetched_at). media: { state: 'ok' | 'not_ready' | 'failed', assets }.
  */
 export async function storeDetails(q, characterId, { stats, attributes, equipment, media, loginAt }) {
-  const ch = await q.one('SELECT ruleset_id, hidden FROM characters WHERE id = $1', [characterId]);
+  const ch = await q.one('SELECT ruleset_id, hidden, game_version FROM characters WHERE id = $1', [characterId]);
   if (stats && ch.ruleset_id !== null) {
-    await recordStatistics(q, stats);
-    const list = stats.slice(0, MAX_STATS_PER_CHARACTER);
+    // 0.10.0: Blizzard's statistic ids → Everstats' for the character's version (the same number on the native one).
+    const ids = await recordStatistics(q, stats, { version: ch.game_version });
+    const list = stats.slice(0, MAX_STATS_PER_CHARACTER).map((x) => ({ ...x, id: ids.get(Number(x.id)) })).filter((x) => Number.isSafeInteger(x.id));
     // 0.9.0: statistics Everstats counts from collections (ids from DERIVED_BASE) aren't in Blizzard's list: they stay.
     await q.query('DELETE FROM character_statistics WHERE character_id = $1 AND statistic_id < $3 AND NOT (statistic_id = ANY($2::bigint[]))', [characterId, list.map((s) => s.id), DERIVED_BASE]);
     await q.query(
@@ -246,7 +321,12 @@ export async function updateGains(q, characterId, { now = Date.now } = {}) {
          FROM character_statistics cs
          LEFT JOIN (SELECT unnest(stat_ids) AS id, unnest(stat_values) AS value FROM period_baselines
                      WHERE period = $1 AND period_start = $2 AND character_id = $3) b ON b.id = cs.statistic_id
-        WHERE cs.character_id = $3 AND cs.value - coalesce(b.value, 0) > 0 AND (cs.statistic_id < $6 OR $7::boolean)`,
+        WHERE cs.character_id = $3 AND cs.value - coalesce(b.value, 0) > 0
+          -- 0.10.0: a feed's board (stats/feeds.js) has a gain only once its baseline already held it, so the fetch that
+          -- first brings a feed value in never reads as "gained 12,000 health this week". Other derived counts: as 0.9.0.
+          AND (cs.statistic_id < $6
+               OR (b.id IS NOT NULL AND EXISTS (SELECT 1 FROM statistics f WHERE f.id = cs.statistic_id AND f.derived LIKE 'feed:%'))
+               OR ($7::boolean AND NOT EXISTS (SELECT 1 FROM statistics f WHERE f.id = cs.statistic_id AND f.derived LIKE 'feed:%')))`,
       [period, start, characterId, ch.ruleset_id, ch.hidden, DERIVED_BASE, derivedOk],
     );
   }

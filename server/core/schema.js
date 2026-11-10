@@ -1759,4 +1759,165 @@ export const migrations = [
       await q.query('CREATE TABLE collection_backfill_days (day date PRIMARY KEY, queued integer NOT NULL DEFAULT 0)');
     },
   },
+  {
+    // 0.10.0: game versions and regions (core/gameVersions.js). Every per-version row says which version and region it
+    // belongs to. Existing rows are WoW Forever in the US (the only data there has ever been): the literals below are
+    // that backfill, written once, like every shipped migration.
+    //
+    // Safe on the live database: ADD COLUMN … DEFAULT is metadata-only (Postgres 11+, no table rewrite); the UPDATEs
+    // touch characters, guilds, rulesets, statistics and badge_definitions (thousands of rows); index builds are on
+    // those tables plus crawl_queue, item_media and collection_catalog. character_snapshots, character_statistics,
+    // stat_gains, period_baselines and the tier tables are NOT touched: their character_id / ruleset_id is unique across
+    // versions by construction (core/localIds.js), so a version can be read through it and can never disagree with a
+    // copied column. Measured by scripts/measure-migration-027.js.
+    id: '027_game_versions',
+    async up(q) {
+      await q.query(`
+        ALTER TABLE characters
+          ADD COLUMN game_version text NOT NULL DEFAULT 'forever',
+          ADD COLUMN region       text NOT NULL DEFAULT 'us',
+          ADD COLUMN realm_slug   text,                 -- NULL on a realmless version
+          ADD COLUMN blizzard_id  bigint;               -- Blizzard's character id (= id on the native version)
+        UPDATE characters SET blizzard_id = id;
+        CREATE UNIQUE INDEX characters_blizzard ON characters (game_version, region, blizzard_id);
+        DROP INDEX characters_slug;
+        CREATE UNIQUE INDEX characters_slug ON characters (game_version, region, coalesce(realm_slug, ''), slug) WHERE slug IS NOT NULL;
+
+        ALTER TABLE guilds
+          ADD COLUMN game_version text NOT NULL DEFAULT 'forever',
+          ADD COLUMN region       text NOT NULL DEFAULT 'us',
+          ADD COLUMN realm_slug   text,
+          ADD COLUMN blizzard_id  bigint;
+        UPDATE guilds SET blizzard_id = id;
+        CREATE UNIQUE INDEX guilds_blizzard ON guilds (game_version, region, blizzard_id);
+        DROP INDEX guilds_slug;
+        CREATE INDEX guilds_slug ON guilds (game_version, region, coalesce(realm_slug, ''), slug);
+
+        -- A ruleset row is now a REALM CATEGORY of one version and region: Forever's rulesets, or another version's realm
+        -- types. category_key is Blizzard's own key for it (a realm type's type string); NULL for a ruleset (its id).
+        ALTER TABLE rulesets
+          ADD COLUMN game_version  text NOT NULL DEFAULT 'forever',
+          ADD COLUMN region        text NOT NULL DEFAULT 'us',
+          ADD COLUMN blizzard_id   bigint,
+          ADD COLUMN category_key  text;
+        UPDATE rulesets SET blizzard_id = id;
+        CREATE UNIQUE INDEX rulesets_blizzard ON rulesets (game_version, region, blizzard_id) WHERE blizzard_id IS NOT NULL;
+        CREATE UNIQUE INDEX rulesets_category_key ON rulesets (game_version, region, category_key) WHERE category_key IS NOT NULL;
+
+        -- Statistics are per version (the same id on two versions is two boards). source = the feed it came from.
+        ALTER TABLE statistics
+          ADD COLUMN game_version text NOT NULL DEFAULT 'forever',
+          ADD COLUMN blizzard_id  bigint,
+          ADD COLUMN source       text NOT NULL DEFAULT 'achievement-statistics';
+        UPDATE statistics SET blizzard_id = id WHERE derived IS NULL;
+        UPDATE statistics SET source = 'collections' WHERE derived IS NOT NULL;
+        CREATE UNIQUE INDEX statistics_blizzard ON statistics (game_version, source, blizzard_id) WHERE blizzard_id IS NOT NULL;
+        DROP INDEX statistics_derived;
+        CREATE UNIQUE INDEX statistics_derived ON statistics (game_version, derived) WHERE derived IS NOT NULL;
+
+        -- Everstats ids for every version but the native one (core/localIds.js). The ranges never meet Blizzard's ids on
+        -- the native version or each other: characters and guilds from 10^15 (under 2^53, safe in JS), realm categories
+        -- from 10^6 (integer), statistics 10^9 … 2·10^9 − 1 (snapshots keep statistic ids as int4; derived ids start at
+        -- 2·10^9).
+        CREATE SEQUENCE local_character_ids START 1000000000000000;
+        CREATE SEQUENCE local_guild_ids START 1000000000000000;
+        CREATE SEQUENCE local_ruleset_ids AS integer START 1000000 MAXVALUE 999999999;
+        CREATE SEQUENCE local_statistic_ids START 1000000000 MAXVALUE 1999999999;
+        CREATE TABLE blizzard_ids (
+          kind          text NOT NULL CHECK (kind IN ('character', 'guild', 'ruleset', 'statistic')),
+          game_version  text NOT NULL,
+          region        text NOT NULL,                   -- '' for statistics (an id is the same in every region)
+          scope         text NOT NULL DEFAULT '',        -- statistics: the feed (source)
+          blizzard_id   bigint NOT NULL,
+          local_id      bigint NOT NULL,
+          first_seen_at timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (kind, game_version, region, scope, blizzard_id)
+        );
+        CREATE UNIQUE INDEX blizzard_ids_local ON blizzard_ids (kind, local_id);
+
+        -- Realms of the versions that have them (Blizzard data: realm/{slug} in the dynamic namespace). type_key is
+        -- Blizzard's realm type ("NORMAL", "PVP" …); category_id the realm category it is graded within. Empty for a
+        -- realmless version.
+        CREATE TABLE realms (
+          game_version  text NOT NULL,
+          region        text NOT NULL,
+          slug          text NOT NULL,
+          blizzard_id   bigint,
+          name          text,
+          type_key      text,
+          type_name     text,
+          category_id   integer REFERENCES rulesets (id),
+          fetched_at    timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (game_version, region, slug)
+        );
+        CREATE INDEX realms_fetched ON realms (fetched_at);
+
+        -- The crawl queue: one pending item per (version, region, kind, key).
+        ALTER TABLE crawl_queue
+          ADD COLUMN game_version text NOT NULL DEFAULT 'forever',
+          ADD COLUMN region       text NOT NULL DEFAULT 'us';
+        DROP INDEX crawl_queue_pending;
+        CREATE UNIQUE INDEX crawl_queue_pending ON crawl_queue (game_version, region, kind, key) WHERE state IN ('queued', 'running');
+
+        -- "Fetch all members": one live fetch per guild of a version and region (slug = the crawl key: the guild's
+        -- slug, "{realmSlug}/{slug}" on a realm version).
+        ALTER TABLE guild_fetches
+          ADD COLUMN game_version text NOT NULL DEFAULT 'forever',
+          ADD COLUMN region       text NOT NULL DEFAULT 'us';
+        DROP INDEX guild_fetches_live;
+        CREATE UNIQUE INDEX guild_fetches_live ON guild_fetches (game_version, region, slug) WHERE state IN ('roster', 'ready', 'queued', 'running');
+
+        -- Item icons and static catalogs: per version, per region (a static namespace is one region's build).
+        ALTER TABLE item_media
+          ADD COLUMN game_version text NOT NULL DEFAULT 'forever',
+          ADD COLUMN region       text NOT NULL DEFAULT 'us';
+        ALTER TABLE item_media DROP CONSTRAINT item_media_pkey;
+        ALTER TABLE item_media ADD PRIMARY KEY (game_version, region, item_id);
+
+        ALTER TABLE collection_catalog
+          ADD COLUMN game_version text NOT NULL DEFAULT 'forever',
+          ADD COLUMN region       text NOT NULL DEFAULT 'us';
+        ALTER TABLE collection_catalog DROP CONSTRAINT collection_catalog_pkey;
+        ALTER TABLE collection_catalog ADD PRIMARY KEY (game_version, region, kind, id);
+        ALTER TABLE collection_catalog_state
+          ADD COLUMN game_version text NOT NULL DEFAULT 'forever',
+          ADD COLUMN region       text NOT NULL DEFAULT 'us';
+        ALTER TABLE collection_catalog_state DROP CONSTRAINT collection_catalog_state_pkey;
+        ALTER TABLE collection_catalog_state ADD PRIMARY KEY (game_version, region, kind);
+
+        -- Discovery: runs and decisions are per version. (Decisions key on Everstats' statistic id, per version already;
+        -- the column is there so a view never mixes them.)
+        ALTER TABLE discovery_runs
+          ADD COLUMN game_version text NOT NULL DEFAULT 'forever',
+          ADD COLUMN region       text NOT NULL DEFAULT 'us';
+        ALTER TABLE discovery_decisions ADD COLUMN game_version text NOT NULL DEFAULT 'forever';
+        ALTER TABLE discovery_catalog ADD COLUMN game_version text NOT NULL DEFAULT 'forever';
+        ALTER TABLE discovery_decisions DROP CONSTRAINT discovery_decisions_kind_check;
+        ALTER TABLE discovery_decisions ADD CONSTRAINT discovery_decisions_kind_check
+          CHECK (kind IN ('category', 'bad', 'grading', 'leaderboard', 'duplicate', 'value_type', 'group_exempt'));
+
+        -- Tier decisions by GROUP (0.10.0, owner's decision): per version, a group's choice applies to every statistic
+        -- in it, later ones included. Append-only like discovery_decisions; the newest row per (version, group) is the
+        -- choice ('cleared' takes it back). Ours: the owner's decisions.
+        CREATE TABLE discovery_group_decisions (
+          id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          game_version  text NOT NULL,
+          group_label   text NOT NULL CHECK (length(group_label) BETWEEN 1 AND 80),
+          choice        text NOT NULL CHECK (choice IN ('counts', 'category', 'none', 'cleared')),
+          reasoning     text NOT NULL DEFAULT '' CHECK (length(reasoning) <= 600),
+          origin        text NOT NULL DEFAULT 'admin' CHECK (origin IN ('admin', 'migration')),
+          decided_at    timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX discovery_group_decisions_time ON discovery_group_decisions (game_version, group_label, decided_at);
+
+        -- Badges that depend on game data belong to one version (Every Calling counts classes within it); NULL = not
+        -- game data (beta, staff, partner …). Set from the rules that read characters (badges/rules.js).
+        ALTER TABLE badge_definitions ADD COLUMN game_version text;
+        UPDATE badge_definitions SET game_version = 'forever' WHERE rule->>'type' IN ('faction', 'envoy', 'class', 'every-class', 'guild-master', 's-tier');
+
+        -- Share-card images: which version's data is drawn in.
+        ALTER TABLE share_card_images ADD COLUMN game_version text NOT NULL DEFAULT 'forever';
+      `);
+    },
+  },
 ];

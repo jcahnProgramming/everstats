@@ -1,3 +1,4 @@
+import { scopeSql } from '../core/config.js';
 import express from 'express';
 import { isProfaneText } from '../accounts/names.js';
 import { MAX_BYTES, processMark } from '../badges/marks.js';
@@ -124,7 +125,7 @@ export function createAdminGuildBadgeRouter({ db, writes }) {
     const q = String(req.query.q ?? '').normalize('NFC').trim().toLowerCase().slice(0, 60);
     if (q.length < 2) return res.json({ guilds: [] });
     const like = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-    const rows = await db.query('SELECT id, slug, name, faction FROM guilds WHERE lower(name) LIKE $1 ORDER BY name LIMIT 20', [like]);
+    const rows = await db.query(`SELECT id, slug, name, faction FROM guilds WHERE lower(name) LIKE $1 AND ${scopeSql()} ORDER BY name LIMIT 20`, [like]);
     res.json({ guilds: rows.map((g) => ({ id: Number(g.id), slug: g.slug, name: g.name, faction: g.faction })) });
   }));
 

@@ -169,10 +169,11 @@ export async function prepareStubs(db) {
     await q.query(`CREATE SCHEMA ${STUB_SCHEMA}`);
     // Whole-table copies on purpose (a backup is the whole of our data): not a read anything pages through.
     await q.query(`CREATE TABLE ${STUB_SCHEMA}.characters AS
-      SELECT id, owner_account_id, owned_since, hidden, tracked_since, source FROM public.characters`);
-    await q.query(`CREATE TABLE ${STUB_SCHEMA}.statistics AS SELECT id, first_seen_at FROM public.statistics`);
+      SELECT id, owner_account_id, owned_since, hidden, tracked_since, source, game_version, region, realm_slug, blizzard_id FROM public.characters`);
+    // 0.10.0: a stub knows where it lives: its game version, region, realm (none on a realmless version) and Blizzard's id.
+    await q.query(`CREATE TABLE ${STUB_SCHEMA}.statistics AS SELECT id, first_seen_at, game_version, blizzard_id, source FROM public.statistics`);
     await q.query(`CREATE TABLE ${STUB_SCHEMA}.discovery_decisions AS
-      SELECT id, statistic_id, kind, value, decision, decided_at FROM public.discovery_decisions`);
+      SELECT id, statistic_id, kind, value, decision, decided_at, game_version FROM public.discovery_decisions`);
     await q.query(`
       CREATE FUNCTION ${STUB_SCHEMA}.restore() RETURNS text LANGUAGE plpgsql AS $fn$
       DECLARE s int; c int; d int;
@@ -180,18 +181,20 @@ export async function prepareStubs(db) {
         -- Runs BEFORE the restore's post-data section: no primary keys exist yet, so no ON CONFLICT (found by the
         -- 0.5.0 restore proof on a real Postgres 17); NOT EXISTS keeps it safe to run twice.
         -- Statistic ids (their names come back with the next crawl that returns them).
-        INSERT INTO public.statistics (id, name, first_seen_at, last_seen_at)
-          SELECT s.id, NULL, s.first_seen_at, s.first_seen_at FROM ${STUB_SCHEMA}.statistics s
+        INSERT INTO public.statistics (id, name, first_seen_at, last_seen_at, game_version, blizzard_id, source)
+          SELECT s.id, NULL, s.first_seen_at, s.first_seen_at, s.game_version, s.blizzard_id, s.source FROM ${STUB_SCHEMA}.statistics s
            WHERE NOT EXISTS (SELECT 1 FROM public.statistics x WHERE x.id = s.id);
         GET DIAGNOSTICS s = ROW_COUNT;
         -- Character stubs: exactly what the retention sweep leaves of a purged character. A sign-in or a look-up
         -- brings each one back from Blizzard.
-        INSERT INTO public.characters (id, name, surname, profile_state, source, tracked_since, owner_account_id, owned_since, hidden, purged_at)
-          SELECT s.id, NULL, '', 'purged', s.source, s.tracked_since, s.owner_account_id, s.owned_since, s.hidden, now() FROM ${STUB_SCHEMA}.characters s
+        INSERT INTO public.characters (id, name, surname, profile_state, source, tracked_since, owner_account_id, owned_since, hidden, purged_at,
+                                       game_version, region, realm_slug, blizzard_id)
+          SELECT s.id, NULL, '', 'purged', s.source, s.tracked_since, s.owner_account_id, s.owned_since, s.hidden, now(),
+                 s.game_version, s.region, s.realm_slug, s.blizzard_id FROM ${STUB_SCHEMA}.characters s
            WHERE NOT EXISTS (SELECT 1 FROM public.characters x WHERE x.id = s.id);
         GET DIAGNOSTICS c = ROW_COUNT;
-        INSERT INTO public.discovery_decisions (id, statistic_id, kind, value, decision, reasoning, run_id, decided_at) OVERRIDING SYSTEM VALUE
-          SELECT s.id, s.statistic_id, s.kind, s.value, s.decision, '', NULL, s.decided_at FROM ${STUB_SCHEMA}.discovery_decisions s
+        INSERT INTO public.discovery_decisions (id, statistic_id, kind, value, decision, reasoning, run_id, decided_at, game_version) OVERRIDING SYSTEM VALUE
+          SELECT s.id, s.statistic_id, s.kind, s.value, s.decision, '', NULL, s.decided_at, s.game_version FROM ${STUB_SCHEMA}.discovery_decisions s
            WHERE NOT EXISTS (SELECT 1 FROM public.discovery_decisions x WHERE x.id = s.id);
         GET DIAGNOSTICS d = ROW_COUNT;
         -- No snapshot survived, so the weekly and "last N days" boards start collecting again from now.

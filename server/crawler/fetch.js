@@ -1,4 +1,7 @@
 import { BLIZZARD_API } from '../core/config.js';
+import { blizzardContext, versionById } from '../core/gameVersions.js';
+import { localId } from '../core/localIds.js';
+import { storeFeedValues } from '../stats/feedStore.js';
 import { getSetting } from '../admin/settings.js';
 import { EQUIPMENT_VERSION, parseAttributes, parseEquipment, parseGuildProfile, parseMedia, parseProfile, parseRoster, parseStatistics } from './parse.js';
 import { queueItemMedia } from './items.js';
@@ -7,7 +10,7 @@ import { evaluateQuietly } from '../badges/rules.js';
 import { currentGuildMaster, syncGuildMaster } from '../guilds/manage.js';
 import { PRIORITY, enqueueMany } from './queue.js';
 import {
-  markProfileMissing, storeDetails, storeGuildProfile, storeMedia, storeProfile, storeRoster, takeSnapshot, updateGains, upsertKnown, upsertRuleset,
+  markProfileMissing, storeDetails, storeGuildProfile, storeMedia, storeProfile, storeRoster, takeSnapshot, updateGains, upsertKnown, upsertRealmCategory, upsertRuleset,
 } from './store.js';
 
 /**
@@ -34,9 +37,52 @@ export const MIN_TRACKED_LEVEL = 10;
 /** The longest a tracked character goes without a full fetch (statistics, gear, attributes, render). */
 export const FULL_REFRESH_DAYS = 7;
 const ROSTER_EVERY_MS = 24 * 60 * 60 * 1000;
-const PROFILE_NS = BLIZZARD_API.namespaces.profile;
-
+/** The primary version's character path (realmless): what the unprefixed pages and discovery use. */
 export const characterPath = (slug) => BLIZZARD_API.paths.character.replace('{slug}', encodeURIComponent(slug));
+
+/**
+ * 0.10.0: a crawl item's key names the character (or guild) within its version and region: the slug on a realmless
+ * version ("path-vexley"), "{realmSlug}/{slug}" on a version with realms ("area-52/thrall"). Slugs never hold "/".
+ */
+export const crawlKey = ({ realmSlug = null, slug }) => (realmSlug ? `${realmSlug}/${slug}` : slug);
+export function parseCrawlKey(version, key) {
+  const k = String(key);
+  if (!versionById(version)?.realms) return { realmSlug: null, slug: k };
+  const i = k.indexOf('/');
+  return i > 0 ? { realmSlug: k.slice(0, i), slug: k.slice(i + 1) } : { realmSlug: null, slug: k };
+}
+/** An item's scope and Blizzard context: hosts, namespaces and paths of its version and region. */
+export function itemScope(item) {
+  const scope = { version: item.game_version ?? BLIZZARD_API.version, region: item.region ?? BLIZZARD_API.region };
+  return { scope, ctx: blizzardContext(scope.version, scope.region) };
+}
+
+const REALM_EVERY_MS = 24 * 60 * 60 * 1000;
+/**
+ * A realm version's realm category: the realm's TYPE (realm/{slug}, dynamic namespace), read at most once a day per
+ * realm and kept in `realms`. → Everstats' category id, or null when Blizzard didn't say (the character then has no
+ * category and is on no board until it does: never a guess).
+ */
+export async function realmCategoryId({ db, client }, { scope, ctx }, realm, priority) {
+  if (!realm?.slug) return null;
+  const known = await db.one('SELECT category_id, fetched_at FROM realms WHERE game_version = $1 AND region = $2 AND slug = $3', [scope.version, scope.region, realm.slug]);
+  if (known && Date.now() - new Date(known.fetched_at).getTime() < REALM_EVERY_MS) return known.category_id;
+  const r = await client.request('realm', ctx.paths.realm(realm.slug), { priority, namespace: ctx.namespaces.dynamic, version: scope.version, region: scope.region });
+  const json = okOr(r, 'realm');
+  const type = json?.type && typeof json.type === 'object' ? json.type : null;
+  const key = typeof type?.type === 'string' ? type.type : null;
+  return db.tx(async (q) => {
+    const categoryId = key ? await upsertRealmCategory(q, { key, name: typeof type.name === 'string' ? type.name : key }, { scope }) : null;
+    await q.query(
+      `INSERT INTO realms (game_version, region, slug, blizzard_id, name, type_key, type_name, category_id, fetched_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+       ON CONFLICT (game_version, region, slug) DO UPDATE SET blizzard_id = EXCLUDED.blizzard_id, name = EXCLUDED.name, type_key = EXCLUDED.type_key,
+         type_name = EXCLUDED.type_name, category_id = EXCLUDED.category_id, fetched_at = now()`,
+      [scope.version, scope.region, realm.slug, Number.isSafeInteger(json?.id) ? json.id : realm.id, typeof json?.name === 'string' ? json.name.slice(0, 80) : realm.name, key, type?.name ?? null, categoryId],
+    );
+    return categoryId;
+  });
+}
+const usesRealmTypes = (scope) => versionById(scope.version)?.realmCategory.source === 'realm-type';
 
 const okOr = (r, what) => {
   if (r.status === 200 && r.json) return r.json;
@@ -45,20 +91,28 @@ const okOr = (r, what) => {
 };
 
 export async function fetchCharacter({ db, client, now = Date.now }, item) {
-  const slug = item.key;
+  const { scope, ctx } = itemScope(item);
+  const ref = parseCrawlKey(scope.version, item.key);
+  const slug = ref.slug;
   const priority = item.priority;
-  const base = characterPath(slug);
-  const prof = await client.request('profile', base, { priority, namespace: PROFILE_NS });
+  const base = ctx.characterPath(ref);
+  const ask = (endpoint, path) => client.request(endpoint, path, { priority, namespace: ctx.namespaces.profile, version: scope.version, region: scope.region });
+  const prof = await ask('profile', base);
   const pj = okOr(prof, 'profile');
   if (!pj) {
-    await db.tx((q) => markProfileMissing(q, slug));
+    await db.tx((q) => markProfileMissing(q, ref, { scope }));
     return 'not_found';
   }
-  const p = parseProfile(pj);
+  const p = parseProfile(pj, { realms: ctx.realms });
   if (!p) throw new RetryableError('profile: an answer without a character in it', 'blizzard');
   if (!p.slug) p.slug = slug;
+  if (ctx.realms && !p.realm && ref.realmSlug) p.realm = { id: null, slug: ref.realmSlug, name: null };
+  // 0.10.0: Everstats' id for it (Blizzard's own on the native version) and, on a realm version, its realm's category.
+  const id = await localId(db, { kind: 'character', version: scope.version, region: scope.region, blizzardId: p.id });
+  const rulesetId = usesRealmTypes(scope) ? await realmCategoryId({ db, client }, { scope, ctx }, p.realm, priority) : undefined;
+  const store = { source: sourceOf(item), scope, rulesetId };
 
-  const existing = await db.one('SELECT login_at_full, last_fetched_at, media_state, equipment_version, missing_since FROM characters WHERE id = $1', [p.id]);
+  const existing = await db.one('SELECT login_at_full, last_fetched_at, media_state, equipment_version, missing_since FROM characters WHERE id = $1', [id]);
   // Equipment stored before 0.4.1 has no tooltip fields: one full fetch brings them in, logged in or not.
   const unchanged = item.mode === 'check' && existing?.last_fetched_at && p.lastLoginAt && existing.login_at_full
     && new Date(existing.login_at_full).getTime() === new Date(p.lastLoginAt).getTime()
@@ -71,58 +125,63 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
 
   if (unchanged) {
     let media = null;
-    if (existing.media_state !== 'ok') media = mediaResult(await client.request('character-media', `${base}/character-media`, { priority, namespace: PROFILE_NS }));
+    if (existing.media_state !== 'ok') media = mediaResult(await ask('character-media', `${base}/character-media`));
     await db.tx(async (q) => {
-      await storeProfile(q, p, { source: sourceOf(item) });
-      if (media) await storeMedia(q, p.id, media);
-      await takeSnapshot(q, p.id, { now });
-      await updateGains(q, p.id, { now });
-      await queueItemMedia(q, p.id, priority); // an icon past its 30-day TTL is fetched again
+      await storeProfile(q, p, store);
+      if (media) await storeMedia(q, id, media);
+      await storeFeedValues(q, id, 'profile', pj); // 0.10.0 rule A7: every number a feed returns is a board
+      await takeSnapshot(q, id, { now });
+      await updateGains(q, id, { now });
+      await queueItemMedia(q, id, priority); // an icon past its 30-day TTL is fetched again
     });
     // Its values didn't change: its tier only needs grading if it has none yet (the full grading keeps the rest).
-    if (!(await db.one('SELECT 1 AS x FROM character_tiers WHERE character_id = $1', [p.id]))) await gradeQuietly(db, p.id);
-    await maybeRoster({ db }, p);
-    await badgesForOwner(db, p.id);
+    if (!(await db.one('SELECT 1 AS x FROM character_tiers WHERE character_id = $1', [id]))) await gradeQuietly(db, id);
+    await maybeRoster({ db }, p, scope);
+    await badgesForOwner(db, id);
     // 0.9.0: a character that hasn't logged in still gets its weekly collections refresh.
     const { maybeQueueCollections } = await import('../collections/fetch.js');
-    await maybeQueueCollections(db, p.id, p.slug ?? slug, priority).catch(() => {});
+    await maybeQueueCollections(db, id, p.slug ?? slug, priority).catch(() => {});
     return 'unchanged';
   }
 
   const [stats, attrs, equip, media] = await Promise.all([
-    client.request('achievement-statistics', `${base}/achievements/statistics`, { priority, namespace: PROFILE_NS }),
-    client.request('statistics', `${base}/statistics`, { priority, namespace: PROFILE_NS }),
-    client.request('equipment', `${base}/equipment`, { priority, namespace: PROFILE_NS }),
-    client.request('character-media', `${base}/character-media`, { priority, namespace: PROFILE_NS }),
+    ask('achievement-statistics', `${base}/achievements/statistics`),
+    ask('statistics', `${base}/statistics`),
+    ask('equipment', `${base}/equipment`),
+    ask('character-media', `${base}/character-media`),
   ]);
   const statsJson = okOr(stats, 'achievement statistics');
   const attrsJson = optional(attrs);
   const equipJson = optional(equip);
   await db.tx(async (q) => {
-    await storeProfile(q, p, { source: sourceOf(item) });
-    await storeDetails(q, p.id, {
+    await storeProfile(q, p, store);
+    await storeDetails(q, id, {
       stats: statsJson ? parseStatistics(statsJson) : null,
       attributes: attrsJson ? parseAttributes(attrsJson) : null,
       equipment: equipJson ? parseEquipment(equipJson) : null,
       media: mediaResult(media),
       loginAt: p.lastLoginAt,
     });
-    await takeSnapshot(q, p.id, { now });
-    await updateGains(q, p.id, { now });
+    // 0.10.0 rule A7: every number these feeds return is a board (stats/feeds.js); a feed that didn't answer keeps its old values.
+    await storeFeedValues(q, id, 'profile', pj);
+    await storeFeedValues(q, id, 'statistics', attrsJson);
+    await storeFeedValues(q, id, 'equipment', equipJson);
+    await takeSnapshot(q, id, { now });
+    await updateGains(q, id, { now });
     // Icons go in their own work item at this priority: the character is ready without waiting for them.
-    await queueItemMedia(q, p.id, priority);
+    await queueItemMedia(q, id, priority);
   });
   // 0.6.0: its tier from its new values, before the item finishes, so a lookup's page shows it.
-  await gradeQuietly(db, p.id);
+  await gradeQuietly(db, id);
   // 0.9.0: collections refresh weekly, as part of the full fetch (collections/fetch.js).
   try {
     const { maybeQueueCollections } = await import('../collections/fetch.js');
-    await maybeQueueCollections(db, p.id, p.slug, priority);
+    await maybeQueueCollections(db, id, p.slug, priority);
   } catch (err) {
     console.error(`[collections] couldn't queue: ${err.code ?? err.name}`);
   }
-  await maybeRoster({ db }, p);
-  await badgesForOwner(db, p.id);
+  await maybeRoster({ db }, p, scope);
+  await badgesForOwner(db, id);
   return 'fetched';
 }
 
@@ -160,13 +219,18 @@ function mediaResult(r) {
  * Queues the character's guild (profile + roster), at most once a day. 0.5.0: always, because guild pages need the
  * roster; the crawler.rosterExpansion setting now decides only whether the roster's members are queued as well.
  */
-async function maybeRoster({ db }, p) {
+async function maybeRoster({ db }, p, scope) {
   if (!p.guild?.slug) return;
-  const g = await db.one('SELECT roster_checked_at FROM guilds WHERE id = $1', [p.guild.id]);
+  const g = await db.one('SELECT roster_checked_at FROM guilds WHERE game_version = $1 AND region = $2 AND blizzard_id = $3', [scope.version, scope.region, p.guild.id]);
   if (g?.roster_checked_at && Date.now() - new Date(g.roster_checked_at).getTime() < ROSTER_EVERY_MS) return;
-  await enqueueMany(db, [{ kind: 'guild', key: p.guild.slug, priority: PRIORITY.roster }]);
+  // 0.10.0 capped seeding: on any version but the primary, a roster is read only for a guild someone opens. A
+  // character's own fetch never queues its guild there.
+  if (scope.version !== BLIZZARD_API.version) return;
+  const realmSlug = p.guild.realm?.slug ?? p.realm?.slug ?? null;
+  await enqueueMany(db, [{ kind: 'guild', key: crawlKey({ realmSlug, slug: p.guild.slug }), priority: PRIORITY.roster, ...scope }]);
 }
 
+/** The primary version's guild path (realmless). Per-version code uses ctx.guildPath. */
 export const guildPath = (slug) => `/data/wow/guild/${encodeURIComponent(slug)}`;
 
 /**
@@ -176,43 +240,58 @@ export const guildPath = (slug) => `/data/wow/guild/${encodeURIComponent(slug)}`
  * isn't asked for.
  */
 export async function fetchGuildRoster({ db, client }, item) {
-  const slug = String(item.key).toLowerCase();
-  const prof = await client.request('guild-profile', guildPath(slug), { priority: item.priority, namespace: PROFILE_NS });
+  const { scope, ctx } = itemScope(item);
+  const ref = parseCrawlKey(scope.version, String(item.key).toLowerCase());
+  const slug = ref.slug;
+  const ask = (endpoint, path) => client.request(endpoint, path, { priority: item.priority, namespace: ctx.namespaces.profile, version: scope.version, region: scope.region });
+  const prof = await ask('guild-profile', ctx.guildPath(ref));
   const pj = okOr(prof, 'guild profile');
   if (!pj) {
-    await db.query("UPDATE guilds SET profile_state = 'not_found', roster_checked_at = now() WHERE slug = $1", [slug]);
-    await noteFetchAll(db, { key: slug, members: null, problem: 'Blizzard serves no guild at this address.' });
+    await db.query(
+      `UPDATE guilds SET profile_state = 'not_found', roster_checked_at = now()
+        WHERE game_version = $1 AND region = $2 AND coalesce(realm_slug, '') = coalesce($3, '') AND slug = $4`,
+      [scope.version, scope.region, ref.realmSlug, slug],
+    );
+    await noteFetchAll(db, { key: item.key, members: null, problem: 'Blizzard serves no guild at this address.', scope });
     return 'not_found';
   }
-  const gp = parseGuildProfile(pj);
+  const gp = parseGuildProfile(pj, { realms: ctx.realms });
   if (!gp) throw new RetryableError('guild profile: an answer without a guild in it', 'blizzard');
-  await db.tx((q) => storeGuildProfile(q, gp));
+  if (ctx.realms && !gp.realm && ref.realmSlug) gp.realm = { id: null, slug: ref.realmSlug, name: null };
+  const rulesetId = usesRealmTypes(scope) ? await realmCategoryId({ db, client }, { scope, ctx }, gp.realm, item.priority) : undefined;
+  // 0.10.0: from here on the guild is Everstats' id (Blizzard's own on the native version).
+  const guildId = await db.tx((q) => storeGuildProfile(q, gp, { scope, rulesetId }));
+  const guild = { ...gp, id: guildId, blizzardId: gp.id };
 
-  const r = await client.request('guild-roster', `${guildPath(gp.slug)}/roster`, { priority: item.priority, namespace: PROFILE_NS });
+  const r = await ask('guild-roster', `${ctx.guildPath({ realmSlug: gp.realm?.slug ?? null, slug: gp.slug })}/roster`);
   const json = okOr(r, 'guild roster');
   if (!json) {
-    await db.query('UPDATE guilds SET roster_checked_at = now() WHERE id = $1', [gp.id]);
-    await noteFetchAll(db, { key: slug, guild: gp, members: null, problem: 'Blizzard sent no roster for this guild.' });
+    await db.query('UPDATE guilds SET roster_checked_at = now() WHERE id = $1', [guildId]);
+    await noteFetchAll(db, { key: item.key, guild, members: null, problem: 'Blizzard sent no roster for this guild.', scope });
     return 'profile only: no roster';
   }
-  const members = parseRoster(json);
-  await db.tx((q) => storeRoster(q, gp.id, members));
+  const parsed = parseRoster(json, { realms: ctx.realms });
+  // Members carry Everstats' ids from here (storeRoster maps them).
+  const members = (await db.tx((q) => storeRoster(q, guildId, parsed, { scope }))).map((m) => ({ ...m, blizzardId: m.id, id: m.localId }));
   // 0.9.0: a "Fetch all members" waiting on this roster gets its counts and its work list (guilds/fetchAll.js).
-  await noteFetchAll(db, { key: slug, guild: gp, members });
+  await noteFetchAll(db, { key: item.key, guild, members, scope });
   // 0.7.0: who controls the guild's Everstats page follows the roster (a handover is logged), and the rank-0
   // character's owner gets Guild Master. Neither can fail the roster.
   try {
-    await db.tx((q) => syncGuildMaster(q, gp.id));
-    const gm = await currentGuildMaster(db, gp.id);
+    await db.tx((q) => syncGuildMaster(q, guildId));
+    const gm = await currentGuildMaster(db, guildId);
     if (gm?.accountId) await evaluateQuietly(db, gm.accountId);
   } catch (err) {
     console.error(`[guilds] guild master sync failed: ${err.code ?? err.name}`);
   }
+  // 0.10.0 capped seeding: roster expansion (queueing every member) is for the primary version only; elsewhere members
+  // are fetched only when someone asks (a guild page's "Fetch all members", inside that version's budget ceiling).
+  if (scope.version !== BLIZZARD_API.version) return `roster: ${members.length} members (${scope.version}: no expansion)`;
   if (!(await getSetting(db, 'crawler.rosterExpansion'))) return `roster: ${members.length} members (expansion off)`;
   const eligible = members.filter((m) => Number.isInteger(m.level) && m.level >= MIN_TRACKED_LEVEL);
   const known = new Set((await db.query('SELECT id FROM characters WHERE id = ANY($1::bigint[])', [eligible.map((m) => m.id)])).map((x) => x.id));
   const fresh = eligible.filter((m) => !known.has(m.id));
-  await enqueueMany(db, fresh.map((m) => ({ kind: 'character', key: m.slug, priority: PRIORITY.roster })));
+  await enqueueMany(db, fresh.map((m) => ({ kind: 'character', key: crawlKey(m), priority: PRIORITY.roster, ...scope })));
   return `roster: ${members.length} members, ${fresh.length} new of level ${MIN_TRACKED_LEVEL}+`;
 }
 
@@ -227,21 +306,30 @@ async function noteFetchAll(db, args) {
 }
 
 /** The ruleset index and each ruleset it links to (dynamic namespace). Rulesets are never typed in. */
-export async function fetchRulesets({ db, client }) {
-  const idx = await client.request('ruleset', BLIZZARD_API.paths.rulesets, { priority: PRIORITY.daily, namespace: BLIZZARD_API.namespaces.dynamic });
+export async function fetchRulesets({ db, client }, scope = { version: BLIZZARD_API.version, region: BLIZZARD_API.region }) {
+  // 0.10.0: only a version whose realm categories ARE rulesets has a ruleset index to read.
+  if (versionById(scope.version)?.realmCategory.source !== 'ruleset') return 0;
+  const ctx = blizzardContext(scope.version, scope.region);
+  const opts = { priority: PRIORITY.daily, version: scope.version, region: scope.region };
+  const idx = await client.request('ruleset', ctx.paths.rulesets, { ...opts, namespace: ctx.namespaces.dynamic });
   const json = okOr(idx, 'ruleset index');
   const listed = (Array.isArray(json?.rulesets) ? json.rulesets : []).filter((x) => Number.isInteger(x?.id));
   let n = 0;
   for (const item of listed.slice(0, 30)) {
     const href = typeof item.key?.href === 'string' ? item.key.href : `/data/wow/ruleset/${item.id}`;
-    const r = await client.request('ruleset', href, { priority: PRIORITY.daily });
+    const r = await client.request('ruleset', href, opts);
     const rj = r.status === 200 ? r.json : null;
     if (rj && typeof rj.name === 'string') {
-      await upsertRuleset(db, { id: item.id, name: rj.name }, { listed: true });
+      await upsertRuleset(db, { id: item.id, name: rj.name }, { listed: true, scope });
       n += 1;
     }
   }
-  if (listed.length) await db.query('UPDATE rulesets SET listed = false WHERE NOT (id = ANY($1::int[]))', [listed.map((x) => x.id)]);
+  if (listed.length) {
+    await db.query(
+      'UPDATE rulesets SET listed = false WHERE game_version = $2 AND region = $3 AND NOT (blizzard_id = ANY($1::bigint[]))',
+      [listed.map((x) => x.id), scope.version, scope.region],
+    );
+  }
   return n;
 }
 

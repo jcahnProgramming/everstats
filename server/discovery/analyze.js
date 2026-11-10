@@ -1,3 +1,4 @@
+import { isStaticNamespace } from '../core/gameVersions.js';
 /**
  * What a discovery run learns, built while it runs from each response (createObserver) and summed up at the end.
  * Everything here is measured from the responses; where the samples can't settle a question the summary says
@@ -321,9 +322,10 @@ export function createObserver() {
 }
 
 /** The static namespace to use: the most-linked `static-…` namespace, preferring ones seen in the account profile. */
-export function pickStaticNamespace(namespaceLinks, { region }) {
+export function pickStaticNamespace(namespaceLinks, { region, version = null }) {
+  // 0.10.0: with a version, only that version's static namespace in that region (gameVersions.js staticPattern) counts.
   const candidates = Object.entries(namespaceLinks)
-    .filter(([ns]) => ns.startsWith('static-') && ns.endsWith(`-${region}`))
+    .filter(([ns]) => ns.startsWith('static-') && ns.endsWith(`-${region}`) && (!version || isStaticNamespace(version, region, ns)))
     .sort((a, b) => (b[1].firstEndpoint === 'account.profile') - (a[1].firstEndpoint === 'account.profile') || b[1].count - a[1].count);
   return candidates[0]?.[0] ?? null;
 }

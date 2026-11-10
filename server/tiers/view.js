@@ -1,3 +1,4 @@
+import { PRIMARY_VERSION, categoryLabel, publicVersions } from '../core/gameVersions.js';
 import { pageLimit } from '../core/db.js';
 import { TRACKED_MEMBER } from '../stats/guildTotals.js';
 import { TIER_LETTERS, bandRanges, letterForScore } from '../stats/tiers.js';
@@ -240,20 +241,25 @@ export async function howTiersWork(db) {
 }
 
 /** The admin's "What counts": every statistic's role and why, the inconsistencies, and the grading runs. */
-export async function adminTierState(db) {
-  const settings = await tierSettings(db);
-  const { catalog, counts, plan } = await countingNow(db, { fresh: true });
+export async function adminTierState(db, { version = PRIMARY_VERSION.id } = {}) {
+  // 0.10.0: one game version's settings, what counts there, and its realm categories (the admin picks the version).
+  const settings = await tierSettings(db, version);
+  const { catalog, counts, plan } = await countingNow(db, { fresh: true, version });
   const summary = counts.categories.map((c) => ({
     key: c.key, label: c.label, farmable: c.farmable, inOverall: c.inOverall,
     counted: c.counted.length, overall: c.overall.length, bad: c.bad.length, named: c.named.length, duplicate: c.duplicate.length, undecided: c.undecided.length,
   }));
   const runs = await db.query('SELECT id, status, reasons, requested_at, started_at, finished_at, ms, summary, problem FROM tier_runs ORDER BY id DESC LIMIT 10');
   const rulesets = await db.query(
-    'SELECT r.id, r.name, t.population, t.graded, t.computed_at FROM rulesets r LEFT JOIN tier_rulesets t ON t.ruleset_id = r.id ORDER BY r.id LIMIT 50',
+    'SELECT r.id, r.name, t.population, t.graded, t.computed_at FROM rulesets r LEFT JOIN tier_rulesets t ON t.ruleset_id = r.id WHERE r.game_version = $1 ORDER BY r.id LIMIT 50',
+    [version],
   );
   const live = [];
   for (const r of rulesets) live.push({ id: r.id, name: r.name, eligible: await eligibleCount(db, r.id), graded: Boolean(r.graded), gradedAt: r.computed_at ?? null, gradedPopulation: r.population ?? null });
   return {
+    version,
+    versions: publicVersions(),
+    categoryWord: categoryLabel(version),
     settings,
     weights: categoryWeights(plan, settings),
     roles: ROLE_LABELS,

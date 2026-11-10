@@ -6,6 +6,7 @@ import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
 // root key of its own. Set before any app module reads them.
 process.env.EVERSTATS_ROOT_KEY ??= randomBytes(32).toString('base64');
 process.env.PUBLIC_ORIGIN ??= 'http://localhost:3000';
+process.env.EVERSTATS_TESTING = '1';
 for (const k of ['BLIZZARD_CLIENT_ID', 'BLIZZARD_CLIENT_SECRET', 'DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET']) delete process.env[k];
 
 export const ORIGIN = process.env.PUBLIC_ORIGIN;

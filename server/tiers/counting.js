@@ -19,9 +19,23 @@ import { categoryKey } from '../stats/catalog.js';
  * A category counts toward the overall tier when it isn't farmable and has at least one such statistic.
  *
  * `issues` lists decisions that look inconsistent with each other, for the admin's "What counts" view.
+ *
+ * 0.10.0 GROUPS (owner's decision): a group is a category (the same labels: Combat, Adventure … Collections, PvP), and
+ * per game version the owner chooses for each: 'counts' (its category tier and the overall tier), 'category' (its own
+ * letter only, like Social), 'none' (leaderboard only, like Deaths & mishaps). The choice applies to every statistic in
+ * the group, later ones included, EXCEPT:
+ *   - a statistic with its own complete decisions (an approved category and "counts toward", an approved duplicate,
+ *     an approved "no tier"): those win, shown as exceptions to the group's choice;
+ *   - a statistic whose own suggestion the owner REJECTED (category or "counts toward"): it counts nothing;
+ *   - a statistic marked 'group_exempt' (it follows its own decisions only; with none approved it counts nothing);
+ *   - a name + number statistic: never counted through a group (its number means a different thing per character);
+ *   - a possible duplicate pairing still undecided.
+ * No choice for the group → undecided, as before. A new version starts with every group undecided: no tiers.
  */
 export const FARMABLE = new Set(CATEGORY_RULES.filter((r) => r.farmable).map((r) => r.label));
-const DEATHS = CATEGORY_RULES[0].label; // 'Deaths & mishaps': the first rule, and the one category that is never graded
+// 'Deaths & mishaps': the one category that is never graded. (Found by label: it was CATEGORY_RULES[0] until 0.9.0
+// put Collections first, after which the admin's issues named the wrong category; fixed 0.10.0.)
+export const DEATHS = CATEGORY_RULES.find((r) => r.label === 'Deaths & mishaps').label;
 
 export const ROLE_LABELS = Object.freeze({
   counted: 'Counts',
@@ -31,18 +45,54 @@ export const ROLE_LABELS = Object.freeze({
   undecided: 'Undecided: doesn’t count yet',
 });
 
-function roleOf(s) {
+export const GROUP_CHOICES = Object.freeze({
+  counts: { label: 'Counts toward tiers', grading: 'overall' },
+  category: { label: 'Own category letter only', grading: 'category' },
+  none: { label: 'Doesn’t count', grading: 'none' },
+});
+
+/** → { role, reason, via: 'own' | 'group' | 'exempt' | 'none', duplicateOf?, grading? } */
+function roleOf(s, group) {
   const d = s.decided ?? {};
+  const own = ownRole(s, d);
+  if (own) return { ...own, via: 'own' };
+  if (d.categoryRejected || d.gradingRejected) {
+    return { role: 'undecided', via: 'own', reason: d.categoryRejected ? 'You rejected its suggested category and no other is approved.' : 'You rejected what it counts toward, and nothing else is approved.' };
+  }
+  if (d.groupExempt) return { role: 'undecided', via: 'exempt', reason: 'Set to follow its own decisions, not its group’s choice, and none is approved.' };
+  // 0.10.0: a board Everstats makes (a collection count, a feed value: statistics.derived) counts only with its OWN
+  // approval, as collection counts always have; a group choice covers Blizzard's statistics. (Otherwise the new feed
+  // boards would start counting under Forever's migrated choices and change Forever's tiers.)
+  if (s.derived) return { ...legacyUndecided(d), via: 'none', reason: 'A board Everstats makes: it counts only once you approve it on its own.' };
+  if (!group) return { ...legacyUndecided(d), via: 'none' };
+  if (d.duplicatePendingOf !== null && d.duplicatePendingOf !== undefined) return { role: 'undecided', via: 'group', reason: `A possible duplicate of id ${d.duplicatePendingOf} that you haven’t approved or rejected yet.`, duplicateOf: d.duplicatePendingOf };
+  if (group.choice === 'none') {
+    return s.valueType === 'name-and-number'
+      ? { role: 'named', via: 'group', reason: `Its group (${s.category}) doesn’t count.` }
+      : { role: 'bad', via: 'group', reason: `Its group (${s.category}) doesn’t count: leaderboard only.` };
+  }
+  if (s.valueType === 'name-and-number' || s.named) return { role: 'named', via: 'group', reason: 'A name + number statistic: never counted through its group.' };
+  const grading = GROUP_CHOICES[group.choice]?.grading ?? null;
+  if (!grading) return { ...legacyUndecided(d), via: 'none' };
+  return { role: 'counted', via: 'group', grading, reason: grading === 'overall' ? `Its group (${s.category}) counts toward the tiers.` : `Its group (${s.category}) counts toward its own category letter only.` };
+}
+
+function legacyUndecided(d) {
+  if (!d.category) return { role: 'undecided', reason: 'Its category isn’t approved yet, and its group has no choice.' };
+  return { role: 'undecided', reason: 'What it counts toward isn’t approved yet, and its group has no choice.' };
+}
+
+/** The statistic's own decisions, when they settle it (pre-0.10.0 rules exactly), else null. */
+function ownRole(s, d) {
   if (d.duplicateOf !== null && d.duplicateOf !== undefined) return { role: 'duplicate', reason: `You approved it as a duplicate of id ${d.duplicateOf}.`, duplicateOf: d.duplicateOf };
   if (d.grading === 'none') {
     return s.valueType === 'name-and-number'
       ? { role: 'named', reason: 'You approved “no tier” for this name + number statistic.' }
       : { role: 'bad', reason: 'You approved “no tier: leaderboard only”.' };
   }
-  if (!d.category) return { role: 'undecided', reason: d.categoryRejected ? 'You rejected its suggested category and no other is approved.' : 'Its category isn’t approved yet.' };
-  if (!d.grading) return { role: 'undecided', reason: d.gradingRejected ? 'You rejected what it counts toward, and nothing else is approved.' : 'What it counts toward isn’t approved yet.' };
+  if (!d.category || !d.grading) return null;
   if (d.duplicatePendingOf !== null && d.duplicatePendingOf !== undefined) return { role: 'undecided', reason: `A possible duplicate of id ${d.duplicatePendingOf} that you haven’t approved or rejected yet.`, duplicateOf: d.duplicatePendingOf };
-  return { role: 'counted', reason: d.grading === 'overall' ? 'Approved: counts toward its category and the overall tier.' : 'Approved: counts toward its category tier only.' };
+  return { role: 'counted', grading: d.grading, reason: d.grading === 'overall' ? 'Approved: counts toward its category and the overall tier.' : 'Approved: counts toward its category tier only.' };
 }
 
 /**
@@ -52,6 +102,7 @@ function roleOf(s) {
  *     issues: [{ statisticId, name, problem }] }
  */
 export function whatCounts(catalog) {
+  const groups = catalog.groups ?? new Map();
   const statistics = new Map();
   const categories = [];
   const issues = [];
@@ -60,10 +111,14 @@ export function whatCounts(catalog) {
     const cat = { label: c.label, key: categoryKey(c.label), farmable, inOverall: false, counted: [], overall: [], bad: [], named: [], duplicate: [], undecided: [] };
     for (const id of c.statisticIds) {
       const s = catalog.statistics.get(id);
-      const r = roleOf(s);
-      const grading = r.role === 'counted' ? s.decided.grading : null;
+      const group = groups.get(c.label) ?? null;
+      const r = roleOf({ ...s, category: c.label }, group);
+      const grading = r.role === 'counted' ? r.grading : null;
       const overall = r.role === 'counted' && grading === 'overall' && !farmable;
-      statistics.set(id, { id, name: s.name, category: c.label, categoryKey: cat.key, role: r.role, reason: r.reason, grading, overall, duplicateOf: r.duplicateOf ?? null });
+      // An exception: decided on its own (or exempt) in a group that has a choice, with a different result.
+      const groupRole = group ? (group.choice === 'none' ? 'none' : GROUP_CHOICES[group.choice]?.grading) : null;
+      const exception = Boolean(group) && r.via !== 'group' && (r.role === 'counted' ? grading : r.role === 'bad' || r.role === 'named' ? 'none' : 'undecided') !== groupRole;
+      statistics.set(id, { id, name: s.name, category: c.label, categoryKey: cat.key, role: r.role, reason: r.reason, grading, overall, duplicateOf: r.duplicateOf ?? null, via: r.via, exception });
       cat[r.role].push(id);
       if (overall) cat.overall.push(id);
       const issue = (problem) => issues.push({ statisticId: id, name: s.name, category: c.label, problem });

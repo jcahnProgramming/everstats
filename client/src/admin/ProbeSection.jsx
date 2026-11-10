@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
-import { Button, Field, Tabs } from '../components/Controls.jsx';
+import { Button, Field, Segmented, Tabs } from '../components/Controls.jsx';
 import { EmptyState } from '../components/EmptyState.jsx';
 import { useToasts } from '../components/Toasts.jsx';
 import { formatBytes, formatDateTime, formatNumber, timeAgo } from '../format.js';
@@ -9,7 +9,10 @@ import { Figure, Q, Responses, duration, ms, statusTag } from './DiscoveryPage.j
 
 /**
  * The endpoint probe on /admin/discovery (0.8.3, server/discovery/probe/): every endpoint in Blizzard's WoW API docs,
- * tried once against WoW Forever, and what answered. Admin only like the rest of the page. Discovery only: nothing here
+ * tried once against one game version (0.10.0: any version in the registry, enabled for players or not, in a region
+ * Everstats covers), and what answered: realms and their types, the statistic catalog compared with Forever's, each
+ * group with Forever's choice as a SUGGESTION (nothing is applied), every board rule A7 would make and every field it
+ * skips, and the render check (the admin's eyes decide). Admin only like the rest of the page. Discovery only: nothing here
  * builds a feature; a 404 is shown as a 404 and a skip says why.
  */
 const DEFAULTS = { name: 'Path', surname: 'Vexley', guild: 'Post Nerf Clarity' };
@@ -21,41 +24,96 @@ const short = (t) => String(t).replace('{C}', 'character').replace('{G}', 'guild
 
 export function ProbePanel({ state, active, onQueued }) {
   const last = state.runs.find((r) => r.options?.kind === 'probe')?.options;
+  const [versions, setVersions] = useState(null);
+  const [version, setVersion] = useState(last?.version ?? null);
+  const [region, setRegion] = useState(last?.region ?? null);
   const [name, setName] = useState(last?.primary?.name ?? DEFAULTS.name);
   const [surname, setSurname] = useState(last?.primary?.surname ?? DEFAULTS.surname);
+  const [realm, setRealm] = useState(last?.primary?.realmSlug ?? '');
   const [guild, setGuild] = useState(last?.guild?.name ?? DEFAULTS.guild);
+  const [mine, setMine] = useState(null); // the prefill answer
   const [problem, setProblem] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const start = async (e) => {
-    e.preventDefault();
-    setBusy(true);
+  const [busy, setBusy] = useState(null);
+  useEffect(() => {
+    let live = true;
+    api('/api/admin/discovery/probe-versions').then((r) => {
+      if (!live) return;
+      setVersions(r.versions);
+      setVersion((v) => v ?? r.primary);
+      setRegion((x) => x ?? r.versions.find((y) => y.id === r.primary)?.regions[0] ?? null);
+    }, (err) => {
+      if (live) setProblem(err.message);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const v = versions?.find((x) => x.id === version) ?? null;
+  const prefill = async () => {
+    setBusy('prefill');
     setProblem(null);
     try {
-      const { run } = await api('/api/admin/discovery/probes', { method: 'POST', body: { name, surname, guild } });
+      const r = await api(`/api/admin/discovery/probe-characters?version=${encodeURIComponent(version)}&region=${encodeURIComponent(region)}`);
+      setMine(r);
+      if (r.pick) {
+        setName(r.pick.name);
+        setSurname(r.pick.surname ?? '');
+        setRealm(r.pick.realmSlug ?? '');
+      }
+      if (r.guild) setGuild(r.guild.name);
+    } catch (err) {
+      setProblem(err.message);
+    }
+    setBusy(null);
+  };
+  const start = async (e) => {
+    e.preventDefault();
+    setBusy('start');
+    setProblem(null);
+    try {
+      const body = v?.realms ? { version, region, name, realm, guild } : { version, region, name, surname, guild };
+      const { run } = await api('/api/admin/discovery/probes', { method: 'POST', body });
       onQueued(run);
     } catch (err) {
       setProblem(err.message);
     }
-    setBusy(false);
+    setBusy(null);
   };
   return (
     <section className="panel pad-20 stack gap-16" aria-labelledby="probe-h">
       <h2 className="h2 h2-panel" id="probe-h">Endpoint probe</h2>
       <p className="t2 small">
-        Tries every endpoint in Blizzard’s WoW API docs (retail and classic) against Forever, once, and records what
-        answers: a few hundred requests at the discovery rate below. Ids come from real answers; a path with no real id
-        to try is skipped, with the reason.
-        {state.grant ? ' protected-character uses your Battle.net authorization.' : ' Without a Battle.net authorization, protected-character is skipped.'}
+        Tries every endpoint in Blizzard’s WoW API docs (retail and classic) against one game version, once, and records
+        what answers: a few hundred requests at the discovery rate below (more on a version with many realms: every
+        realm is asked once). Ids come from real answers; a path with no real id to try is skipped, with the reason.
+        Versions players can’t see yet can be probed: nothing from a probe is stored outside its own records.
+        {state.grant ? ' Your Battle.net authorization reads your character list and protected-character.' : ' Without a Battle.net authorization, your character list can’t be read and protected-character is skipped.'}
       </p>
+      {versions && (
+        <div className="stack gap-10">
+          <Segmented label="Game version" options={versions.map((x) => ({ id: x.id, label: `${x.short}${x.enabledForPlayers ? '' : ' (off)'}` }))} value={version} onChange={(id) => { setVersion(id); setMine(null); setRegion(versions.find((x) => x.id === id)?.regions[0] ?? null); }} />
+          {v && <Segmented label="Region" options={v.regions.map((id) => ({ id, label: id.toUpperCase() }))} value={region} onChange={(id) => { setRegion(id); setMine(null); }} />}
+          {v && <span className="muted xsmall">{v.name}: {v.realms ? `characters live on realms; tiers and boards would be graded within each ${v.categoryLabel}` : `realmless; graded within each ${v.categoryLabel}`}{v.enabledForPlayers ? '' : '. Not shown to players yet.'}</span>}
+        </div>
+      )}
       <form className="stack gap-14" onSubmit={start}>
+        <div className="row gap-10">
+          <Button className="sm" loading={busy === 'prefill'} disabled={!v || !region || !state.grant} onClick={prefill} title={state.grant ? 'Read your Battle.net character list on this version (stores nothing)' : 'Authorize Battle.net on this page first'}><Icon name="refresh" size="sm" />Use my highest-level character</Button>
+          {mine?.note && <span className="t2 small" role="status">{mine.note}</span>}
+        </div>
+        {mine?.characters?.length > 0 && (
+          <span className="muted xsmall">Your characters on {v?.name}: {mine.characters.map((c) => `${[c.name, c.surname].filter(Boolean).join(' ')}${c.realmSlug ? ` (${c.realmSlug})` : ''} ${c.level ?? '?'}`).join(', ')}</span>
+        )}
         <div className="grid-auto col-md gap-12">
           <Field label="Character: name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
-          <Field label="Surname" value={surname} onChange={(e) => setSurname(e.target.value)} autoComplete="off" />
+          {v?.realms
+            ? <Field label="Realm" value={realm} onChange={(e) => setRealm(e.target.value)} autoComplete="off" />
+            : <Field label="Surname" value={surname} onChange={(e) => setSurname(e.target.value)} autoComplete="off" />}
         </div>
-        <Field label="Guild" value={guild} onChange={(e) => setGuild(e.target.value)} autoComplete="off" />
+        <Field label={v?.realms ? 'Guild (on the character’s realm)' : 'Guild'} value={guild} onChange={(e) => setGuild(e.target.value)} autoComplete="off" />
         {problem && <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>}
         <div className="row gap-10">
-          <Button type="submit" className="gold" loading={busy} disabled={Boolean(active) || !state.configured}><Icon name="play" size="sm" />Run the probe</Button>
+          <Button type="submit" className="gold" loading={busy === 'start'} disabled={Boolean(active) || !state.configured || !v}><Icon name="play" size="sm" />Probe {v?.short ?? '…'}</Button>
           {active && <span className="t2 small">Run #{active.id} hasn’t finished yet.</span>}
         </div>
       </form>
@@ -139,17 +197,31 @@ export function ProbeDetail({ runId, listed, onChanged }) {
   const skipped = s.areas.reduce((n, a) => n + a.skipped, 0);
   const tabs = [
     { id: 'answers', label: 'Answers' },
+    ...(s.realms ? [{ id: 'realms', label: 'Realms', count: s.realms.asked }] : []),
+    ...(s.groups ? [{ id: 'groups', label: 'Statistics & groups', count: s.groups.length }] : []),
+    ...(s.boards ? [{ id: 'boards', label: 'Boards', count: s.boards.total }] : []),
     { id: 'areas', label: 'By area', count: s.entryCount },
     { id: 'responses', label: 'Raw responses', count: s.requests },
   ];
+  const setRender = async (verdict) => {
+    setBusy(`render-${verdict ?? 'clear'}`);
+    try {
+      setRun((await api(`/api/admin/discovery/runs/${runId}/render-check`, { method: 'POST', body: { verdict } })).run);
+      toast.ok('Render check saved', verdict ? (verdict === 'right' ? 'Draws the right race.' : 'Draws the wrong race.') : 'Cleared.');
+    } catch (err) {
+      toast.err('Couldn’t save the render check', err.message);
+    }
+    setBusy(null);
+  };
   return (
     <section className="panel clip stack gap-14" aria-labelledby="probe-detail-h">
       <div className="row gap-12 panel-head-row">
         <h2 className="h2 h2-panel" id="probe-detail-h">Probe #{run.id}</h2>
-        <span className="muted small">{s.primary ? `${s.primary.name} ${s.primary.surname}` : '—'} · {s.guild?.name ?? '—'} · {run.status} {formatDateTime(run.finishedAt)} · analysed with v{s.analysedWith}</span>
+        <span className="muted small">{s.versionName ?? 'WoW Forever'}{s.region ? ` (${s.region.toUpperCase()})` : ''} · {s.primary ? [s.primary.name, s.primary.surname].filter(Boolean).join(' ') : '—'}{s.primary?.realmSlug ? ` (${s.primary.realmSlug})` : ''} · {s.guild?.name ?? '—'} · {run.status} {formatDateTime(run.finishedAt)} · analysed with v{s.analysedWith}</span>
         <span className="spacer" />
         <a className="btn sm" href={`/api/admin/discovery/runs/${run.id}/export.json`} download><Icon name="download" size="sm" />JSON</a>
         <a className="btn sm" href={`/api/admin/discovery/runs/${run.id}/export.csv`} download><Icon name="download" size="sm" />CSV</a>
+        {s.boards && <a className="btn sm" href={`/api/admin/discovery/runs/${run.id}/export-boards.csv`} download><Icon name="download" size="sm" />Boards CSV</a>}
         <Button className="sm ghost" loading={busy === 'reanalyse'} onClick={reanalyse} title="Rebuild the results and answers from the stored responses. Asks Blizzard nothing."><Icon name="refresh" size="sm" />Re-analyse</Button>
       </div>
       <div className="pad-x-20 stack gap-12">
@@ -163,7 +235,10 @@ export function ProbeDetail({ runId, listed, onChanged }) {
       </div>
       <div className="pad-x-20"><Tabs tabs={tabs} value={tab} onChange={setTab} label="Probe results" idPrefix="probe" /></div>
       <div className="pad-20" role="tabpanel" id={`probe-panel-${tab}`} aria-labelledby={`probe-tab-${tab}`}>
-        {tab === 'answers' && <ProbeAnswers summary={s} />}
+        {tab === 'answers' && <><ProbeRender summary={s} busy={busy} onSet={setRender} /><ProbeAnswers summary={s} /></>}
+        {tab === 'realms' && <ProbeRealms summary={s} />}
+        {tab === 'groups' && <ProbeGroups summary={s} />}
+        {tab === 'boards' && <ProbeBoards summary={s} />}
         {tab === 'areas' && <ProbeAreas summary={s} />}
         {tab === 'responses' && <Responses runId={run.id} />}
       </div>
@@ -254,6 +329,105 @@ function ProbeAreas({ summary: s }) {
         );
       })}
       {s.entries.length === 0 && <EmptyState kind="nodata" compact title="No endpoints recorded" />}
+    </div>
+  );
+}
+
+/** The render beside the race Blizzard names: only the admin's eyes can say whether it draws it. */
+function ProbeRender({ summary: s, busy, onSet }) {
+  const r = s.render;
+  if (!r) return null;
+  return (
+    <div className="stack gap-10 probe-answer">
+      <div className="row gap-8"><span className={`tag ${VERDICT[r.verdict === 'right' ? 'yes' : r.verdict === 'wrong' ? 'no' : 'unknown'].tag}`}>{r.verdict === 'right' ? 'Right race' : r.verdict === 'wrong' ? 'Wrong race' : 'Not checked'}</span><span className="muted xsmall">Renders</span></div>
+      <b className="small">Does the render draw {r.race ?? 'the race Blizzard names'}{r.gender ? ` (${r.gender})` : ''}?</b>
+      {r.main ? <img src={r.main} alt={`Blizzard's render of the probed character (Blizzard says: ${r.race ?? 'race not named'})`} loading="lazy" style={{ maxWidth: 360, width: '100%', height: 'auto' }} /> : <span className="t2 small">{r.text}</span>}
+      {r.main && (
+        <div className="row gap-8">
+          <Button className="sm" loading={busy === 'render-right'} onClick={() => onSet('right')}>Draws the right race</Button>
+          <Button className="sm" loading={busy === 'render-wrong'} onClick={() => onSet('wrong')}>Wrong race</Button>
+          {r.verdict && <Button className="sm ghost" loading={busy === 'render-clear'} onClick={() => onSet(null)}>Clear</Button>}
+        </div>
+      )}
+      {Object.keys(r.urls ?? {}).length > 0 && <span className="muted xsmall mono">{Object.entries(r.urls).map(([k, u]) => `${k}: ${u}`).join('  ·  ')}</span>}
+    </div>
+  );
+}
+
+function ProbeRealms({ summary: s }) {
+  const r = s.realms;
+  return (
+    <div className="stack gap-16">
+      <span className="t2 small">{formatNumber(r.answered)} of {formatNumber(r.asked)} realms answered{r.capped ? ` (realm/index listed more; the first ${formatNumber(r.capped)} were asked)` : ''}. {r.tournament ? `${formatNumber(r.tournament)} tournament realm(s).` : ''}</span>
+      <div className="grid-auto col-md gap-12">
+        <Figure label="By realm type" value={formatNumber(r.byType.length)} note={r.byType.map((t) => `${t.value} ×${t.realms}`).join(', ') || 'none'} />
+        <Figure label="By category" value={formatNumber(r.byCategory.length)} note={r.byCategory.map((t) => `${t.value} ×${t.realms}`).join(', ') || 'none'} />
+      </div>
+      <div className="tblbox listbox"><table className="tbl probe-stack"><thead><tr><th scope="col">Realm</th><th scope="col">Type</th><th scope="col">Category</th><th scope="col">Time zone · locale</th><th scope="col">Other</th></tr></thead><tbody>
+        {r.realms.map((x) => (
+          <tr key={x.slug}>
+            <td className="small" data-label="Realm">{x.name ?? x.slug} <span className="muted mono xsmall">{x.slug}{x.id !== null && x.id !== undefined ? ` · ${x.id}` : ''}</span></td>
+            <td className="small" data-label="Type">{x.answered ? (x.type ? `${x.type.type ?? '?'} (${x.type.name ?? '?'})` : '—') : <span className={`tag ${statusTag(x.status)}`}>{x.status ?? 'no answer'}</span>}</td>
+            <td className="small" data-label="Category">{x.category ?? '—'}</td>
+            <td className="xsmall" data-label="Time zone · locale">{[x.timezone, x.locale].filter(Boolean).join(' · ') || '—'}</td>
+            <td className="xsmall" data-label="Other">{[x.isTournament ? 'tournament' : null, ...Object.entries(x.extra ?? {}).map(([k, val]) => `${k}: ${val}`)].filter(Boolean).join(', ') || '—'}</td>
+          </tr>
+        ))}
+      </tbody></table></div>
+    </div>
+  );
+}
+
+function ProbeGroups({ summary: s }) {
+  const st = s.statistics;
+  return (
+    <div className="stack gap-24">
+      {st ? (
+        <Q title="The statistic catalog compared with Forever's">
+          <div className="grid-auto col-md gap-12">
+            <Figure label="Statistic ids here" value={formatNumber(st.probed)} note={`Forever has ${formatNumber(st.forever)}`} />
+            <Figure label="Shared ids" value={formatNumber(st.shared)} note={`${formatNumber(st.sharedSameName)} same name · ${formatNumber(st.sharedRenamed.length)} renamed`} />
+            <Figure label="New here / missing here" value={`${formatNumber(st.new.length)} / ${formatNumber(st.missing.length)}`} note="full lists in the JSON export" />
+          </div>
+          <span className="t2 small">Top categories only here: {st.categories.onlyHere.join(', ') || 'none'} · only on Forever: {st.categories.onlyForever.join(', ') || 'none'} · both: {st.categories.both.join(', ') || 'none'}.</span>
+          <span className="muted xsmall">Nothing is copied: decisions are made per version on the Discovery page (0.11.0).</span>
+        </Q>
+      ) : <span className="t2 small">No achievement-statistics answer, so there is no catalog to compare.</span>}
+      <Q title="Groups, with Forever's choice as a suggestion">
+        <span className="muted xsmall">A suggestion only: nothing is chosen for this version. A new version starts with every group undecided (no tiers) until you decide on the Discovery page. “Proposed” = a group Forever doesn’t have.</span>
+        <div className="tblbox listbox"><table className="tbl probe-stack"><thead><tr><th scope="col">Group</th><th scope="col" className="r">Statistics</th><th scope="col" className="r">Ids matching Forever</th><th scope="col" className="r">Other boards</th><th scope="col">Suggestion</th></tr></thead><tbody>
+          {s.groups.map((g) => (
+            <tr key={g.label}>
+              <td className="small" data-label="Group">{g.label}{g.proposed && <span className="tag probe-flag">proposed</span>}</td>
+              <td className="r" data-label="Statistics">{formatNumber(g.statistics)}</td>
+              <td className="r" data-label="Ids matching Forever">{formatNumber(g.matchForever)}</td>
+              <td className="r" data-label="Other boards">{formatNumber(g.boards)}</td>
+              <td className="small" data-label="Suggestion">{g.forever.text}<div className="muted xsmall">{g.forever.basis}</div></td>
+            </tr>
+          ))}
+        </tbody></table></div>
+      </Q>
+    </div>
+  );
+}
+
+function ProbeBoards({ summary: s }) {
+  const b = s.boards;
+  const [shown, setShown] = useState(100);
+  return (
+    <div className="stack gap-24">
+      <span className="t2 small">Rule A7: every numeric value Blizzard returns is a board. {formatNumber(b.total)} boards from this character's (and guild's) answers. Other characters can have values this one hasn't, so the real count can be higher. The Boards CSV has every board, every skipped field and the realms.</span>
+      <div className="grid-auto col-md gap-12">
+        {b.groups.map((g) => <Figure key={g.group} label={g.group} value={formatNumber(g.boards)} note="boards" />)}
+      </div>
+      <Q title={`Skipped fields (${formatNumber(b.skipped.length)})`}>
+        <span className="muted xsmall">Every field that isn't a board, with the rule that skipped it. Check this list for anything that should be one.</span>
+        <div className="tblbox listbox"><table className="tbl probe-stack"><thead><tr><th scope="col">Feed</th><th scope="col">Field</th><th scope="col">Why not a board</th></tr></thead><tbody>
+          {b.skipped.slice(0, shown).map((x) => <tr key={`${x.feed}|${x.path}|${x.rule}`}><td className="xsmall" data-label="Feed">{x.feed}</td><td className="mono xsmall" data-label="Field">{x.path}</td><td className="small" data-label="Why not a board">{x.reason}</td></tr>)}
+        </tbody></table></div>
+        {b.skipped.length > shown && <Button className="sm ghost" onClick={() => setShown(shown + 200)}>Show more</Button>}
+      </Q>
+      {b.overlaps?.length > 0 && <span className="muted xsmall">{formatNumber(b.overlaps.length)} PvP-summary field(s) are already collections family boards (pvp:…): listed once, as the family's.</span>}
     </div>
   );
 }

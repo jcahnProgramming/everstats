@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { config } from '../core/config.js';
+import { config, scopeSql } from '../core/config.js';
 import { parseGuildSlug, parseSlug } from '../stats/slug.js';
 import { loadCatalog } from '../stats/catalog.js';
 import { ogPath } from './routes.js';
@@ -38,7 +38,7 @@ async function characterMeta(db, slug, kind) {
   if (!p) return null;
   const row = await db.one(
     `SELECT c.id, c.slug, c.name, c.surname, c.level, c.race, c.class, c.hidden, c.missing_since, c.profile_state, c.stats_fetched_at, r.name AS ruleset, t.letter
-       FROM characters c LEFT JOIN rulesets r ON r.id = c.ruleset_id LEFT JOIN character_tiers t ON t.character_id = c.id WHERE c.slug = $1`,
+       FROM characters c LEFT JOIN rulesets r ON r.id = c.ruleset_id LEFT JOIN character_tiers t ON t.character_id = c.id WHERE c.slug = $1 AND ${scopeSql('c')}`,
     [p.slug],
   );
   if (!row || row.hidden || row.missing_since || row.profile_state !== 'ok') return null;
@@ -58,7 +58,7 @@ async function characterMeta(db, slug, kind) {
 async function guildMeta(db, slug) {
   const s = parseGuildSlug(slug);
   if (!s) return null;
-  const g = await db.one('SELECT g.id, g.slug, g.name, r.name AS ruleset FROM guilds g LEFT JOIN rulesets r ON r.id = g.ruleset_id WHERE g.slug = $1 ORDER BY g.updated_at DESC LIMIT 1', [s]);
+  const g = await db.one(`SELECT g.id, g.slug, g.name, r.name AS ruleset FROM guilds g LEFT JOIN rulesets r ON r.id = g.ruleset_id WHERE g.slug = $1 AND ${scopeSql('g')} ORDER BY g.updated_at DESC LIMIT 1`, [s]);
   if (!g) return null;
   return {
     title: `<${g.name}>${g.ruleset ? ` on ${g.ruleset}` : ''}`,
@@ -81,7 +81,7 @@ async function boardMeta(db, { rulesetId, statisticId, guilds, query }) {
   }
   const c = query.c !== undefined ? parseSlug(String(query.c)) : null;
   if (c) {
-    const row = await db.one('SELECT hidden FROM characters WHERE slug = $1', [c.slug]);
+    const row = await db.one(`SELECT hidden FROM characters WHERE slug = $1 AND ${scopeSql()}`, [c.slug]);
     if (!row || row.hidden) return { title: `${stat.name} on ${rs.name}`, description: SITE.description, image: null };
   }
   const path = ogPath('board', { ...p, c: c?.slug ?? null });

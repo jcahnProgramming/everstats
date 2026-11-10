@@ -105,12 +105,16 @@ export function refreshJob() {
       const { getSetting } = await import('../admin/settings.js');
       if (await getSetting(db, 'crawler.paused')) return { summary: 'Paused' };
       const { PRIORITY, enqueueMany } = await import('../crawler/queue.js');
+      // 0.10.0: every ENABLED game version's tracked characters, each queued in its own version and region.
+      const { enabledVersions } = await import('../core/gameVersions.js');
+      const { crawlKey } = await import('../crawler/fetch.js');
       const due = await db.query(
-        `SELECT slug FROM characters WHERE slug IS NOT NULL AND (last_checked_at IS NULL OR last_checked_at < now() - ($1 || ' milliseconds')::interval)
+        `SELECT slug, realm_slug, game_version, region FROM characters WHERE slug IS NOT NULL AND game_version = ANY($3::text[])
+            AND (last_checked_at IS NULL OR last_checked_at < now() - ($1 || ' milliseconds')::interval)
           ORDER BY last_checked_at NULLS FIRST, id LIMIT $2`,
-        [String(REFRESH_EVERY_MS), REFRESH_BATCH],
+        [String(REFRESH_EVERY_MS), REFRESH_BATCH, enabledVersions().map((v) => v.id)],
       );
-      const n = await enqueueMany(db, due.map((c) => ({ key: c.slug, mode: 'check', priority: PRIORITY.daily })));
+      const n = await enqueueMany(db, due.map((c) => ({ key: crawlKey({ realmSlug: c.realm_slug, slug: c.slug }), mode: 'check', priority: PRIORITY.daily, version: c.game_version, region: c.region })));
       return { summary: n ? `Queued ${n} for their daily check` : 'Every tracked character checked in the last day', worked: n > 0 };
     },
   };
@@ -275,6 +279,10 @@ export function tiersJob() {
     everyMs: 15 * 1000,
     async run({ db, now = Date.now }) {
       if (running) return { summary: 'Grading tiers' };
+      // 0.10.0: once, before the first grading after the deploy: Forever's decisions become group choices (what counts
+      // is proven unchanged inside the migration, or it rolls back and is tried again).
+      const { ensureGroupsMigrated } = await import('../tiers/groups.js');
+      await ensureGroupsMigrated(db);
       const { runDueTierWork } = await import('../tiers/store.js');
       running = runDueTierWork(db, { now }).then((summary) => {
         if (summary) last = summary;

@@ -8,6 +8,8 @@ import { fetchCollections } from '../collections/fetch.js';
 import { fetchCatalogStep } from '../collections/catalog.js';
 import { PRIORITY, PRIORITY_VALUES, claim, finish, retryLater, sweepQueue } from './queue.js';
 import { countRequests } from './stats.js';
+import { PRIMARY_SCOPE } from '../core/config.js';
+import { isVersionEnabled } from '../core/gameVersions.js';
 
 /**
  * The crawler: runs inside the worker, all the time (not on the 30-second job tick). It claims queue items most
@@ -18,6 +20,11 @@ import { countRequests } from './stats.js';
  * 0.9.0: a guild fetch's members (PRIORITY.guild) hold at most GUILD_SLOTS slots, and together with the background
  * items still at most BACKGROUND_SLOTS: a lookup always has a slot, and the daily refresh gets every slot that frees
  * while no guild fetch is waiting for one. (Their requests are also capped at half the budget: crawler/budget.js.)
+ *
+ * 0.10.0: every request names its game version and region (client.request's `version` / `region`, default the
+ * primary scope). The source is per region (its API host); the budget is one for every region or one per region
+ * (admin setting crawler.budgetScope), and each version's requests stay under its ceiling (crawler.versionShares).
+ * Back-off is per version and endpoint: a 429 on Retail's profile endpoint never slows Forever's.
  *
  * Paused (admin setting crawler.paused): background items and guild fetches wait; lookups, sign-ins and auto-fetch
  * still run.
@@ -48,15 +55,20 @@ const MAX_ATTEMPTS = 5;
 const defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function createCrawler({ db, fetch = globalThis.fetch, now = Date.now, sleep = defaultSleep, openSource = defaultOpenSource, log = console } = {}) {
-  let settings = { at: 0, perSecond: 8, paused: false };
-  const budget = createBudget({ perSecond: () => settings.perSecond, now });
+  let settings = { at: 0, perSecond: 8, paused: false, versionShares: {}, budgetScope: 'client' };
+  const versionShares = () => Object.fromEntries(Object.entries(settings.versionShares ?? {}).map(([v, pct]) => [v, pct / 100]));
+  const budgets = new Map(); // 'client' or a region id → budget
+  const budgetFor = (region) => {
+    const key = settings.budgetScope === 'region' ? region : 'client';
+    if (!budgets.has(key)) budgets.set(key, createBudget({ perSecond: () => settings.perSecond, now, versionShares }));
+    return budgets.get(key);
+  };
   const backoff = createBackoff({ now, sleep });
   const inFlight = new Map(); // id → { priority, kind, key, startedAt }
   const minutes = new Map(); // minute → { requests, errors, throttled }
   let pending = { requests: 0, errors: 0, throttled: 0 };
   let lastError = null;
-  let source = null;
-  let sourceAt = 0;
+  const sources = new Map(); // region → { source, at }
   let sourceProblem = null;
   let running = false;
   let loopDone = null;
@@ -65,21 +77,26 @@ export function createCrawler({ db, fetch = globalThis.fetch, now = Date.now, sl
 
   async function refreshSettings() {
     if (now() - settings.at < SETTINGS_EVERY_MS) return;
-    settings = { at: now(), perSecond: await getSetting(db, 'crawler.requestsPerSecond'), paused: await getSetting(db, 'crawler.paused') };
+    settings = {
+      at: now(), perSecond: await getSetting(db, 'crawler.requestsPerSecond'), paused: await getSetting(db, 'crawler.paused'),
+      versionShares: await getSetting(db, 'crawler.versionShares'), budgetScope: await getSetting(db, 'crawler.budgetScope'),
+    };
   }
 
-  async function ensureSource() {
-    if (source && now() - sourceAt < SOURCE_EVERY_MS) return source;
+  async function ensureSource(region = PRIMARY_SCOPE.region) {
+    const known = sources.get(region);
+    if (known && now() - known.at < SOURCE_EVERY_MS) return known.source;
     try {
       // Pacing happens in the budget, so the source itself doesn't pace; one attempt, the crawler retries.
-      source = await openSource(db, 'blizzard', { fetch, perSecond: 1000, maxInFlight: 32, maxAttempts: 1, now, sleep });
-      sourceAt = now();
+      const source = await openSource(db, 'blizzard', { fetch, perSecond: 1000, maxInFlight: 32, maxAttempts: 1, now, sleep, region });
+      sources.set(region, { source, at: now() });
       sourceProblem = null;
+      return source;
     } catch (err) {
-      source = null;
+      sources.delete(region);
       sourceProblem = err instanceof SourceError ? err.code : (err?.code ?? err?.name ?? 'error');
+      return null;
     }
-    return source;
   }
 
   function tally(kind) {
@@ -93,14 +110,17 @@ export function createCrawler({ db, fetch = globalThis.fetch, now = Date.now, sl
 
   /** The one way the crawler asks Blizzard anything: per-endpoint back-off, then the shared budget, then the GET. */
   const client = {
-    async request(endpoint, path, { priority = PRIORITY.daily, namespace, query = null } = {}) {
-      const wait = backoff.waitMs(endpoint);
+    async request(endpoint, path, { priority = PRIORITY.daily, namespace, query = null, version = PRIMARY_SCOPE.version, region = PRIMARY_SCOPE.region } = {}) {
+      if (!isVersionEnabled(version)) throw new RetryableError(`${version} is not enabled: nothing of it is crawled`, 'version_disabled');
+      // The primary version's endpoints keep their plain names (the admin page and its history); others are prefixed.
+      const key = version === PRIMARY_SCOPE.version && region === PRIMARY_SCOPE.region ? endpoint : `${version}/${region}:${endpoint}`;
+      const wait = backoff.waitMs(key);
       if (wait > 0) {
         if (priority === PRIORITY.lookup && wait > 15_000) throw new RetryableError(`${endpoint}: Blizzard asked us to slow down`, 'backoff');
-        await backoff.wait(endpoint);
+        await backoff.wait(key);
       }
-      await budget.take(priority);
-      const src = await ensureSource();
+      await budgetFor(region).take(priority, version);
+      const src = await ensureSource(region);
       if (!src) throw new RetryableError('Blizzard keys are not configured', 'not_configured');
       const r = await src.get(path, { namespace, query });
       tally('requests');
@@ -109,17 +129,17 @@ export function createCrawler({ db, fetch = globalThis.fetch, now = Date.now, sl
         tally('errors');
         if (r.status === 429) tally('throttled');
         const ra = Number(r.headers?.['retry-after']);
-        backoff.fail(endpoint, Number.isFinite(ra) && ra > 0 ? ra * 1000 : null);
-        lastError = { at: new Date(now()).toISOString(), endpoint, status: r.status, error: r.error ?? null };
+        backoff.fail(key, Number.isFinite(ra) && ra > 0 ? ra * 1000 : null);
+        lastError = { at: new Date(now()).toISOString(), endpoint: key, status: r.status, error: r.error ?? null };
       } else {
-        backoff.succeed(endpoint);
+        backoff.succeed(key);
       }
       return r;
     },
   };
 
   async function runItem(item) {
-    inFlight.set(item.id, { priority: item.priority, kind: item.kind, key: item.key, startedAt: new Date(now()).toISOString() });
+    inFlight.set(item.id, { priority: item.priority, kind: item.kind, key: item.key, version: item.game_version, region: item.region, startedAt: new Date(now()).toISOString() });
     try {
       const ctx = { db, client, now };
       const handler = { guild: fetchGuildRoster, items: fetchItemMedia, character: fetchCharacter, collections: fetchCollections, catalog: fetchCatalogStep }[item.kind] ?? fetchCharacter;
@@ -177,7 +197,16 @@ export function createCrawler({ db, fetch = globalThis.fetch, now = Date.now, sl
       perSecond: settings.perSecond,
       paused: settings.paused,
       inFlight: [...inFlight.values()],
-      waitingForBudget: budget.waiting(),
+      waitingForBudget: [...budgets.values()].reduce((acc, b) => {
+        for (const [k, n] of Object.entries(b.waiting())) acc[k] = (acc[k] ?? 0) + n;
+        return acc;
+      }, Object.fromEntries(PRIORITY_VALUES.map((x) => [x, 0]))),
+      waitingByVersion: [...budgets.values()].reduce((acc, b) => {
+        for (const [k, n] of Object.entries(b.waitingByVersion())) acc[k] = (acc[k] ?? 0) + n;
+        return acc;
+      }, {}),
+      versionShares: settings.versionShares,
+      budgetScope: settings.budgetScope,
       requestsLastHour,
       errorsLastHour,
       lastError,

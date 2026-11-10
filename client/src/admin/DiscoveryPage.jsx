@@ -9,6 +9,7 @@ import { formatBytes, formatDateTime, formatNumber, timeAgo } from '../format.js
 import { NotFoundPage } from '../pages/NotFoundPage.jsx';
 import { SettingRow } from './AdminPages.jsx';
 import { ProbeDetail, ProbePanel } from './ProbeSection.jsx';
+import { GroupsSection } from './GroupsSection.jsx';
 
 /**
  * /admin/discovery: the Blizzard API discovery pass (server/discovery/). Admin only, like the rest of /admin: without
@@ -105,6 +106,7 @@ export function DiscoveryPage() {
         <ProbePanel state={state} active={active} onQueued={(run) => { setSelected(run.id); load(); toast.ok(`Probe #${run.id} queued`, 'The worker starts it within about 30 seconds.'); }} />
       </div>
       <CombinedSection key={`combined-${combinedVersion}-${state.runs.filter((r) => r.status === 'done' && !isProbe(r)).length}`} hasRuns={state.runs.some((r) => r.status === 'done' && !isProbe(r))} onReanalysed={() => { setCombinedVersion((v) => v + 1); load(); }} focusStat={focusStat} onUnfocus={() => setFocusStat(null)} />
+      <GroupsSection />
       <RunsSection runs={state.runs} selected={selected} onSelect={setSelected} />
       {selected && (isProbe(state.runs.find((r) => r.id === selected))
         ? <ProbeDetail key={selected} runId={selected} listed={state.runs.find((r) => r.id === selected)} onChanged={load} />

@@ -1,7 +1,7 @@
 import express from 'express';
 import { getSetting } from '../admin/settings.js';
 import { betaState } from '../beta.js';
-import { config } from '../core/config.js';
+import { PRIMARY_SCOPE, config, scopeSql } from '../core/config.js';
 import { HttpError, route } from '../core/errors.js';
 import { isConfigured } from '../credentials/store.js';
 import { PRIORITY, enqueue, waitFor } from '../crawler/queue.js';
@@ -127,7 +127,7 @@ export function createPublicRouter({ db, limits, networkOf }) {
   // items and their transmogs (0.8.0).
   r.get('/items/media', route(async (req, res) => {
     const ids = String(req.query.ids ?? '').split(',').map(Number).filter(Number.isSafeInteger).slice(0, 60);
-    const rows = ids.length ? await db.query('SELECT item_id, state, icon_url FROM item_media WHERE item_id = ANY($1::bigint[])', [ids]) : [];
+    const rows = ids.length ? await db.query('SELECT item_id, state, icon_url FROM item_media WHERE game_version = $2 AND region = $3 AND item_id = ANY($1::bigint[])', [ids, PRIMARY_SCOPE.version, PRIMARY_SCOPE.region]) : [];
     res.json({ items: rows.map((r) => ({ itemId: r.item_id, iconState: r.state, icon: r.state === 'ok' ? r.icon_url : null })) });
   }));
 
@@ -226,7 +226,7 @@ export function createPublicRouter({ db, limits, networkOf }) {
     const parsed = parseSlug(req.params.slug);
     if (!parsed) throw new HttpError(400, 'That isn’t a character name and surname.', 'invalid');
     const viewer = viewerOf(req);
-    let row = await db.one('SELECT * FROM characters WHERE slug = $1', [parsed.slug]);
+    let row = await db.one(`SELECT * FROM characters WHERE slug = $1 AND ${scopeSql()}`, [parsed.slug]);
     const mine = () => Boolean(viewer && row && row.owner_account_id === viewer);
     if (row?.hidden && !mine()) return res.json({ status: 'hidden', slug: parsed.slug });
 
@@ -253,7 +253,7 @@ export function createPublicRouter({ db, limits, networkOf }) {
         const done = await waitFor(db, item.id, { timeoutMs: LOOKUP_WAIT_MS });
         if (!done) notice = 'slow';
         else if (done.state === 'failed') notice = 'unavailable';
-        row = await db.one('SELECT * FROM characters WHERE slug = $1', [parsed.slug]);
+        row = await db.one(`SELECT * FROM characters WHERE slug = $1 AND ${scopeSql()}`, [parsed.slug]);
         if (row?.hidden && !mine()) return res.json({ status: 'hidden', slug: parsed.slug });
       }
     }

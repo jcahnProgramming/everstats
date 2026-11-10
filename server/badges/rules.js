@@ -1,3 +1,4 @@
+import { PRIMARY_VERSION } from '../core/gameVersions.js';
 import { MIN_LEVEL } from './catalog.js';
 import { award, badgeContext, loadDefinitions, logEvent, revoke } from './store.js';
 
@@ -16,8 +17,13 @@ import { award, badgeContext, loadDefinitions, logEvent, revoke } from './store.
  * character"). A purged character (Blizzard hasn't returned it for the whole retention window) no longer has a class,
  * faction or level, so it can't earn anything new, but what it earned stays.
  */
+// 0.10.0: game-data badges belong to ONE game version (badge_definitions.game_version; NULL = not game data, e.g. beta):
+// their facts come from that version's characters only, so Every Calling counts classes within one version.
 const OWNED = `SELECT id, class, faction, coalesce(level, account_level) AS lvl FROM characters
-                WHERE owner_account_id = $1 AND profile_state <> 'purged' ORDER BY coalesce(level, account_level) DESC NULLS LAST, id LIMIT 500`;
+                WHERE owner_account_id = $1 AND game_version = $2 AND profile_state <> 'purged' ORDER BY coalesce(level, account_level) DESC NULLS LAST, id LIMIT 500`;
+/** Rule types that read characters: their badges are per game version. */
+export const GAME_DATA_RULES = Object.freeze(['faction', 'envoy', 'class', 'every-class', 'guild-master', 's-tier']);
+const versionOf = (d) => d.game_version ?? PRIMARY_VERSION.id;
 
 /**
  * Every class: the classes Blizzard has returned on any stored character (Blizzard data, so it follows the retention
@@ -25,9 +31,9 @@ const OWNED = `SELECT id, class, faction, coalesce(level, account_level) AS lvl 
  * character that has it, and Every Calling needs it from then on; its own badge only needs a definition made from the
  * class template.
  */
-export async function classList(db, defs) {
-  const seen = await db.query("SELECT DISTINCT class FROM characters WHERE class IS NOT NULL AND profile_state <> 'purged' LIMIT 100");
-  const named = defs.filter((d) => d.rule?.type === 'class').map((d) => d.rule.class);
+export async function classList(db, defs, version = PRIMARY_VERSION.id) {
+  const seen = await db.query("SELECT DISTINCT class FROM characters WHERE class IS NOT NULL AND game_version = $1 AND profile_state <> 'purged' LIMIT 100", [version]);
+  const named = defs.filter((d) => d.rule?.type === 'class' && versionOf(d) === version).map((d) => d.rule.class);
   return [...new Set([...named, ...seen.map((r) => r.class)])].sort();
 }
 
@@ -35,27 +41,37 @@ export async function classList(db, defs) {
 export async function qualifying(q, accountId, defs, ctx, classes) {
   const acct = await q.one('SELECT id, created_at, beta_member FROM accounts WHERE id = $1', [accountId]);
   if (!acct) return new Map();
-  const owned = (await q.query(OWNED, [accountId])).filter((c) => Number.isInteger(c.lvl) && c.lvl >= MIN_LEVEL);
-  const byFaction = new Map();
-  const byClass = new Map();
-  for (const c of owned) {
-    if (c.faction && !byFaction.has(c.faction)) byFaction.set(c.faction, c.id);
-    if (c.class && !byClass.has(c.class)) byClass.set(c.class, c.id);
+  const facts = new Map(); // version → { byFaction, byClass, gm, sTier }
+  async function factsFor(version) {
+    if (facts.has(version)) return facts.get(version);
+    const owned = (await q.query(OWNED, [accountId, version])).filter((c) => Number.isInteger(c.lvl) && c.lvl >= MIN_LEVEL);
+    const f = { byFaction: new Map(), byClass: new Map() };
+    for (const c of owned) {
+      if (c.faction && !f.byFaction.has(c.faction)) f.byFaction.set(c.faction, c.id);
+      if (c.class && !f.byClass.has(c.class)) f.byClass.set(c.class, c.id);
+    }
+    f.gm = await q.one(
+      `SELECT gr.character_id FROM guild_roster gr JOIN characters c ON c.id = gr.character_id
+        WHERE gr.rank = 0 AND c.owner_account_id = $1 AND c.game_version = $2 LIMIT 1`,
+      [accountId, version],
+    );
+    f.sTier = await q.one(
+      `SELECT t.character_id FROM character_tiers t JOIN characters c ON c.id = t.character_id
+        WHERE c.owner_account_id = $1 AND c.game_version = $2 AND t.letter = 'S' AND NOT c.hidden LIMIT 1`,
+      [accountId, version],
+    );
+    facts.set(version, f);
+    return f;
   }
-  const gm = await q.one(
-    `SELECT gr.character_id FROM guild_roster gr JOIN characters c ON c.id = gr.character_id
-      WHERE gr.rank = 0 AND c.owner_account_id = $1 LIMIT 1`,
-    [accountId],
-  );
-  const sTier = await q.one(
-    `SELECT t.character_id FROM character_tiers t JOIN characters c ON c.id = t.character_id
-      WHERE c.owner_account_id = $1 AND t.letter = 'S' AND NOT c.hidden LIMIT 1`,
-    [accountId],
-  );
+  // classes: the primary version's list (callers' existing shape), or Map(version → list).
+  const classesOf = async (version) => (classes instanceof Map ? classes.get(version) ?? await classList(q, defs, version) : version === PRIMARY_VERSION.id ? classes : await classList(q, defs, version));
   const out = new Map();
   for (const d of defs) {
     const r = d.rule;
     if (!r) continue;
+    const gameData = GAME_DATA_RULES.includes(r.type);
+    const { byFaction, byClass, gm, sTier } = gameData ? await factsFor(versionOf(d)) : { byFaction: new Map(), byClass: new Map(), gm: null, sTier: null };
+    const versionClasses = r.type === 'every-class' ? await classesOf(versionOf(d)) : [];
     let hit = null;
     if (r.type === 'beta' && acct.beta_member) hit = {};
     else if (r.type === 'early-supporter' && ctx.early.set) {
@@ -64,7 +80,7 @@ export async function qualifying(q, accountId, defs, ctx, classes) {
     } else if (r.type === 'faction' && byFaction.has(r.faction)) hit = { characterId: byFaction.get(r.faction) };
     else if (r.type === 'envoy' && byFaction.has('Alliance') && byFaction.has('Horde')) hit = {};
     else if (r.type === 'class' && byClass.has(r.class)) hit = { characterId: byClass.get(r.class) };
-    else if (r.type === 'every-class' && classes.length && classes.every((c) => byClass.has(c))) hit = {};
+    else if (r.type === 'every-class' && versionClasses.length && versionClasses.every((c) => byClass.has(c))) hit = {};
     else if (r.type === 'guild-master' && gm) hit = {};
     else if (r.type === 's-tier' && sTier) hit = {};
     if (hit) out.set(d.id, hit);

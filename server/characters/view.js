@@ -1,3 +1,4 @@
+import { PRIMARY_SCOPE } from '../core/config.js';
 import { boardCounts, characterRanks } from '../stats/boards.js';
 import { categoryKey, loadCatalog } from '../stats/catalog.js';
 import { inlineBadges } from '../badges/store.js';
@@ -14,10 +15,11 @@ import { renderSwitch } from './renders.js';
  * transmog (0.8.0) with the transmog item's own icon the same way. transmog: null = not transmogged; undefined = stored
  * before 0.8.0, not known until the next full fetch.
  */
-export async function equipmentWithIcons(db, equipment) {
+// 0.10.0: icons are per game version and region; `scope` is the character's (default: the primary pages').
+export async function equipmentWithIcons(db, equipment, scope = PRIMARY_SCOPE) {
   const list = Array.isArray(equipment) ? equipment : [];
   const ids = gearItemIds(list);
-  const rows = ids.length ? await db.query('SELECT item_id, state, icon_url FROM item_media WHERE item_id = ANY($1::bigint[]) LIMIT 100', [ids]) : [];
+  const rows = ids.length ? await db.query('SELECT item_id, state, icon_url FROM item_media WHERE game_version = $2 AND region = $3 AND item_id = ANY($1::bigint[]) LIMIT 100', [ids, scope.version, scope.region]) : [];
   const byId = new Map(rows.map((r) => [Number(r.item_id), r]));
   const iconOf = (id) => {
     const m = byId.get(id);

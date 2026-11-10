@@ -38,7 +38,8 @@ const categoryLabel = (path) => path.map((c) => c.name).join(' › ');
 /** Everstats categories, first match wins. `farmable`: its tier never counts toward the overall tier. */
 export const CATEGORY_RULES = [
   // 0.9.0: counts Everstats makes from Blizzard's collections (statistics.derived), never one of Blizzard's own.
-  { label: 'Collections', test: (s) => Boolean(s.derived), why: () => 'Everstats counts it from Blizzard\'s collections (mounts, pets, toys, appearances …)' },
+  // 0.10.0: a feed's board ("feed:…", stats/feeds.js) is filed under its feed's group (its category path), not here.
+  { label: 'Collections', test: (s) => Boolean(s.derived) && !String(s.derived).startsWith('feed:'), why: () => 'Everstats counts it from Blizzard\'s collections (mounts, pets, toys, appearances …)' },
   { label: 'Deaths & mishaps', test: (s) => top(s) === 'Deaths' || BAD_RULES.some((r) => r.re.test(s.name)), why: (s) => (top(s) === 'Deaths' ? 'Blizzard files it under "Deaths"' : 'it counts deaths or losses') },
   { label: 'Social', farmable: true, test: (s) => top(s) === 'Social', why: () => 'Blizzard files it under "Social" (emotes)' },
   { label: 'Camping & Hearth', farmable: true, test: (s) => /\bcamped\b|\bhearth(?:ed|stone)?\b/i.test(s.name), why: () => 'it counts camps or hearthstone uses' },
@@ -143,6 +144,9 @@ function suggestCategory(s) {
 
 function suggestGrading(s, ctx) {
   const evidence = { categoryPath: s.categoryPath };
+  if (s.derived && String(s.derived).startsWith('feed:')) {
+    return { kind: 'grading', value: 'none', reasoning: 'A number Blizzard returns in one of its feeds (0.10.0: every feed is a leaderboard). A leaderboard only: it counts toward nothing until you approve "overall" or "category" here.', evidence: { ...evidence, derived: s.derived } };
+  }
   if (s.derived) {
     return { kind: 'grading', value: 'none', reasoning: 'A collection count (0.9.0): the collections design keeps these as leaderboards and pinnable counts, not graded, and some are shared across a Battle.net account. It counts toward nothing until you approve "overall" or "category" here.', evidence: { ...evidence, derived: s.derived } };
   }

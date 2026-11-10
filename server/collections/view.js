@@ -3,6 +3,16 @@ import { catalogMap, catalogTotals } from './catalog.js';
 import { legacyAccountWide, legacyOf, legacyPointsOf } from './legacy.js';
 import { COUNTS, KINDS, SLOT_GROUPS, familyOf, kindById, slotGroup, slotLabels } from './registry.js';
 import { achievementCatalog, collectionsOf, sharedKindsOf, sharingEvidence } from './store.js';
+import { scopeSql } from '../core/config.js';
+/**
+ * 0.10.0: catalogs are per game version and region (a static namespace is one version's build in one region). In this
+ * build only the PRIMARY scope's catalogs are built and read (the catalogs job and every collections page are the primary
+ * version's); every statement names that scope, so another version's rows can never be read here. Building catalogs
+ * per version arrives with the version itself (0.11.0).
+ */
+const CATALOG_SCOPE = scopeSql();
+const CATALOG_SCOPE_S = scopeSql('s');
+
 
 /**
  * What the Collections tab and its screens are sent (0.9.0). Only what Blizzard returned, merged with Blizzard's static
@@ -307,7 +317,7 @@ async function transmogView(db, ch, d, { slot = null } = {}) {
   return {
     catalog: Boolean(cat), have: collected.size, total: cat ? cat.size : null, slots, slot: current?.type ?? null, tiles, sets,
     resolved,
-    catalogState: (await db.one("SELECT state FROM collection_catalog_state WHERE kind = 'appearance'"))?.state ?? null,
+    catalogState: (await db.one(`SELECT state FROM collection_catalog_state WHERE ${CATALOG_SCOPE} AND kind = 'appearance'`))?.state ?? null,
     qualityKnown: totals.item > 0,
     worn: (Array.isArray(worn?.equipment) ? worn.equipment : []).map((e) => ({ slot: e.slot, slotName: e.slotName, item: e.name, transmog: e.transmog === undefined ? undefined : e.transmog ? e.transmog.name : null })),
   };
@@ -316,7 +326,7 @@ async function transmogView(db, ch, d, { slot = null } = {}) {
 /** Item id → quality, from the item-search catalog. */
 async function qualities(db, ids) {
   if (!ids.length) return new Map();
-  const rows = await db.query("SELECT id, data->>'quality' AS q FROM collection_catalog WHERE kind = 'item' AND id = ANY($1::bigint[]) LIMIT 20000", [ids]);
+  const rows = await db.query(`SELECT id, data->>'quality' AS q FROM collection_catalog WHERE ${CATALOG_SCOPE} AND kind = 'item' AND id = ANY($1::bigint[]) LIMIT 20000`, [ids]);
   return new Map(rows.filter((r) => r.q).map((r) => [Number(r.id), r.q]));
 }
 

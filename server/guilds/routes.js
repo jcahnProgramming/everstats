@@ -1,3 +1,4 @@
+import { scopeSql } from '../core/config.js';
 import express from 'express';
 import { getSetting } from '../admin/settings.js';
 import { HttpError, route } from '../core/errors.js';
@@ -56,12 +57,12 @@ async function guildsById(db, ids) {
 }
 
 /** A guild by its current slug (the most recently seen holder of it). */
-const guildBySlug = (db, slug) => db.one('SELECT * FROM guilds WHERE slug = $1 ORDER BY updated_at DESC LIMIT 1', [slug]);
+const guildBySlug = (db, slug) => db.one(`SELECT * FROM guilds WHERE slug = $1 AND ${scopeSql()} ORDER BY updated_at DESC LIMIT 1`, [slug]);
 
 /** An address a guild used to have → its current slug, or null. */
 async function movedTo(db, slug) {
   const row = await db.one(
-    `SELECT g.slug FROM guild_slugs s JOIN guilds g ON g.id = s.guild_id WHERE s.slug = $1 AND g.slug <> $1 ORDER BY s.seen_at DESC LIMIT 1`,
+    `SELECT g.slug FROM guild_slugs s JOIN guilds g ON g.id = s.guild_id WHERE s.slug = $1 AND g.slug <> $1 AND ${scopeSql('g')} ORDER BY s.seen_at DESC LIMIT 1`,
     [slug],
   );
   return row?.slug ?? null;
@@ -84,14 +85,14 @@ export function createGuildRouter({ db, limits, networkOf }) {
       `SELECT g.slug, g.name, g.faction, rs.name AS ruleset,
               (SELECT members FROM guild_populations p WHERE p.guild_id = g.id AND p.period = 'overall' AND p.period_start = $3) AS tracked
          FROM guilds g LEFT JOIN rulesets rs ON rs.id = g.ruleset_id
-        WHERE lower(g.name) LIKE $1
+        WHERE lower(g.name) LIKE $1 AND ${scopeSql('g')}
         ORDER BY (lower(g.name) LIKE $2) DESC, tracked DESC NULLS LAST, g.name LIMIT 8`,
       [like, prefix, OVERALL_START],
     );
     const characters = await db.query(
       `SELECT c.id, c.slug, c.name, c.surname, c.level, c.class, rs.name AS ruleset FROM characters c LEFT JOIN rulesets rs ON rs.id = c.ruleset_id
         WHERE c.slug IS NOT NULL AND NOT c.hidden AND c.profile_state = 'ok' AND c.missing_since IS NULL
-          AND lower(c.name || ' ' || c.surname) LIKE $1
+          AND lower(c.name || ' ' || c.surname) LIKE $1 AND ${scopeSql('c')}
         ORDER BY (lower(c.name) LIKE $2) DESC, c.level DESC NULLS LAST, c.id LIMIT 8`,
       [like, prefix],
     );

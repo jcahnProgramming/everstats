@@ -1,5 +1,8 @@
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PRIMARY_VERSION, REGIONS, blizzardContext, isRegionEnabled, regionById, versionById } from './gameVersions.js';
+
+const DEFAULT_REGION = REGIONS.find((r) => r.enabled).id;
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(here, '..', '..');
@@ -31,29 +34,46 @@ export const config = {
   publicOrigin,
   secureCookies: isHttps,
   rpId: new URL(publicOrigin).hostname,
-  // Region is configuration, not code. 1.0 is US only; nothing else is accepted until it is built.
-  region: (process.env.REGION || 'us').toLowerCase(),
+  // Region is configuration, not code (core/gameVersions.js REGIONS). Only an enabled region is accepted: US until 1.0.
+  region: (process.env.REGION || DEFAULT_REGION).toLowerCase(),
 };
 
-if (config.region !== 'us') {
-  throw new Error(`REGION=${config.region} is not supported: Everstats 1.0 covers the US region only`);
+if (!isRegionEnabled(config.region)) {
+  throw new Error(`REGION=${config.region} is not supported yet: Everstats covers ${REGIONS.filter((r) => r.enabled).map((r) => r.id).join(', ')} until 1.0`);
 }
 
 /**
- * Blizzard WoW Forever API. Undocumented by Blizzard; every value here was confirmed by discovery runs 1 and 2
- * (2026-11-09, discovery_responses). The static namespace is versioned and read from the API's own links.
+ * The primary game version in the configured region (0.10.0: built from core/gameVersions.js; before, the WoW Forever
+ * namespaces were written here). The existing, unprefixed pages and jobs use this; per-version code asks
+ * blizzardContext(version, region). There is no static entry: a static namespace is always DETECTED from the API's links.
  */
+const primary = blizzardContext(PRIMARY_VERSION.id, config.region);
 export const BLIZZARD_API = Object.freeze({
-  apiHost: `https://${config.region}.api.blizzard.com`,
-  oauthHost: 'https://oauth.battle.net',
-  namespaces: Object.freeze({
-    static: `static-forever-${config.region}`,
-    dynamic: `dynamic-forever-${config.region}`,
-    profile: `profile-forever-${config.region}`,
-  }),
+  version: primary.version,
+  region: primary.region,
+  apiHost: primary.apiHost,
+  oauthHost: primary.oauthHost,
+  locale: primary.locale,
+  namespaces: primary.namespaces,
   paths: Object.freeze({
-    rulesets: '/data/wow/ruleset/index', // dynamic namespace
-    character: '/profile/wow/character/{slug}', // profile namespace; slug is {name}-{surname}, lower case
-    accountCharacters: '/profile/user/wow', // user token, scope wow.profile
+    rulesets: primary.paths.rulesets,
+    character: '/profile/wow/character/{slug}', // the primary version is realmless; per-version code uses ctx.characterPath
+    accountCharacters: primary.paths.accountCharacters,
   }),
 });
+
+/** The scope the existing (unprefixed) pages and jobs mean: { version, region }. */
+export const PRIMARY_SCOPE = Object.freeze({ version: PRIMARY_VERSION.id, region: config.region });
+
+/**
+ * A SQL condition limiting rows to one scope: "c.game_version = 'forever' AND c.region = 'us'" for alias 'c'. Its
+ * values come from the registry only (checked here), never from a request, so they are safe to write into SQL. The
+ * existing pages pass nothing: the primary scope.
+ */
+export function scopeSql(alias = '', scope = PRIMARY_SCOPE) {
+  const v = versionById(scope.version);
+  const r = regionById(scope.region);
+  if (!v || !r || !/^[a-z0-9-]+$/.test(v.id) || !/^[a-z]+$/.test(r.id)) throw new Error('scopeSql: not a registry scope');
+  const a = alias ? `${alias}.` : '';
+  return `${a}game_version = '${v.id}' AND ${a}region = '${r.id}'`;
+}

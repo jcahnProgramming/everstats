@@ -1,4 +1,4 @@
-import { config } from '../core/config.js';
+import { config, scopeSql } from '../core/config.js';
 import { getSetting } from '../admin/settings.js';
 import { parseSlug, parseGuildSlug } from '../stats/slug.js';
 import { BOARD_SOURCES, boardPage, rankOn, characterRanks, boardCounts, ranksFor } from '../stats/boards.js';
@@ -56,7 +56,7 @@ export const topPercent = (rank, of) => (rank && of ? Math.max(1, Math.ceil((ran
 async function characterBySlug(db, slug) {
   const parsed = parseSlug(slug);
   if (!parsed) return { status: 'not_found' };
-  const row = await db.one('SELECT * FROM characters WHERE slug = $1', [parsed.slug]);
+  const row = await db.one(`SELECT * FROM characters WHERE slug = $1 AND ${scopeSql()}`, [parsed.slug]);
   if (!row) return { status: 'not_found' };
   if (row.hidden) return { status: 'hidden' };
   if (row.missing_since || row.profile_state !== 'ok') return { status: 'not_found' };
@@ -67,7 +67,7 @@ async function characterBySlug(db, slug) {
 async function guildBySlug(db, slug) {
   const parsed = parseGuildSlug(slug);
   if (!parsed) return { status: 'not_found' };
-  const g = await db.one('SELECT * FROM guilds WHERE slug = $1 ORDER BY updated_at DESC LIMIT 1', [parsed.slug ?? parsed]);
+  const g = await db.one(`SELECT * FROM guilds WHERE slug = $1 AND ${scopeSql()} ORDER BY updated_at DESC LIMIT 1`, [parsed.slug ?? parsed]);
   return g ? { status: 'ok', g } : { status: 'not_found' };
 }
 

@@ -1,3 +1,4 @@
+import { PRIMARY_VERSION } from '../core/gameVersions.js';
 import express from 'express';
 import { isProfaneText } from '../accounts/names.js';
 import { HttpError, route } from '../core/errors.js';
@@ -5,7 +6,7 @@ import { FAMILIES, TEMPLATES, templateById } from './catalog.js';
 import { CREATOR_BADGE, CREATOR_PLATFORMS, clearAlert, creatorAlerts, creatorState, grantCreator, revokeCreator, startVerification } from './creators.js';
 import { MAX_BYTES, processMark } from './marks.js';
 import { getPlatform } from '../accounts/socials.js';
-import { classList, evaluateAccount } from './rules.js';
+import { GAME_DATA_RULES, classList, evaluateAccount } from './rules.js';
 import {
   award, badgeContext, definitionById, definitionId, holderCounts, loadDefinitions, logEvent, markUrl, publicBadge, revoke, sha256,
 } from './store.js';
@@ -175,9 +176,10 @@ export function createAdminBadgeRouter({ db, writes }) {
         throw new HttpError(409, `There’s already a badge for ${rule.class}.`, 'exists');
       }
       await q.query(
-        `INSERT INTO badge_definitions (id, family, name, description, how, art, template, monogram, award, rule, verified, sort, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, 'admin')`,
-        [id, t.family, name, description, how, t.art, t.id, monogram, rule ? 'automatic' : 'manual', rule ? JSON.stringify(rule) : null, ['staff', 'partner'].includes(t.family), sort],
+        `INSERT INTO badge_definitions (id, family, name, description, how, art, template, monogram, award, rule, verified, sort, created_by, game_version)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, 'admin', $13)`,
+        // 0.10.0: a badge whose rule reads characters belongs to the primary version (the only one with players yet).
+        [id, t.family, name, description, how, t.art, t.id, monogram, rule ? 'automatic' : 'manual', rule ? JSON.stringify(rule) : null, ['staff', 'partner'].includes(t.family), sort, GAME_DATA_RULES.includes(rule?.type) ? PRIMARY_VERSION.id : null],
       );
       await logEvent(q, { type: 'created', badgeId: id, actor: 'admin', detail: { template: t.id } });
       await q.query("INSERT INTO admin_events (type, detail) VALUES ('badge.created', $1::jsonb)", [JSON.stringify({ badge: id, template: t.id })]);

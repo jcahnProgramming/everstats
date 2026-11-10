@@ -150,6 +150,7 @@ export const BLIZZARD = [
       ));
       // A character Blizzard hasn't returned for the whole window: strip every Blizzard field. The row stays as a stub
       // of our own data (id, owner, hidden, tracked since) and comes back when a sign-in or lookup finds it again.
+      // 0.10.0: its game version, region, realm slug and Blizzard id stay too: where the stub lives (no name, no values).
       const gone = await q.query(
         `SELECT id FROM characters WHERE profile_state <> 'purged' AND (data_fetched_at IS NULL OR data_fetched_at < $1) LIMIT 50000`,
         [cutoff],
@@ -195,11 +196,18 @@ export const BLIZZARD = [
     },
   },
   {
-    table: 'rulesets', holds: 'Ruleset names', fetched: 'updated_at',
+    // 0.10.0: realms of the versions that have them (realm/{slug}): names and types, re-read daily by a crawl that
+    // needs them. Before rulesets: a realm names its realm category.
+    table: 'realms', holds: 'Realm names and types (versions with realms)', fetched: 'fetched_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM realms WHERE fetched_at < $1 RETURNING 1', [cutoff])),
+  },
+  {
+    table: 'rulesets', holds: 'Ruleset and realm-type names (each version’s realm categories)', fetched: 'updated_at',
     // Re-read from Blizzard every 6 hours; one still referenced by a fresh character can't be this old.
     sweep: async (q, cutoff) => n(await q.query(
       `DELETE FROM rulesets r WHERE r.updated_at < $1
           AND NOT EXISTS (SELECT 1 FROM characters c WHERE c.ruleset_id = r.id) AND NOT EXISTS (SELECT 1 FROM guilds g WHERE g.ruleset_id = r.id)
+          AND NOT EXISTS (SELECT 1 FROM realms m WHERE m.category_id = r.id)
         RETURNING 1`,
       [cutoff],
     )),
@@ -251,6 +259,9 @@ export const BLIZZARD = [
 
 export const OURS = {
   _migrations: 'Which migrations ran',
+  // 0.10.0
+  blizzard_ids: 'Everstats’ own id for a Blizzard id on a version other than the native one (numbers only: Blizzard’s terms let us keep an id), so a stub keeps the id it lives under',
+  discovery_group_decisions: 'The owner’s tier choices per group and game version (counts / own letter only / doesn’t count)',
   accounts: 'Accounts, usernames, display names, bios, settings, beta membership',
   account_identities: 'Sign-in links (provider ids, BattleTag/Discord label from the provider’s sign-in, not the game API)',
   passkeys: 'Passkeys',
@@ -341,6 +352,7 @@ export const OLDEST = [
   ['character_category_tiers', 'SELECT min(computed_at) AS t FROM character_category_tiers'],
   ['tier_rulesets', 'SELECT min(computed_at) AS t FROM tier_rulesets'],
   ['rulesets', 'SELECT min(updated_at) AS t FROM rulesets'],
+  ['realms', 'SELECT min(fetched_at) AS t FROM realms'],
   ['statistics (names)', 'SELECT min(last_seen_at) AS t FROM statistics WHERE name IS NOT NULL AND derived IS NULL'],
   // A calendar (UTC) day, so its age is counted from that day's start: up to a day older-looking than an exact time.
   ['pin_rank_history (by UTC day)', "SELECT (min(day)::timestamp AT TIME ZONE 'UTC') AS t FROM pin_rank_history"],

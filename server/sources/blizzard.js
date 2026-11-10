@@ -1,12 +1,15 @@
-import { BLIZZARD_API } from '../core/config.js';
+import { PRIMARY_SCOPE } from '../core/config.js';
+import { regionById } from '../core/gameVersions.js';
 
 /**
  * The Blizzard source: an app token (client credentials) and paced, retried GETs against the regional API host.
  * Everything that reads Blizzard goes through one of these (sources/registry.js), so a second source can be added
  * beside it without touching the callers.
  *
- *   const src = createBlizzardSource({ clientId, clientSecret, fetch, perSecond })
- *   await src.get('/data/wow/ruleset/index', { namespace: 'dynamic-forever-us' })            app token
+ *   const src = createBlizzardSource({ clientId, clientSecret, fetch, perSecond, region })
+ *   await src.get('/data/wow/ruleset/index', { namespace: ctx.namespaces.dynamic })           app token
+ *   (0.10.0: one source per REGION: its API host, OAuth host and locale come from core/gameVersions.js REGIONS; the
+ *   namespace, which names the game version, is always the caller's.)
  *   await src.get(href, { auth: 'user', userToken })                                            a user's token
  *   await src.get('/data/wow/search/mount', { namespace, query: { orderby: 'id', _page: 1 } })  named extra parameters
  *   → { path, namespace, auth, status, latencyMs, attempts, headers, contentType, bytes, body, truncated, json,
@@ -41,11 +44,16 @@ export function createBlizzardSource({
   maxInFlight = 4,
   maxAttempts = 3,
   timeoutMs = 20_000,
-  locale = 'en_US',
+  region = PRIMARY_SCOPE.region,
+  locale = null,
   now = Date.now,
   sleep = defaultSleep,
-  api = BLIZZARD_API,
+  api = null,
 } = {}) {
+  const reg = regionById(region);
+  if (!reg && !api) throw new SourceError(`Unknown region ${region}`, 'bad_region');
+  api ??= { apiHost: reg.apiHost, oauthHost: reg.oauthHost };
+  locale ??= reg?.locale ?? null;
   const apiOrigin = new URL(api.apiHost).origin;
   let token = null; // { value, expiresAt }
 
@@ -161,5 +169,5 @@ export function createBlizzardSource({
     return out;
   }
 
-  return { id: 'blizzard', get, appToken, resolve };
+  return { id: 'blizzard', region, apiHost: api.apiHost, get, appToken, resolve };
 }

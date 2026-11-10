@@ -3,13 +3,17 @@
  * probe's results only. Each answer is { id, module, question, verdict: 'yes' | 'no' | 'unknown', text, evidence }.
  * 'unknown' whenever the results can't settle it (skipped, stopped first, an answer with an empty list, a zero that
  * one character can't prove): never a guess.
+ * 0.10.0: for any game version (`version`); the Legacy answer only where its guesses ran.
  */
+import { PRIMARY_VERSION, versionById } from '../../core/gameVersions.js';
+
 const fmt = (n) => (Number.isFinite(n) ? n.toLocaleString('en-US') : String(n));
 // 0.9.2: "character" and "guild", as the endpoint tables say them (was a bare "C" and "G": "C/collections/mounts").
 const short = (t) => String(t).replace('{C}', 'character').replace('{G}', 'guild').replace('/data/wow/', '');
 const statuses = (e) => e.attempts.map((a) => (a.status === null ? 'no answer' : a.status)).join(' then ');
 
-export function probeAnswers(entries, { foreverTerms = [], primary = null } = {}) {
+export function probeAnswers(entries, { foreverTerms = [], primary = null, version = PRIMARY_VERSION.id } = {}) {
+  const versionName = versionById(version)?.name ?? version;
   const by = new Map(entries.map((e) => [e.id, e]));
   const best = (id) => {
     const e = by.get(id);
@@ -27,7 +31,7 @@ export function probeAnswers(entries, { foreverTerms = [], primary = null } = {}
     const e = by.get(id);
     return e && e.attempts.length > 0 && e.attempts.every((a) => a.status === 404);
   });
-  const who = primary ? `${primary.name} ${primary.surname}` : 'the character';
+  const who = primary ? [primary.name, primary.surname].filter(Boolean).join(' ') : 'the character';
   const answers = [];
   const add = (a) => answers.push(a);
 
@@ -119,8 +123,9 @@ export function probeAnswers(entries, { foreverTerms = [], primary = null } = {}
     add({ id: 'housing', module: 'Housing', question: 'Housing: does any housing endpoint answer?', verdict, text, evidence: ids });
   }
 
-  // ---- Legacy (a Forever-only system: only the guesses and the words in answers can say)
-  {
+  // ---- Legacy (a Forever-only system: only the guesses and the words in answers can say). 0.10.0: asked only where
+  // the guesses ran (the version they are about).
+  if (by.has('character.guess-legacy')) {
     const ids = ['character.guess-legacy', 'character.guess-legacies', 'character.guess-heritage', 'data.guess-legacy-index', 'data.guess-legacies-index', 'data.guess-heritage-index'];
     const answered = ids.filter((id) => best(id));
     const hits = foreverTerms.find((t) => t.id === 'legacy')?.hits ?? [];
@@ -236,7 +241,7 @@ export function probeAnswers(entries, { foreverTerms = [], primary = null } = {}
   {
     const b = best('data.connected-realm-index');
     const verdict = (b?.count ?? 0) > 0 ? 'yes' : b || allNotFound(['data.connected-realm-index']) ? 'no' : 'unknown';
-    add({ id: 'realms', module: 'Realms', question: 'Does Forever have connected realms (auctions, Mythic+ leaderboards)?', verdict, text: `connected-realm/index: ${b ? `${fmt(b.count ?? 0)} connected realms` : why('data.connected-realm-index')}.`, evidence: ['data.connected-realm-index'] });
+    add({ id: 'realms', module: 'Realms', question: `Does ${versionName} have connected realms (auctions, Mythic+ leaderboards)?`, verdict, text: `connected-realm/index: ${b ? `${fmt(b.count ?? 0)} connected realms` : why('data.connected-realm-index')}.`, evidence: ['data.connected-realm-index'] });
   }
 
   // ---- what answered that we didn't expect: a Forever guess, a path never probed before, a later-expansion system

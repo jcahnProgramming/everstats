@@ -4,7 +4,7 @@ import { TIER_LETTERS } from '../../../server/stats/tiers.js';
 import { categoryWeights, weightsProblem } from '../../../server/tiers/engine.js';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
-import { Button, Field } from '../components/Controls.jsx';
+import { Button, Field, Segmented } from '../components/Controls.jsx';
 import { EmptyState } from '../components/EmptyState.jsx';
 import { TierBadge } from '../components/Tier.jsx';
 import { useToasts } from '../components/Toasts.jsx';
@@ -24,6 +24,10 @@ import { formatDateTime, formatNumber, timeAgo } from '../format.js';
  *              are bad, farmable, duplicate-excluded, and which are undecided (and so count as nothing), each linking
  *              back to its decision on the Discovery page. Decisions that look inconsistent are listed first.
  *   Gradings   the last full gradings and any pending request.
+ *
+ * 0.10.0: everything above is per GAME VERSION (the picker at the top; the primary version first). A version's settings
+ * start at the defaults, never at another version's; its realm categories are listed under the word the registry gives
+ * it ("ruleset" on Forever, "realm type" elsewhere).
  */
 const FIELDS = [
   { key: 'minPopulation', label: 'Ruleset minimum (tier-eligible characters)', min: 1 },
@@ -35,14 +39,15 @@ export function TiersAdminPage() {
   const navigate = useNavigate();
   const [state, setState] = useState(undefined);
   const [problem, setProblem] = useState(null);
+  const [version, setVersion] = useState(null);
   const load = useCallback(async () => {
     try {
-      setState(await api('/api/admin/tiers'));
+      setState(await api(`/api/admin/tiers${version ? `?version=${encodeURIComponent(version)}` : ''}`));
     } catch (err) {
       if (err.status === 404) setState(null);
       else setProblem(err.message);
     }
-  }, []);
+  }, [version]);
   useEffect(() => {
     load();
   }, [load]);
@@ -61,7 +66,13 @@ export function TiersAdminPage() {
         <Link className="btn sm" to="/admin/discovery"><Icon name="search" size="sm" />Discovery</Link>
         <button type="button" className="btn ghost sm" onClick={load}><Icon name="refresh" size="sm" />Refresh</button>
       </div>
-      <SettingsPanel state={state} onSaved={setState} />
+      {state.versions?.length > 1 && (
+        <div className="stack gap-6">
+          <Segmented label="Game version" options={state.versions.map((v) => ({ id: v.id, label: `${v.short}${v.enabled ? '' : ' (off)'}` }))} value={state.version} onChange={setVersion} />
+          {!state.versions.find((v) => v.id === state.version)?.enabled && <span className="muted xsmall">Not open to players yet: these settings are ready for when it is. Nothing is graded until its groups are decided on the Discovery page.</span>}
+        </div>
+      )}
+      <SettingsPanel key={state.version} state={state} onSaved={setState} />
       <GradingsPanel state={state} onChanged={setState} />
       <WhatCounts state={state} />
     </div>
@@ -92,6 +103,7 @@ function SettingsPanel({ state, onSaved }) {
     return out;
   };
   const body = () => ({
+    version: state.version,
     shares: Object.fromEntries(TIER_LETTERS.map((l) => [l, Number(form[l])])),
     ...Object.fromEntries(FIELDS.map((f) => [f.key, Number(form[f.key])])),
     weights: pins(),

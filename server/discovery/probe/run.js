@@ -1,16 +1,20 @@
-import { BLIZZARD_API, config } from '../../core/config.js';
+import { PRIMARY_SCOPE } from '../../core/config.js';
+import { PRIMARY_VERSION, blizzardContext, versionById } from '../../core/gameVersions.js';
 import { APP_VERSION } from '../../core/version.js';
 import { SourceError } from '../../sources/blizzard.js';
 import { openSource } from '../../sources/registry.js';
-import { createObserver, hrefsIn, namespacesIn, pickStaticNamespace, skeleton } from '../analyze.js';
-import { characterPath } from '../endpoints.js';
+import { currentGroupDecisions, loadCatalog } from '../../stats/catalog.js';
+import { createObserver, hrefsIn, namespacesIn, skeleton } from '../analyze.js';
 import { grantToken } from '../grant.js';
 import { probeAnswers } from './answers.js';
-import { PROBE_AREAS, PROBE_ENDPOINTS, probeEndpointById, probeResponseEndpoint, templateParams } from './endpoints.js';
+import { boardsFrom, compareStatistics, groupSuggestions, renderCheck, rolesByGroup, statisticCatalog, FEED_ENTRIES, KIND_ENTRIES } from './compare.js';
+import { PROBE_AREAS, PROBE_ENDPOINTS, probeAreasFor, probeEndpointById, probeEntriesFor, probeResponseEndpoint, templateParams } from './endpoints.js';
+import { MAX_REALMS, REALM_SWEEP_ENDPOINT, realmAnswers, realmList, realmSlugsIn } from './realms.js';
 
 /**
- * The endpoint probe (0.8.3): one request (or a few) per entry of probe/endpoints.js, in order, against WoW Forever,
- * each stored as a discovery_responses row like any discovery run's (same 30-day retention), 404s and failures
+ * The endpoint probe (0.8.3): one request (or a few) per entry of probe/endpoints.js, in order, against one GAME VERSION
+ * in one region (0.10.0: any version in core/gameVersions.js, enabled or not; options.version / options.region, default
+ * the primary scope), each stored as a discovery_responses row like any discovery run's (same 30-day retention), 404s and failures
  * included. Nothing is filled in: a {param} with no real value to try is a recorded skip, never a guess.
  *
  * `live` is what only the run knew (which response answered which entry with which values, and why each skip happened);
@@ -30,20 +34,40 @@ const decode = (p) => {
     return p;
   }
 };
+// Only the path and the namespace of a link are read here (the source refuses any host but its region's API host).
+const LINK_BASE = 'https://api.invalid';
 const pathOf = (href) => {
   try {
-    return new URL(href, BLIZZARD_API.apiHost).pathname;
+    return new URL(href, LINK_BASE).pathname;
   } catch {
     return null;
   }
 };
 const nsOf = (href) => {
   try {
-    return new URL(href, BLIZZARD_API.apiHost).searchParams.get('namespace');
+    return new URL(href, LINK_BASE).searchParams.get('namespace');
   } catch {
     return null;
   }
 };
+
+/** The probe's scope from its options: { version, region, ctx }. */
+export function probeScope(opts) {
+  const version = opts?.version ?? PRIMARY_SCOPE.version;
+  const region = opts?.region ?? PRIMARY_SCOPE.region;
+  return { version, region, ctx: blizzardContext(version, region) };
+}
+
+/**
+ * The version's static namespace among those Blizzard's links named: it must match the version's own pattern
+ * (gameVersions.js staticPattern); the account list's links first, then the most linked. Never a written one.
+ */
+export function pickStatic(namespaceLinks, ctx) {
+  const candidates = Object.entries(namespaceLinks)
+    .filter(([n]) => ctx.isStatic(n))
+    .sort((a, b) => (b[1].firstEndpoint === 'account.profile') - (a[1].firstEndpoint === 'account.profile') || b[1].count - a[1].count);
+  return candidates[0]?.[0] ?? null;
+}
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, (ch) => String.fromCharCode(92) + ch);
 
 /** A path template → a regex over a decoded path, capturing each {param} (case-insensitive: slugs are lower case). */
@@ -146,20 +170,23 @@ const ALT = { static: 'dynamic', dynamic: 'static' };
 export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now = Date.now }) {
   const run = await db.one('SELECT id, options FROM discovery_runs WHERE id = $1', [runId]);
   const opts = run.options;
-  const source = await openSource(db, 'blizzard', { fetch, perSecond: opts.requestsPerSecond, ...(sleep ? { sleep } : {}), now });
+  const scope = probeScope(opts);
+  const bz = scope.ctx;
+  const ENTRIES = probeEntriesFor(scope.version);
+  const source = await openSource(db, 'blizzard', { fetch, perSecond: opts.requestsPerSecond, ...(sleep ? { sleep } : {}), now, region: scope.region });
   await source.appToken(); // fail fast, with a clear reason, if the app's keys don't work
   const grant = await grantToken(db);
 
   const ctx = {
-    C: characterPath(opts.primary.slug),
-    G: `/data/wow/guild/${encodeURIComponent(opts.guild.slug)}`,
+    C: bz.characterPath({ realmSlug: opts.primary.realmSlug ?? null, slug: opts.primary.slug }),
+    G: bz.guildPath({ realmSlug: opts.guild.realmSlug ?? opts.primary.realmSlug ?? null, slug: opts.guild.slug }),
     primaryId: null,
   };
-  const ns = { profile: BLIZZARD_API.namespaces.profile, dynamic: BLIZZARD_API.namespaces.dynamic, static: null };
+  const ns = { profile: bz.namespaces.profile, dynamic: bz.namespaces.dynamic, static: null };
   const namespaceLinks = {};
-  const live = { attempts: [], skipped: {}, userToken: Boolean(grant), stopped: null, character: ctx.C, guild: ctx.G };
+  const live = { attempts: [], skipped: {}, userToken: Boolean(grant), stopped: null, character: ctx.C, guild: ctx.G, version: scope.version, region: scope.region, realmSweep: [] };
   const results = new Map(); // entry id → { success: { json, values, namespace, path }, statuses: [] }
-  const progress = { phase: 'starting', requests: 0, entriesDone: 0, entriesTotal: PROBE_ENDPOINTS.length, answered: 0, skipped: 0 };
+  const progress = { phase: 'starting', requests: 0, entriesDone: 0, entriesTotal: ENTRIES.length, answered: 0, skipped: 0, version: scope.version };
   let sinceBeat = 0;
   let stopRequested = false;
 
@@ -177,12 +204,12 @@ export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now
   }
 
   const kindNs = (kind) => {
-    if (kind === 'static' && !ns.static) ns.static = pickStaticNamespace(namespaceLinks, { region: config.region });
+    if (kind === 'static' && !ns.static) ns.static = pickStatic(namespaceLinks, bz);
     return ns[kind] ?? null;
   };
 
   /** One request, stored. A link to another host is refused and stored as such, never fetched. */
-  async function attempt(e, path, namespace, values, basis) {
+  async function attempt(e, path, namespace, values, basis, { endpoint = null } = {}) {
     let r;
     try {
       r = await source.get(path, { namespace, auth: e.auth === 'user' ? 'user' : 'app', userToken: e.auth === 'user' ? grant.token : null, query: e.query ?? null });
@@ -193,15 +220,21 @@ export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now
     const row = await db.one(
       `INSERT INTO discovery_responses (run_id, endpoint, subject_kind, subject, path, namespace, auth, status, latency_ms, attempts, headers, content_type, bytes, body, truncated, error, fetched_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17) RETURNING id`,
-      [runId, probeResponseEndpoint(e.id), subjectKind(e), subjectKind(e) === 'character' ? ctx.C : subjectKind(e) === 'guild' ? ctx.G : '', r.path, r.namespace, r.auth, r.status, r.latencyMs, r.attempts,
+      [runId, endpoint ?? probeResponseEndpoint(e.id), subjectKind(e), subjectKind(e) === 'character' ? ctx.C : subjectKind(e) === 'guild' ? ctx.G : '', r.path, r.namespace, r.auth, r.status, r.latencyMs, r.attempts,
         JSON.stringify(r.headers), r.contentType, r.bytes, r.body, r.truncated, r.error, r.fetchedAt],
     );
     for (const n of namespacesIn(r.body)) {
       namespaceLinks[n] ??= { count: 0, firstEndpoint: e.id };
       namespaceLinks[n].count += 1;
     }
-    live.attempts.push({ entry: e.id, responseId: Number(row.id), path: r.path, namespace: r.namespace, values, basis });
     progress.requests += 1;
+    if (endpoint) {
+      // The realm sweep: stored like every response, tracked apart from the entries.
+      live.realmSweep.push({ slug: values.realmSlug, responseId: Number(row.id), status: r.status });
+      await beat();
+      return r;
+    }
+    live.attempts.push({ entry: e.id, responseId: Number(row.id), path: r.path, namespace: r.namespace, values, basis });
     const res = results.get(e.id) ?? { success: null, statuses: [] };
     res.statuses.push(r.status);
     if (r.status === 200 && r.json !== null && !res.success) {
@@ -227,8 +260,9 @@ export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now
     const r = results.get('data.connected-realm-index');
     if (r?.success && (listsOf(r.success.json).count ?? 0) > 0) return null;
     if (!r) return 'connected-realm/index wasn’t asked';
-    if (r.success) return 'Forever has no connected realms: connected-realm/index answered 200 with an empty list';
-    return `Forever has no connected realms we can see: connected-realm/index answered ${statusText('data.connected-realm-index')}`;
+    const who = versionById(scope.version)?.name ?? scope.version;
+    if (r.success) return `${who} has no connected realms: connected-realm/index answered 200 with an empty list`;
+    return `${who} has no connected realms we can see: connected-realm/index answered ${statusText('data.connected-realm-index')}`;
   }
 
   async function runEntry(e) {
@@ -284,12 +318,27 @@ export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now
     return null;
   }
 
-  const areaLabel = new Map(PROBE_AREAS.map((a) => [a.id, a.label]));
-  for (const e of PROBE_ENDPOINTS) {
+  /** 0.10.0: every realm realm/index lists, asked once each (the realm list and its types are the point). */
+  async function realmSweep() {
+    const idx = results.get('data.realm-index')?.success;
+    if (!idx) return;
+    const e = probeEndpointById.get('data.realm');
+    const slugs = realmSlugsIn(idx.json);
+    if (slugs.length >= MAX_REALMS) live.realmSweepCapped = MAX_REALMS;
+    for (const slug of slugs) {
+      if (await shouldStop()) return;
+      progress.phase = `Realms: realm/${slug}`;
+      await attempt(e, `/data/wow/realm/${encodeURIComponent(slug)}`, idx.namespace ?? ns.dynamic, { realmSlug: slug }, 'every realm realm/index lists', { endpoint: REALM_SWEEP_ENDPOINT });
+    }
+  }
+
+  const areaLabel = new Map(probeAreasFor(scope.version).map((a) => [a.id, a.label]));
+  for (const e of ENTRIES) {
     if (await shouldStop()) break;
     progress.phase = `${areaLabel.get(e.area)}: ${e.path.replace('{C}', 'character').replace('{G}', 'guild')}`;
     await beat(true);
     await runEntry(e);
+    if (e.id === 'data.realm') await realmSweep();
     if (e.id === 'character.profile') {
       const id = results.get(e.id)?.success?.json?.id;
       ctx.primaryId = Number.isFinite(id) ? id : null;
@@ -297,7 +346,7 @@ export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now
     progress.entriesDone += 1;
   }
   if (stopRequested) live.stopped = { afterEntries: progress.entriesDone, afterRequests: progress.requests };
-  live.namespaces = { profile: ns.profile, dynamic: ns.dynamic, staticDetected: ns.static ?? pickStaticNamespace(namespaceLinks, { region: config.region }) };
+  live.namespaces = { profile: ns.profile, dynamic: ns.dynamic, staticDetected: ns.static ?? pickStatic(namespaceLinks, bz) };
   progress.phase = 'analysing';
   await beat(true);
   return { summary: await analyseProbe(db, runId, live, opts), stopped: Boolean(live.stopped) };
@@ -328,8 +377,14 @@ export function factsOf(row) {
 /** The results, totals and answers of a probe, from its stored responses and `live` only (no request to Blizzard). */
 export async function analyseProbe(db, runId, live, options = null) {
   const opts = options ?? (await db.one('SELECT options FROM discovery_runs WHERE id = $1', [runId]))?.options ?? {};
+  const scope = probeScope(opts);
+  const ENTRIES = probeEntriesFor(scope.version);
   const obs = createObserver();
   const facts = new Map();
+  // 0.10.0: the first 200 body of the entries the comparisons read, and every realm-sweep answer.
+  const wanted = new Set([...Object.keys(FEED_ENTRIES), ...Object.values(KIND_ENTRIES), 'character.achievement-statistics', 'character.character-media', 'account.profile', 'data.realm-index', 'data.ruleset-index'].map(probeResponseEndpoint));
+  const bodies = new Map(); // entry id → json
+  const realmDetails = new Map(); // response id → { json, status }
   for (let after = 0; ;) {
     const rows = await db.query(
       `SELECT id, endpoint, subject, path, namespace, auth, status, latency_ms, attempts, headers, content_type, bytes, body, truncated, error, fetched_at
@@ -347,6 +402,8 @@ export async function analyseProbe(db, runId, live, options = null) {
           json = null;
         }
       }
+      if (row.endpoint === REALM_SWEEP_ENDPOINT) realmDetails.set(Number(row.id), { json, status: row.status });
+      else if (json !== null && wanted.has(row.endpoint) && !bodies.has(row.endpoint.slice(3))) bodies.set(row.endpoint.slice(3), json);
       obs.add(row.endpoint, row.subject, {
         path: row.path, namespace: row.namespace, auth: row.auth, status: row.status, latencyMs: row.latency_ms, attempts: row.attempts,
         headers: row.headers, contentType: row.content_type, bytes: row.bytes, body: row.body, truncated: row.truncated, json, error: row.error,
@@ -357,7 +414,7 @@ export async function analyseProbe(db, runId, live, options = null) {
   }
 
   const skeletons = {};
-  const entries = PROBE_ENDPOINTS.map((e) => {
+  const entries = ENTRIES.map((e) => {
     const attempts = live.attempts.filter((a) => a.entry === e.id).map((a) => {
       const f = facts.get(a.responseId) ?? { status: null, error: 'response no longer stored' };
       const { outline, ...rest } = f;
@@ -374,16 +431,69 @@ export async function analyseProbe(db, runId, live, options = null) {
     };
   });
 
-  const areas = PROBE_AREAS.map((a) => {
+  const areas = probeAreasFor(scope.version).map((a) => {
     const list = entries.filter((x) => x.area === a.id);
     const tally = (o) => list.filter((x) => x.outcome === o).length;
     return { id: a.id, label: a.label, entries: list.length, answered: tally('answered'), notFound: tally('not found'), other: tally('other'), skipped: tally('skipped'), notAsked: tally('not asked') };
   });
 
   const base = obs.summary();
-  const { answers, unexpected } = probeAnswers(entries, { foreverTerms: base.foreverTerms, primary: opts.primary ?? null, userToken: live.userToken });
+  const { answers, unexpected } = probeAnswers(entries, { foreverTerms: base.foreverTerms, primary: opts.primary ?? null, userToken: live.userToken, version: scope.version });
+
+  // ---- 0.10.0: realms, statistics compared with Forever's, groups with suggestions, boards (rule A7), renders
+  const realms = (live.realmSweep ?? []).length
+    ? realmList((live.realmSweep ?? []).map((x) => ({ slug: x.slug, status: realmDetails.get(x.responseId)?.status ?? x.status, json: realmDetails.get(x.responseId)?.json ?? null })))
+    : null;
+  if (realms && live.realmSweepCapped) realms.capped = live.realmSweepCapped;
+  const rulesetIdx = bodies.get('data.ruleset-index');
+  const rulesetsListed = Array.isArray(rulesetIdx?.rulesets) ? rulesetIdx.rulesets.map((r) => (typeof r?.name === 'string' ? r.name : r?.id !== undefined ? `id ${r.id}` : null)).filter(Boolean) : null;
+  answers.push(...realmAnswers({ version: scope.version, realms, rulesetsListed, indexStatus: entries.find((e) => e.id === 'data.realm-index')?.attempts.map((a) => a.status ?? 'no answer').join('/') || 'not asked' }));
+
+  const here = statisticCatalog(bodies.get('character.achievement-statistics') ?? null);
+  const foreverRows = await db.query(
+    'SELECT blizzard_id, name, category_path FROM statistics WHERE game_version = $1 AND blizzard_id IS NOT NULL AND derived IS NULL ORDER BY blizzard_id LIMIT 20000',
+    [PRIMARY_VERSION.id],
+  );
+  const forever = foreverRows.map((r) => ({ blizzardId: Number(r.blizzard_id), name: r.name, categoryPath: r.category_path ?? [] }));
+  const statistics = bodies.has('character.achievement-statistics') ? compareStatistics(here, forever) : null;
+  const boards = boardsFrom({ answers: bodies, here });
+  const foreverCatalog = await loadCatalog(db);
+  const groups = groupSuggestions({
+    here, foreverIds: new Set(forever.map((f) => f.blizzardId)), groups: await currentGroupDecisions(db, PRIMARY_VERSION.id), roles: rolesByGroup(foreverCatalog.statistics), boards,
+  });
+  const account = (() => {
+    const list = bodies.get('account.profile')?.wow_accounts?.flatMap((a) => (Array.isArray(a?.characters) ? a.characters : [])) ?? [];
+    const pid = bodies.get('character.profile')?.id;
+    const c = list.find((x) => x?.id === pid);
+    return c ? { race: c.playable_race?.name ?? null } : null;
+  })();
+  const render = renderCheck({ media: bodies.get('character.character-media') ?? null, profile: bodies.get('character.profile') ?? null, account, check: live.renderCheck ?? null });
+  answers.push({ id: 'renders', module: 'Renders', question: 'Does the render service draw the character’s race correctly?', verdict: render.verdict === 'right' ? 'yes' : render.verdict === 'wrong' ? 'no' : 'unknown', text: render.text, evidence: ['character.character-media', 'character.profile'] });
+  if (statistics) {
+    answers.push({
+      id: 'statistics-compare', module: 'Statistics', question: `Statistics: how does ${versionById(scope.version)?.name ?? scope.version}'s catalog compare with Forever's?`,
+      verdict: statistics.probed > 0 ? 'yes' : 'unknown',
+      text: `${statistics.probed.toLocaleString('en-US')} statistic ids answered here; Forever's catalog has ${statistics.forever.toLocaleString('en-US')}. Shared ids: ${statistics.shared} (${statistics.sharedSameName} with the same name, ${statistics.sharedRenamed.length} renamed); new here: ${statistics.new.length}; Forever's missing here: ${statistics.missing.length}. Top categories only here: ${statistics.categories.onlyHere.join(', ') || 'none'}; only on Forever: ${statistics.categories.onlyForever.join(', ') || 'none'}. Nothing is copied: decisions are made per version.`,
+      evidence: ['character.achievement-statistics'],
+    });
+  }
+  answers.push({
+    id: 'boards', module: 'Boards', question: 'How many boards would this version get (rule A7: every numeric value a board)?',
+    verdict: boards.total > 0 ? 'yes' : 'unknown',
+    text: `${boards.total.toLocaleString('en-US')} boards from one character's answers: ${boards.groups.map((g) => `${g.group} ${g.boards}`).join(', ') || 'none'}. ${boards.skipped.length} field shapes skipped (the list says why). One character can't show boards only others have values for.`,
+    evidence: Object.keys(FEED_ENTRIES),
+  });
+
   return {
     kind: 'probe',
+    version: scope.version,
+    region: scope.region,
+    versionName: versionById(scope.version)?.name ?? scope.version,
+    realms,
+    statistics,
+    groups,
+    boards: { total: boards.total, groups: boards.groups, skipped: boards.skipped, overlaps: boards.overlaps, feedsAnswered: boards.feedsAnswered, list: boards.list },
+    render,
     live,
     primary: opts.primary ?? null,
     guild: opts.guild ?? null,
@@ -453,6 +563,22 @@ export function probeCsv(summary) {
         cell(a.latencyMs), cell(a.bytes), cell(a.count), cell(a.listKey, { text: true }), cell(Object.keys(a.lists ?? {}).length ? a.lists : '', { text: true }), cell((a.timestampKeys ?? []).join(' '), { text: true }),
         cell(e.skipped, { text: true }), cell(a.responseId), cell(outline ? Object.entries(outline).map(([k, t]) => `${k}: ${t}`).join('; ') : '', { text: true })].join(','));
     }
+  }
+  return `${lines.join('\r\n')}\r\n`;
+}
+
+/**
+ * 0.10.0: the boards rule A7 would give the probed version (one row each), then every skipped field shape with its
+ * reason, the overlaps, and the realm list: what the owner checks the skip list against.
+ */
+export function probeBoardsCsv(summary) {
+  const lines = [['section', 'key_or_path', 'name_or_reason', 'group_or_feed', 'source_or_rule', 'note'].join(',')];
+  for (const b of summary.boards?.list ?? []) lines.push(['board', cell(b.key, { text: true }), cell(b.name, { text: true }), cell(b.group, { text: true }), cell(b.source, { text: true }), cell(b.note ?? '', { text: true })].join(','));
+  for (const x of summary.boards?.skipped ?? []) lines.push(['skipped', cell(x.path, { text: true }), cell(x.reason, { text: true }), cell(x.feed), cell(x.rule), ''].join(','));
+  for (const x of summary.boards?.overlaps ?? []) lines.push(['overlap', cell(x.key, { text: true }), cell('the same value as a collections family board: listed once, as the family', { text: true }), '', cell(x.family, { text: true }), ''].join(','));
+  for (const r of summary.realms?.realms ?? []) {
+    lines.push(['realm', cell(r.slug, { text: true }), cell(r.name ?? '', { text: true }), cell(r.type ? `${r.type.type ?? ''} (${r.type.name ?? ''})` : '', { text: true }), cell(r.category ?? '', { text: true }),
+      cell(r.answered ? [r.timezone, r.locale, r.isTournament ? 'tournament' : null].filter(Boolean).join(' · ') : `not answered (${r.status ?? 'no answer'})`, { text: true })].join(','));
   }
   return `${lines.join('\r\n')}\r\n`;
 }

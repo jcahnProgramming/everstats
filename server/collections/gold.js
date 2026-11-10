@@ -60,7 +60,9 @@ export function protectedPath(href) {
  * for characters Everstats knows and this account owns. `characters` = [{ id, protectedPath }]. Never throws.
  *   → { read, stored, failed }
  */
-export async function importGold({ db, accountId, characters, source, userToken }) {
+export async function importGold({ db, accountId, characters, source, userToken, namespace = BLIZZARD_API.namespaces.profile }) {
+  // 0.10.0: `characters` = [{ id (Everstats'), blizzardId (Blizzard's; = id on the native version), protectedPath }],
+  // and `namespace` the profile namespace of the version they belong to.
   const todo = characters.filter((c) => c.protectedPath).slice(0, MAX_PER_SIGNIN);
   let read = 0;
   let stored = 0;
@@ -70,7 +72,7 @@ export async function importGold({ db, accountId, characters, source, userToken 
   async function one(c) {
     let r;
     try {
-      r = await source.get(c.protectedPath, { namespace: BLIZZARD_API.namespaces.profile, auth: 'user', userToken });
+      r = await source.get(c.protectedPath, { namespace, auth: 'user', userToken });
     } catch {
       failed += 1;
       return;
@@ -82,7 +84,7 @@ export async function importGold({ db, accountId, characters, source, userToken 
     }
     read += 1;
     const g = parseProtected(r.json);
-    if (!g || g.characterId !== c.id) return;
+    if (!g || g.characterId !== (c.blizzardId ?? c.id)) return;
     const row = await db.one(
       `INSERT INTO character_gold (character_id, account_id, money, gold_gained, gold_lost, item_value_gained, fetched_at)
        SELECT $1, $2, $3, $4, $5, $6, now() WHERE EXISTS (SELECT 1 FROM characters WHERE id = $1 AND owner_account_id = $2)

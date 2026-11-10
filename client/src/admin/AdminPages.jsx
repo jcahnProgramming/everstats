@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
-import { Button, Field, Toggle } from '../components/Controls.jsx';
+import { Button, Field, Segmented, Toggle } from '../components/Controls.jsx';
 import { EmptyState, Fresh } from '../components/EmptyState.jsx';
 import { useToasts } from '../components/Toasts.jsx';
 import { formatBytes, formatDateTime, formatNumber, timeAgo } from '../format.js';
@@ -234,6 +234,8 @@ function GradingSection({ settings, onSaved }) {
 export function SettingRow({ setting: s, onSaved }) {
   if (s.type === 'boolean') return <BooleanSetting setting={s} onSaved={onSaved} />;
   if (s.type === 'text') return <TextSetting setting={s} onSaved={onSaved} />;
+  if (s.type === 'choice') return <ChoiceSetting setting={s} onSaved={onSaved} />;
+  if (s.type === 'versionShares') return <VersionSharesSetting setting={s} onSaved={onSaved} />;
   return <IntegerSetting setting={s} onSaved={onSaved} />;
 }
 
@@ -255,6 +257,64 @@ function BooleanSetting({ setting: s, onSaved }) {
       <Toggle checked={s.value} disabled={busy} onChange={flip}>{s.label}</Toggle>
       <span className="muted xsmall">{s.help}{s.updatedAt ? ` Changed ${formatDateTime(s.updatedAt)}.` : ''}</span>
     </div>
+  );
+}
+
+/** 0.10.0: one of a few choices (segmented buttons, never a native select): the request budget's scope. */
+function ChoiceSetting({ setting: s, onSaved }) {
+  const toast = useToasts();
+  const [busy, setBusy] = useState(false);
+  const pick = async (value) => {
+    if (value === s.value) return;
+    setBusy(true);
+    try {
+      onSaved((await api(`/api/admin/settings/${s.key}`, { method: 'PUT', body: { value } })).settings);
+      toast.ok('Saved', `${s.label}: ${s.options.find((o) => o.value === value)?.label ?? value}`);
+    } catch (err) {
+      toast.err("Couldn't save", err.message);
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="stack gap-6">
+      <span className="small">{s.label}</span>
+      <Segmented label={s.label} options={s.options.map((o) => ({ id: o.value, label: o.label, disabled: busy }))} value={s.value} onChange={pick} />
+      <span className="muted xsmall">{s.help}{s.updatedAt ? ` Changed ${formatDateTime(s.updatedAt)}.` : ''}</span>
+    </div>
+  );
+}
+
+/** 0.10.0: each game version's ceiling on the shared request budget, a whole percent each. */
+function VersionSharesSetting({ setting: s, onSaved }) {
+  const toast = useToasts();
+  const [value, setValue] = useState(() => Object.fromEntries(s.options.map((o) => [o.value, String(s.value?.[o.value] ?? s.default[o.value])])));
+  const [problem, setProblem] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const save = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      onSaved((await api(`/api/admin/settings/${s.key}`, { method: 'PUT', body: { value: Object.fromEntries(Object.entries(value).map(([k, v]) => [k, Number(v)])) } })).settings);
+      setProblem(null);
+      toast.ok('Saved', s.label);
+    } catch (err) {
+      setProblem(err.message);
+    }
+    setBusy(false);
+  };
+  return (
+    <form className="stack gap-8" onSubmit={save}>
+      <span className="small">{s.label}</span>
+      <div className="row gap-12 wrap-row align-end">
+        {s.options.map((o) => (
+          <Field key={o.value} label={`${o.label}${o.enabled ? '' : ' (off)'} %`} inputClassName="num" inputMode="numeric" value={value[o.value]}
+            onChange={(e) => setValue((x) => ({ ...x, [o.value]: e.target.value }))} />
+        ))}
+        <Button type="submit" className="gold" loading={busy}>Save</Button>
+      </div>
+      {problem && <div className="note err small" role="alert"><Icon name="error" /><span>{problem}</span></div>}
+      <span className="muted xsmall">{s.help}{s.updatedAt ? ` Changed ${formatDateTime(s.updatedAt)}.` : ''}</span>
+    </form>
   );
 }
 
@@ -376,6 +436,11 @@ function CrawlerSection({ crawler, settings, onSaved, onRefresh, backfill = null
               </tbody>
             </table>
           </div>
+          {/* 0.10.0: requests waiting for the budget, by game version (each under its ceiling), and the budget's scope. */}
+          <span className="muted xsmall">
+            Waiting for the budget by game version: {Object.entries(c.waitingByVersion ?? {}).filter(([, n]) => n > 0).map(([v, n]) => `${v} ${formatNumber(n)}`).join(' · ') || 'none'}
+            {c.budgetScope ? ` · budget: ${c.budgetScope === 'region' ? 'one per region' : 'one for all regions'}` : ''}
+          </span>
           <span className="muted xsmall">Status written {timeAgo(c.updatedAt)}.</span>
           {c.lastError ? (
             <div className="note warn small"><Icon name="warning" /><span>Last error {timeAgo(c.lastError.at)}: {c.lastError.endpoint} {c.lastError.status !== null ? `HTTP ${c.lastError.status}` : (c.lastError.error ?? '')}</span></div>

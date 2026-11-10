@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.10.0",
+      "date": "2026-11-09",
+      "title": "Groundwork for more WoW versions, and a leaderboard for every number",
+      "sections": {
+        "New": [
+          "Groundwork for more versions of World of Warcraft (and, later, more regions) on Everstats. Nothing changes for WoW Forever yet: every page, address, leaderboard and tier works exactly as before.",
+          "Every number Blizzard sends for a character now has its own leaderboard: character stats such as health and strength, each gear slot’s item level, reputations, profession skill and more. They appear by themselves after a character’s next refresh, labelled with where they come from (“Health (character stats)”), and they don’t count toward tiers."
+        ]
+      }
+    },
+    {
       "version": "0.9.2",
       "date": "2026-11-09",
       "title": "Your guilds across the dashboard, named transmog, and fixes from a full sweep",

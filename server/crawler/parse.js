@@ -23,23 +23,33 @@ const int = (v) => (Number.isFinite(v) ? Math.trunc(v) : null);
 const ms = (v) => (Number.isFinite(v) && v > 0 ? new Date(v).toISOString() : null);
 const str = (v, max = 100) => (typeof v === 'string' ? v.slice(0, max) : null);
 
-/** The character slug a profile href names ("…/profile/wow/character/h%C3%A9ros-shade?…" → "héros-shade"). */
-export function slugFromHref(href) {
+/**
+ * The character a profile href names. Realmless ("…/profile/wow/character/h%C3%A9ros-shade?…" → slug "héros-shade") or,
+ * on a version with realms (0.10.0), "…/character/{realmSlug}/{name}" → { realmSlug, slug }. Which one is the
+ * version's to say (gameVersions.js `realms`): "/character/a/b" is a realm + name there and a sub-path here.
+ */
+export function characterRefFromHref(href, { realms = false } = {}) {
   if (typeof href !== 'string') return null;
   try {
-    const m = /\/profile\/wow\/character\/([^/?#]+)/.exec(new URL(href, 'https://x.invalid').pathname);
-    return m ? decodeURIComponent(m[1]).toLowerCase() : null;
+    const m = /\/profile\/wow\/character\/([^/?#]+)(?:\/([^/?#]+))?/.exec(new URL(href, 'https://x.invalid').pathname);
+    if (!m) return null;
+    if (realms) return m[2] ? { realmSlug: decodeURIComponent(m[1]).toLowerCase(), slug: decodeURIComponent(m[2]).toLowerCase() } : null;
+    return { realmSlug: null, slug: decodeURIComponent(m[1]).toLowerCase() };
   } catch {
     return null;
   }
 }
+export const slugFromHref = (href, opts) => characterRefFromHref(href, opts)?.slug ?? null;
+const realmOf = (r) => (isObj(r) && typeof r.slug === 'string' ? { id: Number.isSafeInteger(r.id) ? r.id : null, slug: r.slug.slice(0, 80).toLowerCase(), name: nameOf(r) } : null);
 
-export function parseProfile(json) {
+export function parseProfile(json, { realms = false } = {}) {
   if (!isObj(json) || !Number.isFinite(json.id) || typeof json.name !== 'string') return null;
   const g = isObj(json.guild) && Number.isFinite(json.guild.id) ? json.guild : null;
   return {
     id: json.id,
-    slug: slugFromHref(json._links?.self?.href),
+    slug: slugFromHref(json._links?.self?.href, { realms }),
+    // 0.10.0: a version with realms names the character's realm (and its guild's); realmless versions send none.
+    realm: realms ? realmOf(json.realm) : null,
     name: json.name.slice(0, 60),
     surname: str(json.surname, 60) ?? '',
     level: int(json.level),
@@ -48,7 +58,7 @@ export function parseProfile(json) {
     race: nameOf(json.race) ?? nameOf(json.playable_race),
     class: nameOf(json.character_class) ?? nameOf(json.playable_class),
     ruleset: isObj(json.ruleset) && Number.isInteger(json.ruleset.id) ? { id: json.ruleset.id, name: nameOf(json.ruleset) ?? `Ruleset ${json.ruleset.id}` } : null,
-    guild: g ? { id: g.id, name: str(g.name) ?? '', slug: str(g.slug) ?? null, faction: nameOf(g.faction) } : null,
+    guild: g ? { id: g.id, name: str(g.name) ?? '', slug: str(g.slug) ?? null, faction: nameOf(g.faction), realm: realms ? realmOf(g.realm) : null } : null,
     lastLoginAt: ms(json.last_login_timestamp),
   };
 }
@@ -214,15 +224,16 @@ export function parseMedia(json) {
 }
 
 /** /profile/user/wow → every character on every WoW account of that Battle.net login. */
-export function parseAccountCharacters(json) {
+export function parseAccountCharacters(json, { realms = false } = {}) {
   const out = [];
   for (const acct of Array.isArray(json?.wow_accounts) ? json.wow_accounts : []) {
     for (const c of Array.isArray(acct?.characters) ? acct.characters : []) {
       if (!isObj(c) || !Number.isFinite(c.id)) continue;
-      const slug = slugFromHref(c.character?.href);
+      const ref = characterRefFromHref(c.character?.href, { realms });
+      const slug = ref?.slug ?? null;
       if (!slug || typeof c.name !== 'string') continue;
       out.push({
-        id: c.id, slug, name: c.name.slice(0, 60), surname: str(c.surname, 60) ?? '', level: int(c.level),
+        id: c.id, slug, realmSlug: ref.realmSlug ?? (realms ? realmOf(c.realm)?.slug ?? null : null), name: c.name.slice(0, 60), surname: str(c.surname, 60) ?? '', level: int(c.level),
         class: nameOf(c.playable_class), race: nameOf(c.playable_race), faction: nameOf(c.faction), gender: nameOf(c.gender),
         // 0.9.0: Blizzard's own protected-character link (realm id + character id), read once at sign-in for opt-in gold
         // (collections/gold.js) and never stored.
@@ -234,16 +245,19 @@ export function parseAccountCharacters(json) {
 }
 
 /** A guild roster → its members, as Blizzard names them. */
-export function parseRoster(json) {
+export function parseRoster(json, { realms = false } = {}) {
   const out = [];
   for (const m of Array.isArray(json?.members) ? json.members : []) {
     const c = m?.character;
     if (!isObj(c) || !Number.isFinite(c.id) || typeof c.name !== 'string') continue;
-    const slug = str(c.slug, 120)?.toLowerCase() ?? slugFromHref(c.key?.href);
+    const ref = characterRefFromHref(c.key?.href, { realms });
+    const slug = str(c.slug, 120)?.toLowerCase() ?? ref?.slug ?? null;
     if (!slug) continue;
+    const realmSlug = realms ? (realmOf(c.realm)?.slug ?? ref?.realmSlug ?? null) : null;
+    if (realms && !realmSlug) continue;
     // rank: Blizzard's rank NUMBER (0 = guild master). Forever's roster sends no rank names (runs 1–2), so none is kept.
     out.push({
-      id: c.id, slug, name: c.name.slice(0, 60), surname: str(c.surname, 60) ?? '', level: int(c.level), faction: nameOf(c.faction),
+      id: c.id, slug, realmSlug, name: c.name.slice(0, 60), surname: str(c.surname, 60) ?? '', level: int(c.level), faction: nameOf(c.faction),
       rank: Number.isInteger(m.rank) && m.rank >= 0 && m.rank < 100 ? m.rank : null,
     });
   }
@@ -255,10 +269,11 @@ export function parseRoster(json) {
  * slug, faction, ruleset { id, name }, member_count, created_timestamp. achievement_points (0 in every sample) and
  * name_search (the name again) aren't kept.
  */
-export function parseGuildProfile(json) {
+export function parseGuildProfile(json, { realms = false } = {}) {
   if (!isObj(json) || !Number.isFinite(json.id) || typeof json.name !== 'string' || typeof json.slug !== 'string') return null;
   return {
     id: json.id,
+    realm: realms ? realmOf(json.realm) : null,
     slug: json.slug.slice(0, 120).toLowerCase(),
     name: json.name.slice(0, 100),
     faction: nameOf(json.faction),

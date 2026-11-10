@@ -1,6 +1,7 @@
 import { HttpError } from '../core/errors.js';
 import { DEFAULT_SHARES, TIER_LETTERS, sharesProblem } from '../stats/tiers.js';
 import { BETA_PERK_TEXT } from '../badges/catalog.js';
+import { GAME_VERSIONS, PRIMARY_VERSION, versionById } from '../core/gameVersions.js';
 
 /**
  * The admin settings registry. Every setting declares itself here; the admin page renders whatever is declared and
@@ -22,6 +23,7 @@ export const SETTINGS = [
     // 0.6.0: tiers (server/tiers/). The default fell from 500 to 50 (owner's decision for tiers). A value saved on the
     // admin page before 0.6.0 stays what it was.
     key: 'grading.minPopulation',
+    perVersion: true,
     section: 'tiers',
     label: 'Tier-eligible characters a ruleset needs before it is graded',
     help: 'Tier-eligible: level 10 or higher, fully fetched, not hidden. Until a ruleset has this many, nobody on it gets a tier: their pages say "Tiers open once N characters are tracked on {ruleset}". Leaderboards still show.',
@@ -32,6 +34,7 @@ export const SETTINGS = [
   },
   {
     key: 'tiers.shares',
+    perVersion: true,
     section: 'tiers',
     label: 'Letter shares',
     help: 'What share of a ruleset gets each letter, best first. The same shares apply to every category tier and the overall tier. They must add up to 100.',
@@ -40,6 +43,7 @@ export const SETTINGS = [
   },
   {
     key: 'tiers.categoryHalf',
+    perVersion: true,
     section: 'tiers',
     label: 'Share of a category’s counted statistics a character needs above zero',
     help: 'A character gets a category letter only with a value above zero in at least this share of the category’s counted statistics (rounded up), so one lucky statistic can’t earn an S.',
@@ -50,6 +54,7 @@ export const SETTINGS = [
   },
   {
     key: 'tiers.overallHalf',
+    perVersion: true,
     section: 'tiers',
     label: 'Share of the overall categories a character needs a letter in',
     help: 'A character gets an overall letter only with a letter in at least this share (rounded up) of the categories that count toward the overall tier.',
@@ -74,6 +79,7 @@ export const SETTINGS = [
     // 0.8.0: the overall tier is a weighted average of its categories. Unpinned categories follow the square root of
     // their counted statistics (tiers/engine.js categoryWeights); a pin fixes one category's percent.
     key: 'tiers.weights',
+    perVersion: true,
     section: 'tiers',
     label: 'Pinned category weights',
     help: 'Each category counts toward the overall tier in proportion to the square root of how many of its statistics count. Pin a percent to fix a category’s weight; the others share the rest by the same rule.',
@@ -131,6 +137,31 @@ export const SETTINGS = [
     min: 1,
     max: 50,
     default: 8,
+  },
+  {
+    // 0.10.0: each game version's CEILING on the shared budget. A version's requests (lookups included) start at most
+    // at its share of the rate, so no version can take the budget from another; inside a version, lookups still go
+    // first. 100 = no ceiling. A version that isn't enabled makes no requests whatever its share says.
+    key: 'crawler.versionShares',
+    section: 'crawler',
+    label: 'Each game version’s most of the request budget',
+    help: 'A ceiling, not a reservation: a version never uses more than this share of the requests per second, so it can never starve another. Lookups and sign-ins go first within each version. Versions that aren’t switched on make no requests.',
+    type: 'versionShares',
+    options: GAME_VERSIONS.map((v) => ({ value: v.id, label: v.name, enabled: v.enabled })),
+    default: Object.fromEntries(GAME_VERSIONS.map((v) => [v.id, v.primary ? 100 : 25])),
+  },
+  {
+    // 0.10.0: Blizzard's docs say "API clients are limited to 36,000 requests per hour at a rate of 100 requests per
+    // second" with no word on regions (guides/getting-started, read 2026-11-09). 'client' (the default, the safe
+    // reading): one budget for every region. 'region': one budget per region at the same rate, if Blizzard confirms
+    // the quota is per region. Only US exists before 1.0, so the two behave the same today.
+    key: 'crawler.budgetScope',
+    section: 'crawler',
+    label: 'Request budget: one for all regions, or one per region',
+    help: 'Blizzard documents 36,000 requests an hour and 100 a second per API client, without saying whether that is per region. Keep "one for all regions" unless Blizzard confirms a quota per region.',
+    type: 'choice',
+    options: [{ value: 'client', label: 'One for all regions' }, { value: 'region', label: 'One per region' }],
+    default: 'client',
   },
   {
     // 0.8.1: Blizzard's Forever render service drew the wrong race for every character (characters/renders.js). Off:
@@ -305,6 +336,22 @@ function check(def, value) {
     if (typeof value !== 'boolean') throw new HttpError(400, `${def.label} must be on or off`, 'invalid');
     return value;
   }
+  if (def.type === 'choice') {
+    if (!def.options.some((o) => o.value === value)) throw new HttpError(400, `${def.label}: pick one of the choices`, 'invalid');
+    return value;
+  }
+  if (def.type === 'versionShares') {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, `${def.label}: a percent per game version`, 'invalid');
+    const out = {};
+    for (const v of GAME_VERSIONS) {
+      const n = value[v.id] ?? def.default[v.id];
+      if (!Number.isInteger(n) || n < 0 || n > 100) throw new HttpError(400, `${def.label}: ${v.name} must be a whole percent from 0 to 100`, 'invalid');
+      out[v.id] = n;
+    }
+    if (out[PRIMARY_VERSION.id] < 1) throw new HttpError(400, `${def.label}: ${PRIMARY_VERSION.name} needs at least 1%`, 'invalid');
+    for (const k of Object.keys(value)) if (!versionById(k)) throw new HttpError(400, `${def.label}: unknown game version`, 'invalid');
+    return out;
+  }
   if (def.type === 'perks') {
     if (!Array.isArray(value) || value.length > PERKS_MAX) throw new HttpError(400, `Up to ${PERKS_MAX} perks`, 'invalid');
     return value.map((p) => {
@@ -347,17 +394,32 @@ function check(def, value) {
   throw new Error(`setting ${def.key} has an unknown type`);
 }
 
-export async function getSetting(db, key) {
+/**
+ * 0.10.0: settings marked `perVersion` (the tier settings) have one value per game version. The primary version's is
+ * the row it always had (the bare key), so nothing stored moved; another version's lives at "{key}@{version}" and
+ * starts at the declared default, never at the primary version's value.
+ */
+export const PER_VERSION_KEYS = Object.freeze(['grading.minPopulation', 'tiers.shares', 'tiers.categoryHalf', 'tiers.overallHalf', 'tiers.weights']);
+export function storageKey(key, version = null) {
+  const def = byKey.get(key);
+  if (!def?.perVersion || !version || version === PRIMARY_VERSION.id) return key;
+  if (!versionById(version)) throw new HttpError(400, 'Unknown game version', 'invalid');
+  return `${key}@${version}`;
+}
+
+export async function getSetting(db, key, { version = null } = {}) {
   const def = byKey.get(key);
   if (!def) throw new Error(`unknown setting ${key}`);
-  const row = await db.one('SELECT value FROM settings WHERE key = $1', [key]);
+  const row = await db.one('SELECT value FROM settings WHERE key = $1', [storageKey(key, version)]);
   return row ? row.value : def.default;
 }
 
-export async function listSettings(db) {
-  const rows = await db.query('SELECT key, value, updated_at FROM settings WHERE key = ANY($1) LIMIT 200', [SETTINGS.map((s) => s.key)]);
-  const stored = new Map(rows.map((r) => [r.key, r]));
+export async function listSettings(db, { version = null } = {}) {
+  const keys = SETTINGS.map((s) => storageKey(s.key, version));
+  const rows = await db.query('SELECT key, value, updated_at FROM settings WHERE key = ANY($1) LIMIT 200', [keys]);
+  const stored = new Map(rows.map((r) => [r.key.split('@')[0], r]));
   return SETTINGS.map((def) => ({
+    perVersion: Boolean(def.perVersion),
     key: def.key,
     section: def.section,
     label: def.label,
@@ -366,6 +428,7 @@ export async function listSettings(db) {
     min: def.min,
     max: def.max,
     default: def.default,
+    options: def.options,
     value: stored.has(def.key) ? stored.get(def.key).value : def.default,
     updatedAt: stored.get(def.key)?.updated_at ?? null,
   }));
@@ -381,19 +444,20 @@ export function checkSetting(key, value) {
 /** Keys whose change re-grades every ruleset (the worker's tiers job picks the request up). */
 export const TIER_SETTING_KEYS = Object.freeze(['grading.minPopulation', 'tiers.shares', 'tiers.categoryHalf', 'tiers.overallHalf', 'tiers.weights']);
 
-export async function setSetting(db, key, value, { q: outer = null } = {}) {
+export async function setSetting(db, key, value, { q: outer = null, version = null } = {}) {
   const def = byKey.get(key);
   if (!def) throw new HttpError(404, 'Unknown setting');
   const clean = check(def, value);
+  const stored = storageKey(key, version);
   const run = outer ? (fn) => fn(outer) : (fn) => db.tx(fn);
   await run(async (q) => {
     await q.query(
       `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2::jsonb, now())
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-      [key, JSON.stringify(clean)],
+      [stored, JSON.stringify(clean)],
     );
     const logged = def.type === 'perks' ? `${clean.length} perk(s)` : clean;
-    await q.query("INSERT INTO admin_events (type, detail) VALUES ('setting.changed', $1)", [JSON.stringify({ key, value: logged })]);
+    await q.query("INSERT INTO admin_events (type, detail) VALUES ('setting.changed', $1)", [JSON.stringify({ key, value: logged, ...(stored !== key ? { version } : {}) })]);
     if (TIER_SETTING_KEYS.includes(key)) {
       const { requestTierRecompute } = await import('../tiers/store.js');
       await requestTierRecompute(q, `setting ${key}`);

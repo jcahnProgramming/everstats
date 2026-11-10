@@ -259,9 +259,11 @@ export async function runDiscovery({ db, runId, fetch = globalThis.fetch, sleep,
 
   // ---- 5. static data, in the detected static namespace
   await phase('static data');
-  ns.static ??= pickStaticNamespace(obs.summary().namespaceLinks, { region: config.region });
-  const staticNamespace = ns.static ?? BLIZZARD_API.namespaces.static;
-  for (const e of DATA_ENDPOINTS.filter((d) => d.namespace === 'static')) await fetchOne(e.id, 'data', '', e.path, { namespace: staticNamespace });
+  ns.static ??= pickStaticNamespace(obs.summary().namespaceLinks, { region: config.region, version: BLIZZARD_API.version });
+  // 0.10.0: a static namespace is only ever the one Blizzard's links named; with none, the static requests are skipped
+  // (said so in the summary), never sent to a written guess.
+  const staticNamespace = ns.static ?? null;
+  if (staticNamespace) for (const e of DATA_ENDPOINTS.filter((d) => d.namespace === 'static')) await fetchOne(e.id, 'data', '', e.path, { namespace: staticNamespace });
 
   // ---- 6. catalog, suggestions, summary: built from the stored responses (analyseStored), the same code that
   // re-analyses an earlier run when the rules improve.
@@ -272,7 +274,7 @@ export async function runDiscovery({ db, runId, fetch = globalThis.fetch, sleep,
       profile: ns.profile,
       staticDetected: ns.static,
       staticUsed: staticNamespace,
-      staticNote: ns.static ? 'Detected from links in the API’s own responses.' : `No versioned static namespace appeared in any link; the static requests used the unversioned guess ${staticNamespace}.`,
+      staticNote: ns.static ? 'Detected from links in the API’s own responses.' : 'No static namespace appeared in any link, so the static requests were not sent (none is ever guessed).',
     },
     rulesets,
     account,

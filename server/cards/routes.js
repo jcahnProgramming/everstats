@@ -1,3 +1,4 @@
+import { scopeSql } from '../core/config.js';
 import express from 'express';
 import { getSetting } from '../admin/settings.js';
 import { logAccountEvent } from '../auth/sessions.js';
@@ -165,8 +166,8 @@ function sendError(res, err) {
 
 /** The id a saved default is stored under, or null. */
 async function subjectId(db, type, params) {
-  if (type === 'character' || type === 'tier' || type === 'collections') return (await db.one('SELECT id FROM characters WHERE slug = $1 AND NOT hidden', [params.c]))?.id ?? null;
-  if (type === 'guild') return (await db.one('SELECT id FROM guilds WHERE slug = $1 ORDER BY updated_at DESC LIMIT 1', [params.g]))?.id ?? null;
+  if (type === 'character' || type === 'tier' || type === 'collections') return (await db.one(`SELECT id FROM characters WHERE slug = $1 AND ${scopeSql()} AND NOT hidden`, [params.c]))?.id ?? null;
+  if (type === 'guild') return (await db.one(`SELECT id FROM guilds WHERE slug = $1 AND ${scopeSql()} ORDER BY updated_at DESC LIMIT 1`, [params.g]))?.id ?? null;
   return null;
 }
 
@@ -175,7 +176,7 @@ async function saveRole(db, req, type, params) {
   if (req.session?.stage !== 'full') return null;
   const me = Number(req.session.accountId);
   if (type === 'character' || type === 'tier' || type === 'collections') {
-    const row = await db.one('SELECT owner_account_id FROM characters WHERE slug = $1 AND NOT hidden', [params.c]);
+    const row = await db.one(`SELECT owner_account_id FROM characters WHERE slug = $1 AND ${scopeSql()} AND NOT hidden`, [params.c]);
     return row && Number(row.owner_account_id) === me ? 'owner' : null;
   }
   if (type === 'guild') {
@@ -188,7 +189,7 @@ async function saveRole(db, req, type, params) {
 /** What the maker offers for this subject. */
 async function makerChoices(db, type, params) {
   if (type === 'character') {
-    const row = await db.one('SELECT * FROM characters WHERE slug = $1', [params.c]);
+    const row = await db.one(`SELECT * FROM characters WHERE slug = $1 AND ${scopeSql()}`, [params.c]);
     const c = await characterView(db, row);
     const stats = await characterStatChoices(db, row);
     return {
@@ -202,7 +203,7 @@ async function makerChoices(db, type, params) {
     };
   }
   if (type === 'guild') {
-    const g = await db.one('SELECT * FROM guilds WHERE slug = $1 ORDER BY updated_at DESC LIMIT 1', [params.g]);
+    const g = await db.one(`SELECT * FROM guilds WHERE slug = $1 AND ${scopeSql()} ORDER BY updated_at DESC LIMIT 1`, [params.g]);
     const badges = await guildBadgesView(db, g);
     const { statistics } = await loadCatalog(db);
     const totals = await db.query(

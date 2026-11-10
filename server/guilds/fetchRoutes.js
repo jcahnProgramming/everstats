@@ -1,3 +1,4 @@
+import { scopeSql } from '../core/config.js';
 import express from 'express';
 import { getSetting } from '../admin/settings.js';
 import { HttpError, route } from '../core/errors.js';
@@ -32,7 +33,7 @@ export function createGuildFetchRouter({ db, limits, networkOf }) {
   async function guildOf(raw) {
     const slug = parseGuildSlug(raw);
     if (!slug) throw new HttpError(400, 'That isn’t a guild address.', 'invalid');
-    const g = await db.one('SELECT id, slug FROM guilds WHERE slug = $1 ORDER BY updated_at DESC LIMIT 1', [slug]);
+    const g = await db.one(`SELECT id, slug FROM guilds WHERE slug = $1 AND ${scopeSql()} ORDER BY updated_at DESC LIMIT 1`, [slug]);
     if (!g) throw new HttpError(404, 'Everstats doesn’t know this guild yet. Open its page first.', 'no_guild');
     return g;
   }

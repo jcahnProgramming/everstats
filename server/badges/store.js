@@ -17,7 +17,7 @@ import { FAMILIES, FAMILY_IDS, FEATURED_MAX, FIRST_FAMILIES, familyOf } from './
  *             the first featured badge; nothing featured → the first public badge; nothing public → no inline badge.
  */
 const DEF_COLUMNS = `d.id, d.family, d.name, d.description, d.how, d.art, d.template, d.monogram, d.award, d.rule, d.kept_while_held,
-  d.time_limited, d.verified, d.verification, d.sort, d.mark_sha, d.mark_set_at, d.created_at, d.created_by, d.art_temporary`;
+  d.time_limited, d.verified, d.verification, d.sort, d.mark_sha, d.mark_set_at, d.created_at, d.created_by, d.art_temporary, d.game_version`;
 
 export async function loadDefinitions(db) {
   return db.query(`SELECT ${DEF_COLUMNS} FROM badge_definitions d ORDER BY d.sort, d.id LIMIT 500`);

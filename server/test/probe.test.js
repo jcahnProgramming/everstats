@@ -8,7 +8,8 @@ import { candidatesFrom, listsOf, templateRegex } from '../discovery/probe/run.j
 const APP_TOKEN = 'app-token-PROBE-NEVER-STORED-01';
 const USER_TOKEN = 'user-token-PROBE-NEVER-STORED-02';
 const API = 'https://us.api.blizzard.com';
-const STATIC_NS = 'static-forever-1.0.0_12345-us';
+// The shape Blizzard's links use on Forever (static-{build}-forever-us); core/gameVersions.js staticPattern matches it.
+const STATIC_NS = 'static-1.0.0_12345-forever-us';
 const DYN = 'dynamic-forever-us';
 const PROF = 'profile-forever-us';
 const C = '/profile/wow/character/path-vexley';
@@ -49,6 +50,52 @@ function blizzard(path, ns, auth, query) {
   return [404, { code: 404 }];
 }
 
+// ---- 0.10.0: a fake Retail (a realm version: profile-us / dynamic-us, realm paths). Fixture names and numbers only.
+const R_PROF = 'profile-us';
+const R_DYN = 'dynamic-us';
+const R_STATIC = 'static-11.0.0_55555-us';
+const RC = '/profile/wow/character/fixture-realm/fixturo';
+const RG = '/data/wow/guild/fixture-realm/fixture-guild';
+const RENDER = 'https://render.worldofwarcraft.com/us/character/fixture-realm/1/2-main-raw.png';
+const isRetail = (ns) => ns === R_PROF || ns === R_DYN || ns === R_STATIC;
+function retail(path, ns, auth) {
+  if (path === '/profile/user/wow' && ns === R_PROF) {
+    if (auth !== `Bearer ${USER_TOKEN}`) return [401, {}];
+    return { wow_accounts: [{ characters: [
+      { name: 'Lowbie', id: 31, level: 12, realm: { slug: 'fixture-realm', name: 'Fixture Realm' }, character: { href: `${API}/profile/wow/character/fixture-realm/lowbie?namespace=${R_PROF}` }, playable_race: { name: 'Gnome' } },
+      { name: 'Fixturo', id: 33, level: 80, realm: { slug: 'fixture-realm', name: 'Fixture Realm' }, character: { href: `${API}${RC}?namespace=${R_PROF}` }, playable_race: { name: 'Orc' }, playable_class: { name: 'Shaman' } },
+    ] }] };
+  }
+  if (path === RC && ns === R_PROF) {
+    return {
+      _links: { self: { href: `${API}${RC}?namespace=${R_PROF}` } }, id: 33, name: 'Fixturo', level: 80, race: { name: 'Orc' }, gender: { name: 'Male' },
+      realm: { key: { href: `${API}/data/wow/realm/3?namespace=${R_DYN}` }, id: 3, slug: 'fixture-realm', name: 'Fixture Realm' },
+      character_class: { key: { href: `${API}/data/wow/playable-class/7?namespace=${R_STATIC}` }, id: 7 },
+      guild: { key: { href: `${API}${RG}?namespace=${R_PROF}` }, id: 500, name: 'Fixture Guild', slug: 'fixture-guild', realm: { slug: 'fixture-realm', id: 3 } },
+      average_item_level: 600, equipped_item_level: 598,
+    };
+  }
+  if (path === `${RC}/achievements/statistics` && ns === R_PROF) {
+    return { categories: [
+      { id: 1, name: 'Kills', statistics: [{ id: 60, name: 'Fixture kills', quantity: 5 }, { id: 61, name: 'Fixture new kills', quantity: 2 }] },
+      { id: 2, name: 'Mythic+', statistics: [{ id: 62, name: 'Fixture keys timed', quantity: 3 }] },
+    ] };
+  }
+  if (path === `${RC}/statistics` && ns === R_PROF) return { health: 9000, strength: { base: 10, effective: 12 }, character: { id: 33, name: 'Fixturo' } };
+  if (path === `${RC}/character-media` && ns === R_PROF) return { assets: [{ key: 'main-raw', value: RENDER }] };
+  if (path === `${RC}/pvp-summary` && ns === R_PROF) return { honorable_kills: 7, pvp_map_statistics: [{ world_map: { id: 30, name: 'Fixture Valley' }, match_statistics: { played: 4, won: 2 } }] };
+  if (path === RG && ns === R_PROF) return { id: 500, name: 'Fixture Guild', member_count: 9, achievement_points: 120 };
+  if (path === '/data/wow/realm/index' && ns === R_DYN) {
+    return { realms: [{ key: { href: `${API}/data/wow/realm/3?namespace=${R_DYN}` }, id: 3, slug: 'fixture-realm', name: 'Fixture Realm' }, { id: 4, slug: 'fixture-pvp', name: 'Fixture PvP' }, { id: 5, slug: 'fixture-gone', name: 'Fixture Gone' }] };
+  }
+  if (path === '/data/wow/realm/fixture-realm' && ns === R_DYN) return { id: 3, slug: 'fixture-realm', name: 'Fixture Realm', type: { type: 'NORMAL', name: 'Normal' }, category: 'United States', timezone: 'America/Chicago', locale: 'enUS', is_tournament: false };
+  if (path === '/data/wow/realm/fixture-pvp' && ns === R_DYN) return { id: 4, slug: 'fixture-pvp', name: 'Fixture PvP', type: { type: 'PVP', name: 'PvP' }, category: 'United States', timezone: 'America/New_York', locale: 'enUS', is_tournament: false };
+  if (path === '/data/wow/realm/3' && ns === R_DYN) return { id: 3, slug: 'fixture-realm', name: 'Fixture Realm', type: { type: 'NORMAL', name: 'Normal' } };
+  if (path === '/data/wow/connected-realm/index' && ns === R_DYN) return { connected_realms: [] };
+  if (path === '/data/wow/mount/index' && ns === R_STATIC) return { mounts: [{ id: 1 }, { id: 2 }] };
+  return [404, { code: 404 }];
+}
+
 async function fakeFetch(url, init = {}) {
   const u = new URL(url);
   const auth = init.headers?.Authorization ?? null;
@@ -61,7 +108,8 @@ async function fakeFetch(url, init = {}) {
   if (u.origin === 'https://oauth.battle.net' && u.pathname === '/userinfo') return json({ sub: '515151', battletag: 'Fixture#5151' });
   if (u.origin !== API) throw new Error('the test fetch refuses other hosts');
   if (onCall) await onCall(u);
-  const out = blizzard(u.pathname, u.searchParams.get('namespace'), auth, u.searchParams);
+  const ns = u.searchParams.get('namespace');
+  const out = isRetail(ns) ? retail(u.pathname, ns, auth) : blizzard(u.pathname, ns, auth, u.searchParams);
   return Array.isArray(out) ? json(out[1], out[0]) : json(out);
 }
 
@@ -243,4 +291,100 @@ test('a probe can be stopped: queued it never starts; running it stops before th
   // A discovery run is not a probe: it can't be stopped here.
   const plain = await t.db.one("INSERT INTO discovery_runs (status, options) VALUES ('done', '{}'::jsonb) RETURNING id");
   assert.equal((await c.post(`/api/admin/discovery/runs/${plain.id}/stop`, {}, admin)).json.code, 'not_probe');
+});
+
+test('0.10.0: a Retail probe (a realm version, disabled for players): realm paths, its own namespaces, every realm, Forever compared, nothing stored', async () => {
+  const c = t.client();
+  // Forever's production catalog (fixtures) and a Forever group choice, to compare against.
+  await t.db.query(`INSERT INTO statistics (id, name, category_path, blizzard_id) VALUES (60, 'Fixture kills', '[{"id":1,"name":"Kills"}]'::jsonb, 60), (70, 'Fixture forever only', '[{"id":9,"name":"Character"}]'::jsonb, 70) ON CONFLICT DO NOTHING`);
+  await t.db.query("INSERT INTO discovery_group_decisions (game_version, group_label, choice) VALUES ('forever', 'Combat', 'counts')");
+  const counts = async () => Object.fromEntries(await Promise.all(['characters', 'statistics', 'discovery_decisions', 'discovery_group_decisions', 'guilds', 'rulesets', 'realms', 'blizzard_ids'].map(async (tb) => [tb, (await t.db.one(`SELECT count(*)::int AS n FROM ${tb}`)).n])));
+  const before = await counts();
+
+  // The prefill: the admin's own Retail characters (the Discovery grant from the earlier test), highest level first.
+  const pre = await c.get('/api/admin/discovery/probe-characters?version=retail&region=us', admin);
+  assert.equal(pre.status, 200, JSON.stringify(pre.json));
+  assert.equal(pre.json.characters.length, 2);
+  assert.deepEqual([pre.json.pick.name, pre.json.pick.realmSlug, pre.json.pick.level], ['Fixturo', 'fixture-realm', 80]);
+  assert.deepEqual(pre.json.guild, { name: 'Fixture Guild', slug: 'fixture-guild', realmSlug: 'fixture-realm' });
+  // No such version, or a region Everstats doesn't cover: refused.
+  assert.equal((await c.get('/api/admin/discovery/probe-characters?version=nope&region=us', admin)).status, 400);
+  assert.equal((await c.get('/api/admin/discovery/probe-characters?version=retail&region=eu', admin)).status, 400);
+  // A realm version needs a realm.
+  assert.equal((await startProbe({ version: 'retail', region: 'us', name: 'Fixturo', guild: 'Fixture Guild' })).status, 400);
+
+  calls.length = 0;
+  const queued = await startProbe({ version: 'retail', region: 'us', name: 'Fixturo', realm: 'Fixture Realm', guild: 'Fixture Guild' });
+  assert.equal(queued.status, 201, JSON.stringify(queued.json));
+  assert.deepEqual(queued.json.run.options.primary, { name: 'Fixturo', surname: '', realmSlug: 'fixture-realm', slug: 'fixturo' });
+  const row = await t.db.one('SELECT game_version, region FROM discovery_runs WHERE id = $1', [queued.json.run.id]);
+  assert.deepEqual(row, { game_version: 'retail', region: 'us' });
+  await runQueued();
+  const run = await getRun(queued.json.run.id);
+  assert.equal(run.status, 'done', run.problem);
+  const s = run.summary;
+  assert.equal(s.version, 'retail');
+  assert.equal(s.namespaces.profile, 'profile-us');
+  assert.equal(s.namespaces.dynamic, 'dynamic-us');
+  assert.equal(s.namespaces.staticDetected, R_STATIC);
+  // Realm paths; no Forever namespace or Forever-only guess asked.
+  assert.equal(entry(s, 'character.profile').attempts[0].path, RC);
+  assert.equal(entry(s, 'guild.profile').attempts[0].path, RG);
+  assert.ok(!s.entries.some((e) => e.id.includes('guess')));
+  assert.ok(!calls.some((x) => /forever/.test(x.url)), 'nothing asked in a Forever namespace');
+  assert.ok(!s.answers.some((a) => a.id === 'legacy'));
+
+  // Every realm realm/index lists, with its type; one that 404s is recorded as such.
+  assert.equal(s.realms.asked, 3);
+  assert.equal(s.realms.answered, 2);
+  assert.deepEqual(s.realms.byType.map((x) => [x.value, x.realms]), [['NORMAL (Normal)', 1], ['PVP (PvP)', 1]]);
+  assert.equal(s.realms.realms.find((r) => r.slug === 'fixture-gone').status, 404);
+  assert.equal(s.answers.find((a) => a.id === 'realm-categories').verdict, 'yes');
+  assert.match(s.answers.find((a) => a.id === 'realm-categories').text, /NORMAL \(Normal\): 1 realm/);
+
+  // Statistics compared with Forever's: 60 shared, 61 and 62 new, 70 missing.
+  assert.deepEqual([s.statistics.probed, s.statistics.shared, s.statistics.sharedSameName, s.statistics.new.length], [3, 1, 1, 2]);
+  assert.ok(s.statistics.missing.some((m) => m.id === 70));
+  assert.deepEqual(s.statistics.categories.onlyHere, ['Mythic+']);
+  // Groups with Forever's choice as a suggestion, never applied; Mythic+ is a proposed new group.
+  const combat = s.groups.find((g) => g.label === 'Combat');
+  assert.equal(combat.forever.choice, 'counts');
+  assert.match(combat.suggestion, /Forever counts this group · 1 of 2 statistic ids match/);
+  assert.equal(combat.applied, false);
+  assert.equal(s.groups.find((g) => g.label === 'Mythic+').proposed, true);
+
+  // Boards (rule A7): one per statistic id, the feeds' numbers, the PvP family once; ids and texts skipped with reasons.
+  const keys = s.boards.list.map((b) => b.key);
+  for (const k of ['statistic:60', 'statistic:62', 'feed:statistics:health', 'feed:profile:average_item_level', 'collections:pvp:honorable_kills', 'feed:pvp-summary:pvp_map_statistics[world_map-30].match_statistics.won', 'feed:guild-profile:achievement_points']) {
+    assert.ok(keys.includes(k), k);
+  }
+  assert.ok(!keys.includes('feed:pvp-summary:honorable_kills'), 'the PvP family board is not counted twice');
+  assert.ok(s.boards.skipped.some((x) => x.feed === 'statistics' && x.path === 'character.id' && x.rule === 'id'));
+  assert.ok(s.boards.groups.some((g) => g.group === 'PvP'));
+  assert.equal(s.answers.find((a) => a.id === 'boards').verdict, 'yes');
+
+  // Renders: the URL beside Blizzard's race, unknown until the admin looks; the tick is kept through a re-analyse.
+  assert.equal(s.render.race, 'Orc');
+  assert.equal(s.render.main, RENDER);
+  assert.equal(s.answers.find((a) => a.id === 'renders').verdict, 'unknown');
+  const ticked = await c.post(`/api/admin/discovery/runs/${run.id}/render-check`, { verdict: 'wrong' }, admin);
+  assert.equal(ticked.status, 200);
+  assert.equal(ticked.json.run.summary.answers.find((a) => a.id === 'renders').verdict, 'no');
+  const again = await c.post(`/api/admin/discovery/runs/${run.id}/reanalyse`, {}, admin);
+  assert.equal(again.json.run.summary.render.verdict, 'wrong');
+  assert.equal((await c.post(`/api/admin/discovery/runs/${run.id}/render-check`, { verdict: 'maybe' }, admin)).status, 400);
+
+  // Exports: the boards CSV lists boards, skipped fields and realms.
+  const csv = await c.get(`/api/admin/discovery/runs/${run.id}/export-boards.csv`, admin);
+  assert.equal(csv.status, 200);
+  assert.match(csv.text, /^section,key_or_path/);
+  assert.match(csv.text, /board,statistic:62/);
+  assert.match(csv.text, /skipped,/);
+  assert.match(csv.text, /realm,fixture-pvp,Fixture PvP,PVP \(PvP\)/);
+  const exp = await c.get(`/api/admin/discovery/runs/${run.id}/export.json`, admin);
+  assert.ok(exp.json.run.summary.boards.list.length > 5);
+
+  // Nothing written outside the probe's own records: no character, statistic, decision, group choice, guild,
+  // realm category, realm or id mapping.
+  assert.deepEqual(await counts(), before);
 });

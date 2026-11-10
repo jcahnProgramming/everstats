@@ -1,3 +1,4 @@
+import { scopeSql } from '../core/config.js';
 import express from 'express';
 import { requireAccount } from '../auth/sessions.js';
 import { HttpError, route } from '../core/errors.js';
@@ -32,7 +33,7 @@ const idOf = (raw) => {
 async function guildOf(db, raw) {
   const slug = parseGuildSlug(raw);
   if (!slug) throw new HttpError(404, 'Not found');
-  const g = await db.one('SELECT id, slug, name, ruleset_id, first_seen_at, profile_fetched_at, totals_built_at FROM guilds WHERE slug = $1 ORDER BY updated_at DESC LIMIT 1', [slug]);
+  const g = await db.one(`SELECT id, slug, name, ruleset_id, first_seen_at, profile_fetched_at, totals_built_at FROM guilds WHERE slug = $1 AND ${scopeSql()} ORDER BY updated_at DESC LIMIT 1`, [slug]);
   if (!g) throw new HttpError(404, 'Everstats doesn’t know this guild yet.', 'no_guild');
   return g;
 }

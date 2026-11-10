@@ -24,6 +24,7 @@ import { createModerationPlayerRouter } from './moderation/player.js';
 import { createCardApiRouter, createCardImageRouter } from './cards/routes.js';
 import { createCardRenderer } from './cards/render.js';
 import { spaWithPreviews } from './cards/meta.js';
+import { versionApiGate, versionPageGate } from './core/versionRoutes.js';
 import { createCollectionsRouter } from './collections/routes.js';
 import { createFollowRouter } from './guilds/follow.js';
 import { getSetting } from './admin/settings.js';
@@ -79,6 +80,8 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
     next();
   });
   app.use('/api', requireSameOrigin(config.publicOrigin));
+  // 0.10.0: /api/v/{version}/{region}/… (core/versionRoutes.js): nothing is served there before 0.11.0.
+  app.use('/api', versionApiGate());
   app.use(loadSession(db));
 
   // The theme, applied before first paint by a blocking <script> in index.html. Logged-out visitors (and a half
@@ -123,6 +126,10 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   }));
   app.use('/api', createAccountRouter({ db, limits, networkOf }));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
+
+  // 0.10.0: /{version}/{region}/… pages (core/versionRoutes.js): the primary scope redirects to the unprefixed URL;
+  // every other version answers 404 until it is enabled and built.
+  app.use(versionPageGate());
 
   // OAuth callbacks: /auth/battlenet/callback and /auth/discord/callback (registered with both providers).
   app.use('/auth', createCallbackRouter({ db, fetch }));

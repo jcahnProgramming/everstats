@@ -1,3 +1,4 @@
+import { PRIMARY_SCOPE } from '../core/config.js';
 import { getSetting } from '../admin/settings.js';
 import { BUDGET_SHARES, PRIORITY, enqueue } from '../crawler/queue.js';
 import { markGuildsDirty } from '../crawler/store.js';
@@ -48,7 +49,13 @@ export async function guildRate(db) {
   return (await getSetting(db, 'crawler.requestsPerSecond')) * (BUDGET_SHARES[PRIORITY.guild] ?? 1);
 }
 
-const liveRow = (db, slug) => db.one(`SELECT * FROM guild_fetches WHERE slug = $1 AND state IN ${LIVE} ORDER BY id DESC LIMIT 1`, [slug]);
+// 0.10.0: a guild fetch belongs to one game version and region; `slug` is the guild's crawl key there (crawler/fetch.js
+// crawlKey: the slug, or "{realmSlug}/{slug}" on a realm version). Default: the primary scope (the guild pages).
+const scopeOf = (scope) => ({ version: scope?.version ?? PRIMARY_SCOPE.version, region: scope?.region ?? PRIMARY_SCOPE.region });
+const liveRow = (db, slug, scope) => db.one(
+  `SELECT * FROM guild_fetches WHERE game_version = $2 AND region = $3 AND slug = $1 AND state IN ${LIVE} ORDER BY id DESC LIMIT 1`,
+  [slug, scopeOf(scope).version, scopeOf(scope).region],
+);
 
 async function lastDone(db, guildId) {
   if (guildId === null || guildId === undefined) return null;
@@ -82,11 +89,11 @@ const countsOf = (row) => ({ roster: row.roster_members, tracked: row.tracked_be
  *   cooldown  finished earlier; the button opens at availableAt
  *   failed    step 1 didn't work (the reason in words); the button is offered again
  */
-export async function fetchStatus(db, { slug, guildId = null, now = Date.now() }) {
+export async function fetchStatus(db, { slug, guildId = null, now = Date.now(), scope = null }) {
   const perSecond = await guildRate(db);
   const paused = await getSetting(db, 'crawler.paused');
   const base = { perSecond, paused, requestsPerMember: REQUESTS_PER_MEMBER, rosterRequests: ROSTER_REQUESTS };
-  const row = await liveRow(db, slug);
+  const row = await liveRow(db, slug, scope);
   if (row) {
     const counts = countsOf(row);
     if (row.state === 'roster') return { ...base, state: 'roster', since: row.requested_at };
@@ -127,8 +134,8 @@ export async function fetchStatus(db, { slug, guildId = null, now = Date.now() }
     }
   }
   const failed = await db.one(
-    "SELECT problem, finished_at FROM guild_fetches WHERE slug = $1 AND state = 'failed' AND finished_at > $2 ORDER BY id DESC LIMIT 1",
-    [slug, new Date(now - ROSTER_TTL_MS)],
+    "SELECT problem, finished_at FROM guild_fetches WHERE game_version = $3 AND region = $4 AND slug = $1 AND state = 'failed' AND finished_at > $2 ORDER BY id DESC LIMIT 1",
+    [slug, new Date(now - ROSTER_TTL_MS), scopeOf(scope).version, scopeOf(scope).region],
   );
   if (failed) return { ...base, state: 'failed', problem: failed.problem };
   return { ...base, state: 'idle' };
@@ -139,8 +146,9 @@ export async function fetchStatus(db, { slug, guildId = null, now = Date.now() }
  * fetched answers with that fetch; a guild resting after a fetch is refused with when it opens.
  * → { row, itemId | null }
  */
-export async function readRoster(db, { slug, guildId = null, now = Date.now() }) {
-  const live = await liveRow(db, slug);
+export async function readRoster(db, { slug, guildId = null, now = Date.now(), scope = null }) {
+  const s = scopeOf(scope);
+  const live = await liveRow(db, slug, s);
   if (live && live.state !== 'ready') return { row: live, itemId: null };
   const until = await cooldownUntil(db, guildId, now);
   if (until) throw new FetchAllError('cooldown', `This guild was fetched recently. It can be fetched again from ${until.toISOString()}.`);
@@ -152,8 +160,8 @@ export async function readRoster(db, { slug, guildId = null, now = Date.now() })
     }
     const row = live
       ? await q.one('SELECT * FROM guild_fetches WHERE id = $1', [live.id])
-      : await q.one("INSERT INTO guild_fetches (guild_id, slug, state) VALUES ($1, $2, 'roster') RETURNING *", [guildId, slug]);
-    const item = await enqueue(q, { kind: 'guild', key: slug, priority: PRIORITY.lookup });
+      : await q.one("INSERT INTO guild_fetches (guild_id, slug, state, game_version, region) VALUES ($1, $2, 'roster', $3, $4) RETURNING *", [guildId, slug, s.version, s.region]);
+    const item = await enqueue(q, { kind: 'guild', key: slug, priority: PRIORITY.lookup, ...s });
     return { row, itemId: item.id };
   });
 }
@@ -167,11 +175,14 @@ export async function rosterFailed(db, fetchId, problem) {
  * Called by the crawler's guild item (crawler/fetch.js) after it stored a roster, or with members = null when
  * Blizzard serves no guild (or no roster) at that slug. Fills in every step-1 fetch waiting for this guild.
  */
-export async function noteRoster(q, { key, guild = null, members = null, problem = null }) {
-  const keys = [...new Set([String(key).toLowerCase(), guild?.slug].filter(Boolean))];
+export async function noteRoster(q, { key, guild = null, members = null, problem = null, scope = null }) {
+  const s = scopeOf(scope);
+  const current = guild ? (guild.realm?.slug ? `${guild.realm.slug}/${guild.slug}` : guild.slug) : null;
+  const keys = [...new Set([String(key).toLowerCase(), current].filter(Boolean))];
   const rows = await q.query(
-    "SELECT id FROM guild_fetches WHERE state = 'roster' AND (slug = ANY($1::text[]) OR ($2::bigint IS NOT NULL AND guild_id = $2)) LIMIT 10",
-    [keys, guild?.id ?? null],
+    `SELECT id FROM guild_fetches WHERE state = 'roster' AND game_version = $3 AND region = $4
+        AND (slug = ANY($1::text[]) OR ($2::bigint IS NOT NULL AND guild_id = $2)) LIMIT 10`,
+    [keys, guild?.id ?? null, s.version, s.region],
   );
   if (!rows.length) return 0;
   if (!members) {
@@ -192,21 +203,22 @@ export async function noteRoster(q, { key, guild = null, members = null, problem
   await q.query(
     `UPDATE guild_fetches SET state = 'ready', guild_id = $2, slug = $3, roster_at = now(), roster_members = $4, tracked_before = $5, to_fetch = $6, under_ten = $7
       WHERE id = $1`,
-    [first, guild.id, guild.slug, members.length, trackedIds.size, toFetch.length, underTen],
+    [first, guild.id, current, members.length, trackedIds.size, toFetch.length, underTen],
   );
   if (toFetch.length) {
+    // The member's crawl key in its version ("{realmSlug}/{slug}" on a realm version).
     await q.query(
       `INSERT INTO guild_fetch_members (fetch_id, character_id, slug) SELECT $1, v.id, v.slug FROM unnest($2::bigint[], $3::text[]) AS v(id, slug)
        ON CONFLICT DO NOTHING`,
-      [first, toFetch.map((m) => m.id), toFetch.map((m) => m.slug)],
+      [first, toFetch.map((m) => m.id), toFetch.map((m) => (m.realmSlug ? `${m.realmSlug}/${m.slug}` : m.slug))],
     );
   }
   return rows.length;
 }
 
 /** Step 2: the person confirmed the cost. → the fetch row, now queued. */
-export async function startFetch(db, { slug, now = Date.now() }) {
-  const row = await liveRow(db, slug);
+export async function startFetch(db, { slug, now = Date.now(), scope = null }) {
+  const row = await liveRow(db, slug, scope);
   if (!row || row.state === 'roster') throw new FetchAllError('no_roster', 'Read the roster first.');
   if (row.state === 'queued' || row.state === 'running') return row; // pressing it again shows the running one
   if (now - new Date(row.roster_at).getTime() > READY_TTL_MS) throw new FetchAllError('stale', 'That roster count is out of date. Read it again first.');
@@ -280,7 +292,7 @@ async function stepFetch(db, f, batch) {
   if (room > 0 && counts.waiting > 0) {
     const next = await db.query("SELECT character_id, slug FROM guild_fetch_members WHERE fetch_id = $1 AND state = 'waiting' ORDER BY character_id LIMIT $2", [f.id, room]);
     for (const m of next) {
-      const item = await enqueue(db, { kind: 'character', key: m.slug, priority: PRIORITY.guild, mode: 'full' });
+      const item = await enqueue(db, { kind: 'character', key: m.slug, priority: PRIORITY.guild, mode: 'full', version: f.game_version, region: f.region });
       await db.query("UPDATE guild_fetch_members SET state = 'queued', crawl_id = $3 WHERE fetch_id = $1 AND character_id = $2", [f.id, m.character_id, item.id]);
       fed += 1;
     }

@@ -6,7 +6,7 @@ import { startApp } from './helpers.js';
 const APP_TOKEN = 'app-token-NEVER-STORED-0001';
 const USER_TOKEN = 'user-token-NEVER-STORED-0002';
 const API = 'https://us.api.blizzard.com';
-const STATIC_NS = 'static-forever-1.0.0_99999-us';
+const STATIC_NS = 'static-1.0.0_99999-forever-us';
 const calls = [];
 let tokenStatus = 200;
 
@@ -449,6 +449,6 @@ test('analysis helpers: statistic shapes, value-type guesses, slug findings', as
   assert.equal(guessValueType('Bandage used most', { namedExample: 'Linen Bandage' }).guessed, false);
   const f = slugFindings(['/profile/wow/character/ann-de-la-rue', '/profile/wow/character/bob-smith']);
   assert.deepEqual(f.withMoreThanOneHyphen, ['ann-de-la-rue']);
-  assert.equal(pickStaticNamespace({ 'static-forever-1.0_1-us': { count: 1, firstEndpoint: 'x' } }, { region: 'us' }), 'static-forever-1.0_1-us');
+  assert.equal(pickStaticNamespace({ 'static-1.0_1-forever-us': { count: 1, firstEndpoint: 'x' } }, { region: 'us' }), 'static-1.0_1-forever-us');
   assert.equal(pickStaticNamespace({ 'dynamic-forever-us': { count: 9, firstEndpoint: 'x' } }, { region: 'us' }), null);
 });

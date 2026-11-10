@@ -1,3 +1,4 @@
+import { scopeSql } from '../core/config.js';
 import { getSetting } from '../admin/settings.js';
 import { PRIORITY, enqueueMany } from '../crawler/queue.js';
 import { KINDS } from './registry.js';
@@ -11,7 +12,8 @@ import { KINDS } from './registry.js';
  * is on. Never-fetched first, oldest tracked first.
  */
 export const BATCH = 200;
-const TRACKED = "profile_state = 'ok' AND level >= 10 AND stats_fetched_at IS NOT NULL AND missing_since IS NULL AND slug IS NOT NULL";
+// 0.10.0: the backfill is the primary version's (the only one crawled before 0.11.0).
+const TRACKED = `profile_state = 'ok' AND level >= 10 AND stats_fetched_at IS NOT NULL AND missing_since IS NULL AND slug IS NOT NULL AND ${scopeSql()}`;
 
 export async function backfillStatus(db) {
   const on = await getSetting(db, 'collections.backfill');
@@ -37,8 +39,8 @@ export async function runBackfill(db) {
   const rows = await db.query(
     `SELECT c.slug FROM characters c
       WHERE c.profile_state = 'ok' AND c.level >= 10 AND c.stats_fetched_at IS NOT NULL AND c.missing_since IS NULL AND c.slug IS NOT NULL
-        AND c.collections_fetched_at IS NULL
-        AND NOT EXISTS (SELECT 1 FROM crawl_queue q WHERE q.kind = 'collections' AND q.key = c.slug AND q.state IN ('queued', 'running'))
+        AND ${scopeSql('c')} AND c.collections_fetched_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM crawl_queue q WHERE q.kind = 'collections' AND q.key = c.slug AND ${scopeSql('q')} AND q.state IN ('queued', 'running'))
       ORDER BY c.tracked_since NULLS LAST, c.id LIMIT $1`,
     [room],
   );
