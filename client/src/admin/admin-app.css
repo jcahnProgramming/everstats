@@ -26,3 +26,75 @@
 @media (max-width: 719px) { .adm .inpage nav { scrollbar-width: none; } }
 .adm .nitem.signout { text-align: left; justify-content: flex-start; }
 @media (max-width: 719px) { .adm .chip { white-space: normal; height: auto; min-height: var(--es-space-22); padding-top: var(--es-space-2); padding-bottom: var(--es-space-2); line-height: var(--es-lh-snug); } }
+/* 0.10.4: every data table fits its card, at every width, with real-length names (CLAUDE.md "The admin area").
+   The table's own box (.dt-wrap) is a size container, so a table in a half-width card behaves like one on a narrow
+   screen, and the main column (at most ~1130px) is what counts, not the window:
+     ≥ 1200px  every column.
+     < 1200px  .lo2 columns drop; < 960px .lo columns drop too. What a dropped column held shows in the row's first
+               cell as a detail line (.dm, one per dropped column, same class) so nothing is lost.
+     < 720px   the designed card layout (theme/admin.css's phone rules, by the box instead of the viewport): every
+               column comes back as a labelled line.
+   Headers and long text wrap (names, reasons, labels); numbers, dates and chips stay on one line. Never a sideways
+   scrollbar, never overflow: hidden. */
+.adm .dt-wrap { container-type: inline-size; }
+.adm .dt th { white-space: normal; }
+.adm .dt td.dtl, .adm .dt td.t2, .adm .dt .sub, .adm .dt a.tgt, .adm .dt .wrapany { overflow-wrap: anywhere; }
+.adm .dt td .seg { flex-wrap: wrap; }
+.adm .dt .dm { display: none; margin-right: var(--es-space-8); }
+.adm .dt .dm .l { color: var(--es-muted); }
+@container (max-width: 1199px) {
+  .adm .dt .lo2 { display: none; }
+  .adm .dt .dm.lo2 { display: inline-block; }
+}
+@container (max-width: 959px) {
+  .adm .dt .lo { display: none; }
+  .adm .dt .dm.lo { display: inline-block; }
+}
+@container (max-width: 719px) {
+  .adm .dt, .adm .dt tbody, .adm .dt tr, .adm .dt td, .adm .dt td.lo, .adm .dt td.lo2 { display: block; width: 100%; }
+  .adm .dt thead { display: none; }
+  .adm .dt tr { padding: var(--es-space-10) var(--es-space-12); border-bottom: var(--es-border-1) solid var(--es-line); }
+  .adm .dt tr:last-child { border-bottom: 0; }
+  .adm .dt td, .adm .dt td.lo, .adm .dt td.lo2 { display: grid; grid-template-columns: minmax(0, 38%) minmax(0, 1fr); gap: var(--es-space-10); padding: var(--es-space-3) 0; border: 0; text-align: left; }
+  .adm .dt td::before { content: attr(data-label); font-size: var(--es-fs-11-5); color: var(--es-muted); font-weight: var(--es-weight-semibold); }
+  .adm .dt td > .chip, .adm .dt td > .tier { justify-self: start; }
+  .adm .dt td.dtl, .adm .dt td[data-label=""] { grid-template-columns: minmax(0, 1fr); padding-bottom: var(--es-space-6); }
+  .adm .dt td.dtl::before, .adm .dt td[data-label=""]::before { display: none; }
+  .adm .dt .act { justify-content: flex-start; flex-wrap: wrap; }
+  .adm .dt tbody tr:hover td { background: none; }
+  .adm .dt tr.is-fail { box-shadow: inset var(--es-border-3) 0 0 var(--es-danger); }
+  .adm .dt tr.is-fail td { background: none; box-shadow: none; }
+  .adm .dt .dm.lo, .adm .dt .dm.lo2 { display: none; }
+}
+@media (max-width: 719px) {
+  .adm .dt td.lo, .adm .dt td.lo2 { display: grid; }
+  .adm .dt .dm.lo, .adm .dt .dm.lo2 { display: none; }
+}
+.adm .dt .who2 { display: flex; min-width: 0; }
+.adm .dt .who2 .av { flex: none; }
+/* 0.10.4: at 720–1023px the rail leaves the top bar ~480px; the "Updated" stamp went off the right edge (clipped by .es,
+   so 0.10.3's check never saw it). Every panel shows its own "Updated" line, so the bar's copy goes first. */
+@media (max-width: 1023px) and (min-width: 720px) {
+  .adm .rfx .stamp { display: none; }
+  .adm .asearch { min-width: var(--es-space-96); }
+  /* The version name gives way (with an ellipsis; the full name is in its menu and title), the region stays. */
+  .adm .atop .anchor.vs { min-width: 0; flex: 0 1 auto; }
+  .adm .atop .vswitch { max-width: 100%; min-width: 0; }
+  .adm .atop .vswitch > span:not(.reg) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+/* 0.10.4: a setting's "Default …" line names every version's share (five versions): it wraps instead of running off the
+   page (1291px at 1024 in 0.10.3, clipped). Long chips in dashboard cards wrap like the phone chips. */
+.adm .srow .d { white-space: normal; overflow-wrap: anywhere; max-width: var(--es-size-col-min-xs); }
+.adm .dcard .chip { white-space: normal; height: auto; min-height: var(--es-space-22); padding-top: var(--es-space-2); padding-bottom: var(--es-space-2); line-height: var(--es-lh-snug); }
+/* 0.10.4: settings rows stack by the width of their own group, not the window (a 720px window leaves them ~380px
+   beside the section list), the way the phone layout stacks them. The in-page section list goes on top too. */
+.adm .setgroup, .adm .ap > .bd { container-type: inline-size; }
+@container (max-width: 559px) {
+  .adm .srow { grid-template-columns: minmax(0, 1fr); padding: var(--es-space-12); }
+  .adm .srow .d { text-align: left; max-width: none; }
+  .adm .mod-preview3, .adm .mod-split { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 1023px) and (min-width: 720px) {
+  .adm .inpage { grid-template-columns: minmax(0, 1fr); }
+  .adm .inpage nav { position: static; flex-direction: row; flex-wrap: wrap; }
+}

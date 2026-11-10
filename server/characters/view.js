@@ -1,5 +1,5 @@
 import { PRIMARY_SCOPE } from '../core/config.js';
-import { boardCounts, characterRanks } from '../stats/boards.js';
+import { boardCounts, characterRanks, everyoneTied } from '../stats/boards.js';
 import { categoryKey, loadCatalog } from '../stats/catalog.js';
 import { inlineBadges } from '../badges/store.js';
 import { gearItemIds } from '../crawler/items.js';
@@ -133,4 +133,33 @@ export async function characterStatistics(db, row) {
       }),
     })),
   };
+}
+
+/**
+ * 0.10.4: the profile's featured character, its third column: the owner's pinned badge (the one inline badge, null when
+ * none is public) and the character's best overall placements, from the same ranks the character page shows. A placement
+ * needs a rank (value above zero, ranked character) on a board where at least two have any and not everyone is tied
+ * ("#1 of 1" or a shared #1 says nothing),
+ * and never a "bad" statistic (deaths and the like are leaderboard-only, not something to show off). Best rank first,
+ * then the busier board. Read live; nothing stored.
+ */
+export const FEATURED_PLACEMENTS = 3;
+export async function featuredExtras(db, row, accountId) {
+  const badge = (await inlineBadges(db, [accountId])).get(Number(accountId)) ?? null;
+  if (row.ruleset_id === null || row.ruleset_id === undefined || row.hidden) return { badge, placements: [] };
+  const { statistics } = await loadCatalog(db);
+  const mine = await characterRanks(db, row.id, row.ruleset_id);
+  const counts = await boardCounts(db, row.ruleset_id);
+  const placements = [];
+  for (const [id, m] of mine) {
+    const s = statistics.get(id);
+    const bc = counts.byStat.get(id);
+    const withAny = bc?.nonzero ?? 0;
+    // A board where everyone with any is tied makes everyone #1: not a placement worth showing.
+    if (everyoneTied(bc)) continue;
+    if (!s || !s.name || !m.rank || m.value <= 0 || withAny < 2 || s.tierRole === 'bad' || s.category === 'Deaths & mishaps') continue;
+    placements.push({ id, name: s.name, rank: m.rank, withAny, value: m.value });
+  }
+  placements.sort((a, b) => a.rank - b.rank || b.withAny - a.withAny || a.id - b.id);
+  return { badge, placements: placements.slice(0, FEATURED_PLACEMENTS) };
 }

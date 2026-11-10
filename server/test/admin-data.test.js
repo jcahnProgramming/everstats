@@ -101,6 +101,10 @@ test('retention buckets: rows land in the right expiry bucket, and other version
   assert.equal(res.json.status.state, 'within');
   assert.equal(res.json.rule.keepDays, 29);
   assert.ok(res.json.ours.length > 10 && res.json.ours.every((o) => o.reason));
+  // 0.10.4: three classes, player-uploaded data listed separately (empty until the companion addon).
+  assert.deepEqual(res.json.classes.map((c) => c.label), ['Blizzard API data', 'Player-uploaded data', 'Everstats’ own data']);
+  assert.match(res.json.classes[1].kept, /until the player deletes it/);
+  assert.deepEqual(res.json.player, []);
 
   const retail = await t.client().get('/api/admin/data/retention?v=retail&r=us&fresh=1', h);
   const rk = retail.json.kinds.find((x) => x.id === 'characters');

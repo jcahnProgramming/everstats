@@ -2007,4 +2007,64 @@ export const migrations = [
       );
     },
   },
+  {
+    // 0.10.4: badge logos (server/badges/logos.js). A partner's own branding on its badge: each Pro Team badge, each
+    // Platform Employee badge, and each Community Partner badge (the new 'partner-community' template). Ours (the admin's
+    // upload, re-encoded; retention registry OURS).
+    //   badge_logos  stage 'saved' = the logo in use, 'pending' = an upload waiting for Save (discarded on Cancel or by
+    //                the next upload). The re-encoded PNGs at 64/128/256 px (never the original file), their hash, the
+    //                backing ('none' | 'plate'), and the PERMISSION NOTE: who granted it, when, how (all required).
+    // The 0.7.0 Pro Team marks MOVE here as saved logos (re-encoded to the three sizes from the stored 256² PNG). Nobody
+    // recorded a permission note then, so all three fields say exactly that rather than invent one; the mark columns
+    // are emptied (the bytes now live in badge_logos), and an unsaved pending mark is dropped (a staged upload).
+    id: '031_badge_logos',
+    async up(q) {
+      await q.query(`
+        ALTER TABLE badge_definitions DROP CONSTRAINT IF EXISTS badge_definitions_template_check;
+        ALTER TABLE badge_definitions ADD CONSTRAINT badge_definitions_template_check
+          CHECK (template IN ('partner-pro', 'platform-employee', 'partner-community', 'class', 'achievement'));
+        ALTER TABLE badge_events DROP CONSTRAINT IF EXISTS badge_events_type_check;
+        ALTER TABLE badge_events ADD CONSTRAINT badge_events_type_check CHECK (type IN ('granted', 'earned', 'revoked', 'removed', 'restored',
+          'mark_uploaded', 'mark_saved', 'created', 'backfill', 'renamed', 'creator_started', 'creator_verified', 'creator_handle_changed', 'creator_revoked',
+          'creator_alert_checked', 'logo_uploaded', 'logo_saved', 'logo_replaced', 'logo_removed', 'logo_carried_over'));
+
+        CREATE TABLE badge_logos (
+          badge_id        text NOT NULL REFERENCES badge_definitions (id) ON DELETE CASCADE,
+          stage           text NOT NULL CHECK (stage IN ('saved', 'pending')),
+          png_64          bytea NOT NULL,
+          png_128         bytea NOT NULL,
+          png_256         bytea NOT NULL,
+          sha             text NOT NULL,
+          backing         text NOT NULL DEFAULT 'none' CHECK (backing IN ('none', 'plate')),
+          permission_by   text NOT NULL CHECK (char_length(permission_by) BETWEEN 1 AND 120),
+          permission_at   text NOT NULL CHECK (char_length(permission_at) BETWEEN 1 AND 120),
+          permission_how  text NOT NULL CHECK (char_length(permission_how) BETWEEN 1 AND 200),
+          reason          text CHECK (char_length(reason) <= 500),
+          created_at      timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (badge_id, stage)
+        );
+      `);
+      const marks = await q.query('SELECT id, mark, mark_set_at FROM badge_definitions WHERE mark IS NOT NULL ORDER BY id LIMIT 500');
+      if (marks.length) {
+        const { encodeSizes } = await import('../badges/logos.js');
+        const { createHash } = await import('node:crypto');
+        const NOT_RECORDED = 'not recorded (uploaded before 0.10.4)';
+        for (const m of marks) {
+          const sizes = await encodeSizes(Buffer.from(m.mark));
+          const sha = createHash('sha256').update(sizes[256]).digest('hex');
+          await q.query(
+            `INSERT INTO badge_logos (badge_id, stage, png_64, png_128, png_256, sha, permission_by, permission_at, permission_how, reason, created_at)
+             VALUES ($1, 'saved', $2, $3, $4, $5, $6, $6, $6, NULL, coalesce($7, now()))`,
+            [m.id, sizes[64], sizes[128], sizes[256], sha, NOT_RECORDED, m.mark_set_at],
+          );
+          await q.query(
+            "INSERT INTO badge_events (type, badge_id, actor, detail) VALUES ('logo_carried_over', $1, 'migration', $2::jsonb)",
+            [m.id, JSON.stringify({ from: '0.7.0 partner mark', permission: 'not recorded' })],
+          );
+        }
+      }
+      await q.query(`UPDATE badge_definitions SET mark = NULL, mark_sha = NULL, mark_set_at = NULL, mark_pending = NULL, mark_pending_sha = NULL, mark_pending_at = NULL
+                      WHERE mark IS NOT NULL OR mark_pending IS NOT NULL`);
+    },
+  },
 ];

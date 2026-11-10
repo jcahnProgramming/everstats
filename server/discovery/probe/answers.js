@@ -32,6 +32,14 @@ export function probeAnswers(entries, { foreverTerms = [], primary = null, versi
     return e && e.attempts.length > 0 && e.attempts.every((a) => a.status === 404);
   });
   const who = primary ? [primary.name, primary.surname].filter(Boolean).join(' ') : 'the character';
+  /** 0.10.4: " The current season (N) answered S; listed ones: …" when the index named a current_season, else nothing. */
+  const currentText = (id, param) => {
+    const e = by.get(id);
+    const cur = e?.attempts.find((a) => String(a.basis ?? '').startsWith('current_season'));
+    if (!cur) return '';
+    const rest = e.attempts.filter((a) => a !== cur);
+    return ` The index’s current season (${cur.values?.[param] ?? '…'}) answered ${cur.status ?? 'no answer'}${rest.length ? `; then listed: ${rest.map((a) => `${a.values?.[param] ?? '…'} ${a.status ?? 'no answer'}`).join(', ')}` : ''}.`;
+  };
   const answers = [];
   const add = (a) => answers.push(a);
 
@@ -201,7 +209,27 @@ export function probeAnswers(entries, { foreverTerms = [], primary = null, versi
     const asked = [season, region].some(Boolean) || (bracket?.attempts.length ?? 0) > 0;
     const verdict = yes ? 'yes' : asked && allNotFound(['data.pvp-season-index', 'data.pvp-region-index']) && brOk.length === 0 ? 'no' : 'unknown';
     const text = `pvp-season/index: ${season ? `${fmt(season.count ?? 0)} seasons` : why('data.pvp-season-index')}; pvp-region/index (classic): ${region ? `${fmt(region.count ?? 0)} regions` : why('data.pvp-region-index')}; ${who}'s brackets: ${bracket?.attempts.length ? bracket.attempts.map((a) => `${a.values?.pvpBracket} ${a.status ?? 'no answer'}`).join(', ') : why('character.pvp-bracket')}; pvp-summary: ${best('character.pvp-summary') ? 'answered' : why('character.pvp-summary')}.`;
-    add({ id: 'pvp', module: 'PvP', question: 'PvP brackets and seasons: is there data?', verdict, text, evidence: ['data.pvp-season-index', 'data.pvp-region-index', 'character.pvp-bracket', 'character.pvp-summary'] });
+    add({ id: 'pvp', module: 'PvP', question: 'PvP brackets and seasons: is there data?', verdict, text: `${text}${currentText('data.pvp-season', 'pvpSeasonId')}`, evidence: ['data.pvp-season-index', 'data.pvp-region-index', 'character.pvp-bracket', 'character.pvp-summary'] });
+  }
+
+  // ---- 0.10.4: Solo Shuffle and Blitz. Their bracket names are per class and spec, so they come only from the links in
+  // the character's pvp-summary (never built from a class and spec); 2v2 / 3v3 / rbg are the common ones.
+  {
+    const bracket = by.get('character.pvp-bracket');
+    const summary = best('character.pvp-summary');
+    const linked = (bracket?.attempts ?? []).filter((a) => /^(shuffle|blitz)-/i.test(String(a.values?.pvpBracket ?? '')) && String(a.basis ?? '').startsWith('linked from'));
+    const shape = 'Their bracket names are per class and spec (shuffle-{class}-{spec}, blitz-{class}-{spec}) and are taken only from the links in the character’s pvp-summary, never built';
+    let verdict = 'unknown';
+    let text;
+    if (linked.length) {
+      verdict = linked.some((a) => a.status === 200) ? 'yes' : 'unknown';
+      text = `From ${linked[0].basis.replace(/^linked from /, '')}: ${linked.map((a) => `${a.values.pvpBracket} ${a.status ?? 'no answer'}`).join(', ')}. ${shape}.`;
+    } else if (summary) {
+      text = `pvp-summary answered but linked no Solo Shuffle or Blitz bracket (it links only brackets ${who} has played), so none were tried. ${shape}.`;
+    } else {
+      text = `pvp-summary ${why('character.pvp-summary')}, so no Solo Shuffle or Blitz bracket name was found and none were tried. ${shape}.`;
+    }
+    add({ id: 'pvp-shuffle-blitz', module: 'PvP', question: 'Solo Shuffle and Blitz: where do their bracket names come from, and do they answer?', verdict, text, evidence: ['character.pvp-summary', 'character.pvp-bracket'] });
   }
 
   // ---- Mythic+
@@ -210,7 +238,7 @@ export function probeAnswers(entries, { foreverTerms = [], primary = null, versi
     const mine = best('character.mythic-keystone-profile');
     const verdict = (season?.count ?? 0) > 0 ? 'yes' : season ? 'unknown' : allNotFound(['data.mythic-keystone-season-index']) ? 'no' : 'unknown';
     const text = `mythic-keystone/season/index: ${season ? `${fmt(season.count ?? 0)} seasons` : why('data.mythic-keystone-season-index')}; ${who}'s mythic-keystone-profile: ${mine ? `answered (${Object.entries(mine.lists ?? {}).map(([k, n]) => `${k}: ${n}`).join(', ') || 'no lists'})` : why('character.mythic-keystone-profile')}.`;
-    add({ id: 'mythic', module: 'Mythic+', question: 'Mythic+ seasons: is there data?', verdict, text, evidence: ['data.mythic-keystone-season-index', 'character.mythic-keystone-profile'] });
+    add({ id: 'mythic', module: 'Mythic+', question: 'Mythic+ seasons: is there data?', verdict, text: `${text}${currentText('data.mythic-keystone-season', 'seasonId')}`, evidence: ['data.mythic-keystone-season-index', 'character.mythic-keystone-profile'] });
   }
 
   // ---- a character by id

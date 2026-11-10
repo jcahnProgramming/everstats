@@ -17,6 +17,7 @@ import { useScope } from './scope.jsx';
  *   useAction() + <ActionButton> + <ActionStatus>   an admin action shows working → done → result IN PLACE
  *   useHit()                                    the row a settings-search result points at gets .is-hit and is scrolled to
  *   <ScopedLink>                                a Link that keeps ?v=&r=
+ *   <InPageNav sections>                        an in-page section list that follows the scroll (0.10.4)
  */
 
 const CHIP_ICONS = { ok: 'check-circle', warn: 'warning', err: 'x-circle', off: 'no-coverage', info: 'info', run: 'refresh', vis: 'eye', scope: 'globe' };
@@ -223,6 +224,67 @@ export function useHit(ready) {
       if (el) el.classList.remove('is-hit');
     };
   }, [hash, ready]);
+}
+
+/**
+ * An in-page section list (.inpage nav) that FOLLOWS THE SCROLL (0.10.4): the section being read is aria-current; a
+ * click scrolls to its section and writes #id into the address (replaceState: Back doesn't step through sections, and
+ * useHit's highlight is kept for search results, not for this). Works with the settings search's jump: whatever scrolled
+ * the page, the list shows where you are. The section being read is the last one whose top has passed just under the
+ * sticky top bar; at the very bottom of the page, the last one.
+ */
+export function InPageNav({ label, sections, children = null }) {
+  const nav = useRef(null);
+  const [active, setActive] = useState(() => {
+    const id = typeof window === 'undefined' ? '' : decodeURIComponent(window.location.hash.slice(1));
+    return sections.some((x) => x.id === id) ? id : sections[0]?.id ?? null;
+  });
+  const ids = sections.map((x) => x.id).join(',');
+  useEffect(() => {
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const line = (parseFloat(getComputedStyle(nav.current ?? document.body).top) || 0) + 24;
+      let found = null;
+      for (const id of ids.split(',')) {
+        const el = document.getElementById(id);
+        if (el && el.getBoundingClientRect().top <= line) found = id;
+      }
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+      if (atBottom) found = ids.split(',').filter((id) => document.getElementById(id)).at(-1) ?? found;
+      setActive(found ?? ids.split(',')[0]);
+    };
+    const onScroll = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    measure();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    // Panels load at different times and change the page's height: measure again as they arrive.
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(onScroll);
+    ro?.observe(document.body);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+      ro?.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [ids]);
+  const go = (e, id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    e.preventDefault();
+    const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ block: 'start', behavior: smooth ? 'smooth' : 'auto' });
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}#${id}`);
+    setActive(id);
+  };
+  return (
+    <nav aria-label={label} ref={nav}>
+      {sections.map((x) => (
+        <a key={x.id} href={`#${x.id}`} aria-current={active === x.id ? 'true' : undefined} onClick={(e) => go(e, x.id)}>{x.label}</a>
+      ))}
+      {children}
+    </nav>
+  );
 }
 
 /** A table cell value for "before → after" (data-table.md .chg). */

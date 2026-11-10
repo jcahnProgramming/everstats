@@ -258,7 +258,7 @@ export function createGuildRouter({ db, limits, networkOf }) {
           const list = byStat.get(id) ?? [];
           const bc = counts.get(id);
           return {
-            id, name: statistics.get(id).name, named: statistics.get(id).named, ranked: bc?.ranked ?? 0, notYet: bc?.notYet ?? 0, tied: guildsTied(bc),
+            id, name: statistics.get(id).name, named: statistics.get(id).named, ranked: bc?.ranked ?? 0, notYet: bc?.notYet ?? 0, tied: guildsTied(bc), tiedValue: guildsTied(bc) ? Number(bc.max) : null,
             top: list.map((t) => ({ rank: list.findIndex((x) => x.total === t.total) + 1, value: t.total, members: t.members, ...guilds.get(t.guild_id) })),
           };
         }),

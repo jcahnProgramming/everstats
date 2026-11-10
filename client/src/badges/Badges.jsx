@@ -49,7 +49,7 @@ export function BadgeIcon({ badge, size = 'std', isNew = false, locked = false, 
   const cls = ['bdg', size, isNew ? 'is-new' : '', locked ? 'is-locked' : '', retired ? 'is-retired' : ''].filter(Boolean).join(' ');
   return (
     <span className={cls} role={labelled ? 'img' : undefined} aria-label={labelled ? badgeLabel(badge, { locked, retired, isNew }) : undefined} aria-hidden={labelled ? undefined : 'true'}>
-      <BadgeArt badge={badge} inline={size === 'inline'} />
+      <BadgeArt badge={badge} inline={size === 'inline'} size={size} />
       {(locked || retired) && size !== 'inline' && <StateIcon kind={retired ? 'retired' : 'locked'} />}
     </span>
   );

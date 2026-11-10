@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import sharp from 'sharp';
-import { ORIGIN, startApp } from './helpers.js';
+import { startApp } from './helpers.js';
 
 // Badges (0.7.0). Fixture names and made-up ids only; nothing here reaches Blizzard or Discord.
 let t;
@@ -199,45 +198,7 @@ test('admin: grants need a reason and a manual badge; revoking is a logged state
   assert.deepEqual(log, ['revoked', 'granted']);
 });
 
-async function upload(id, body, { permission = true, type = 'image/png' } = {}) {
-  const res = await fetch(`${t.base}/api/admin/badges/${id}/mark${permission ? '?permission=confirmed' : ''}`, {
-    method: 'POST', headers: { ...admin, Origin: ORIGIN, 'Content-Type': type, 'CF-Connecting-IP': '203.0.113.202' }, body,
-  });
-  return { status: res.status, json: await res.json().catch(() => null) };
-}
-
-test('partner marks: PNG/WebP only (never SVG), permission confirmed, re-encoded without metadata; Pro Team badges can’t be granted before a saved mark', async () => {
-  const a = t.client({ ip: '203.0.113.203' });
-  const made = await a.post('/api/admin/badges/definitions', { template: 'partner-pro', id: 'fixture-team-partner', name: 'Fixture Team Partner', description: 'A fixture team.' }, admin);
-  assert.equal(made.status, 200);
-  const p = await newPlayer('teamfixture');
-  assert.equal((await admin_grant(p.id, 'fixture-team-partner', 'Partnership signed (fixture)')).json.code, 'needs_mark');
-
-  const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
-  assert.equal((await upload('fixture-team-partner', svg, { type: 'image/svg+xml' })).status, 415);
-  assert.equal((await upload('fixture-team-partner', svg, { type: 'image/png' })).status, 415, 'the bytes decide, not the header');
-  const png = await sharp({ create: { width: 300, height: 260, channels: 4, background: { r: 10, g: 120, b: 140, alpha: 1 } } })
-    .png().withMetadata({ exif: { IFD0: { Copyright: 'FixtureSecretMetadata' } } }).toBuffer();
-  assert.ok(png.includes('FixtureSecretMetadata'));
-  assert.equal((await upload('fixture-team-partner', png, { permission: false })).json.code, 'permission_required');
-  const tiny = await sharp({ create: { width: 64, height: 64, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
-  assert.equal((await upload('fixture-team-partner', tiny)).json.code, 'too_small');
-  const up = await upload('fixture-team-partner', png);
-  assert.equal(up.status, 200);
-  assert.match(up.json.preview, /^data:image\/png;base64,/);
-  // Not live until saved with a reason and the preview box ticked.
-  assert.equal((await admin_grant(p.id, 'fixture-team-partner', 'x')).json.code, 'needs_mark');
-  assert.equal((await a.post('/api/admin/badges/fixture-team-partner/mark/save', { reason: 'Signed', previewChecked: false }, admin)).json.code, 'preview_required');
-  const saved = await a.post('/api/admin/badges/fixture-team-partner/mark/save', { reason: 'Signed agreement (fixture)', previewChecked: true }, admin);
-  assert.equal(saved.status, 200);
-  const served = await fetch(`${t.base}${saved.json.mark}`);
-  assert.equal(served.headers.get('content-type'), 'image/png');
-  const bytes = Buffer.from(await served.arrayBuffer());
-  assert.ok(!bytes.includes('FixtureSecretMetadata'), 'metadata is stripped');
-  const meta = await sharp(bytes).metadata();
-  assert.deepEqual([meta.format, meta.width, meta.height, meta.exif], ['png', 256, 256, undefined]);
-  assert.equal((await admin_grant(p.id, 'fixture-team-partner', 'Partnership signed (fixture)')).status, 200);
-});
+// 0.10.4: the 0.7.0 partner-mark test became server/test/badge-logos.test.js (logos for every partner kind).
 
 test('badge detail: holders listed only for automatic badges and only where public; granted badges show a count only', async () => {
   const pub = await t.client().get('/api/badges/beta-tester');

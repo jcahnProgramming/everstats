@@ -10,7 +10,7 @@ import { PRIORITY_VALUES } from '../crawler/queue.js';
 import { backupStatus, keepReasons } from '../core/backup.js';
 import { listPublic, removeCredential, saveCredential } from '../credentials/store.js';
 import { trustedProxyCheck, trustedProxyEntries } from '../core/network.js';
-import { BLIZZARD, OURS } from '../retention/registry.js';
+import { BLIZZARD, CLASSES, OURS, PLAYER } from '../retention/registry.js';
 import { retentionStatus } from '../retention/sweep.js';
 import { DAY_MS, keepDaysFor } from '../retention/policy.js';
 
@@ -418,6 +418,12 @@ export function createAdminDataRouter({ db, writes, cardStats = () => null, prox
       cutoff,
       countedAt: new Date(memo.at).toISOString(),
       kinds,
+      // 0.10.4: the three classes, and player-uploaded data with its row counts (none until the companion addon).
+      classes: Object.values(CLASSES).map((c) => ({ ...c, tables: c.id === 'blizzard' ? new Set(BLIZZARD.map((e) => e.table)).size : c.id === 'player' ? PLAYER.length : Object.keys(OURS).filter((t) => !t.startsWith('_')).length })),
+      player: await Promise.all(PLAYER.map(async (e) => ({
+        table: e.table, holds: e.holds, owner: e.owner, deletePath: e.deletePath, kept: CLASSES.player.kept,
+        rows: (await db.one(`SELECT count(*)::bigint AS n FROM ${e.table}`)).n,
+      }))),
       ours: Object.entries(OURS).filter(([t]) => !t.startsWith('_')).map(([table, reason]) => ({ table, reason })).sort((a, b) => a.table.localeCompare(b.table)),
     });
   }));

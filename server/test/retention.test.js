@@ -27,6 +27,61 @@ test('every table is classified: Blizzard data (with a sweep) or our own (with a
   assert.deepEqual(stale, [], 'registry names a table that no longer exists');
 });
 
+test('0.10.4: three classes, one each. Only "Blizzard API data" is ever swept; player-uploaded data never is', async () => {
+  const { BLIZZARD, PLAYER, OURS, CLASSES, classOf } = await import('../retention/registry.js');
+  assert.deepEqual(Object.keys(CLASSES), ['blizzard', 'player', 'ours']);
+  // Every entry on the sweep list is classed Blizzard API data; none is player-uploaded or ours.
+  for (const e of BLIZZARD) {
+    assert.equal(e.class, 'blizzard', `${e.table} is on the sweep list but not classed Blizzard API data`);
+    assert.equal(classOf(e.table), 'blizzard');
+    assert.equal(typeof e.sweep, 'function');
+  }
+  // A player-uploaded table is never registered for sweeping, never classed Blizzard, and never ours.
+  for (const e of PLAYER) {
+    assert.equal(e.class, 'player');
+    assert.ok(!BLIZZARD.some((b) => b.table === e.table), `${e.table} is player-uploaded but registered for sweeping`);
+    assert.ok(!Object.hasOwn(OURS, e.table), `${e.table} is player-uploaded and ours at once`);
+    assert.equal(e.sweep, undefined, `${e.table} is player-uploaded and must not carry a sweep`);
+    assert.ok(e.holds && e.owner && e.deletePath, `${e.table} needs holds, owner and deletePath`);
+    // No Blizzard sweep may name it (the characters purge deletes child tables by name).
+    for (const b of BLIZZARD) assert.ok(!String(b.sweep).includes(e.table), `${b.table}'s sweep touches player-uploaded ${e.table}`);
+    // Deleting the account deletes it: its owner column references accounts ON DELETE CASCADE.
+    const fk = await t.db.one(
+      `SELECT count(*)::int AS n FROM information_schema.referential_constraints rc
+         JOIN information_schema.key_column_usage k ON k.constraint_name = rc.constraint_name
+         JOIN information_schema.constraint_column_usage u ON u.constraint_name = rc.constraint_name
+        WHERE k.table_name = $1 AND k.column_name = $2 AND u.table_name = 'accounts' AND rc.delete_rule = 'CASCADE'`,
+      [e.table, e.owner],
+    );
+    assert.equal(fk.n, 1, `${e.table}.${e.owner} must reference accounts ON DELETE CASCADE`);
+    // And it hangs off no Blizzard table (a cascade from a swept row would delete it).
+    const parents = await t.db.query(
+      `SELECT u.table_name FROM information_schema.referential_constraints rc
+         JOIN information_schema.key_column_usage k ON k.constraint_name = rc.constraint_name
+         JOIN information_schema.constraint_column_usage u ON u.constraint_name = rc.constraint_name
+        WHERE k.table_name = $1`,
+      [e.table],
+    );
+    for (const { table_name: parent } of parents) assert.notEqual(classOf(parent), 'blizzard', `${e.table} cascades from Blizzard table ${parent}`);
+  }
+});
+
+test('0.10.4: the sweep refuses, before deleting anything, a list with a player-uploaded or own table in it', async () => {
+  const { BLIZZARD, assertSweepable } = await import('../retention/registry.js');
+  const { runRetentionSweep } = await import('../retention/sweep.js');
+  let ran = 0;
+  const sweep = async () => { ran += 1; return 0; };
+  const player = { table: 'addon_statistics', holds: 'test', class: 'player', sweep };
+  const disguised = { table: 'addon_statistics', holds: 'test', class: 'blizzard', sweep }; // classed Blizzard but not in BLIZZARD
+  const ours = { table: 'accounts', holds: 'test', class: 'blizzard', sweep }; // an own table dressed as Blizzard
+  for (const bad of [player, disguised, ours]) {
+    await assert.rejects(runRetentionSweep(t.db, { entries: [BLIZZARD[0], bad], log: { error() {} } }), /refusing to sweep/);
+    assert.throws(() => assertSweepable([bad]), /refusing to sweep/);
+  }
+  assert.equal(ran, 0, 'nothing was swept');
+  assert.equal(assertSweepable(BLIZZARD), BLIZZARD);
+});
+
 test('the window is one setting: 30 by default, never above 30 without a written-permission note (logged)', async () => {
   const { retentionPolicy } = await import('../retention/policy.js');
   const { setSetting } = await import('../admin/settings.js');

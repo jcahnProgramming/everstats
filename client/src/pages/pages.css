@@ -354,8 +354,22 @@ button.armory-slot[aria-expanded="true"] { border-color: var(--qc, var(--es-line
 .guild-top .ln { display: grid; grid-template-columns: var(--es-space-28) minmax(0, 1fr) auto; gap: var(--es-space-8); align-items: center; padding: var(--es-space-6) var(--es-space-14); font-size: var(--es-fs-13-5); }
 .guild-top .ln .rk { width: auto; font-size: var(--es-fs-14); }
 .guild-top .ln:last-child { padding-bottom: var(--es-space-10); }
-/* The roster table scrolls inside its panel on a phone (the design allows it for this page); the page never does. */
-.guild-roster .tbl { min-width: var(--es-size-col-min-2xl); }
+/* The roster table scrolls inside its panel on a phone (the design allows it for this page); the page never does.
+   0.10.4: only on a phone. At 720–1099px its minimum width hid a sideways scroll inside the card (10px at 1024 with dev's
+   names, 77px with long ones): above phone width it fits instead, folding Race and Last seen into the member's cell
+   when the card is narrower than 760px. */
+@media (max-width: 719px) { .guild-roster .tbl { min-width: var(--es-size-col-min-2xl); } }
+.guild-roster { container-type: inline-size; }
+.guild-roster .tbl td .dm { display: none; }
+@container (max-width: 759px) {
+  .guild-roster .tbl .lo { display: none; }
+  .guild-roster .tbl td .dm { display: block; }
+}
+@media (max-width: 719px) {
+  .guild-roster .tbl .lo { display: table-cell; }
+  .guild-roster .tbl td .dm { display: none; }
+}
+.guild-roster .tbl td:first-child a { overflow-wrap: anywhere; }
 .guild-search { flex: none; max-width: var(--es-size-col-min-xl); }
 .search-kind { flex: none; }
 
@@ -435,3 +449,9 @@ button.armory-slot[aria-expanded="true"] { border-color: var(--qc, var(--es-line
 .slotpick { scrollbar-width: none; }
 .slotpick::-webkit-scrollbar { display: none; }
 @media (max-width: 1099px) { .guild-roster .tbl th, .guild-roster .tbl td { padding-left: var(--es-space-8); padding-right: var(--es-space-8); } }
+/* 0.10.4: a tied board's card fills its height with the shared value instead of empty rows. */
+.mini .mini-tied { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--es-space-4); padding: var(--es-space-12) var(--es-space-14); border-top: var(--es-border-1) solid var(--es-row-sep); text-align: center; }
+.mini .mini-tied-v { font: var(--es-weight-bold) var(--es-fs-24)/var(--es-lh-none) var(--es-font-body); font-variant-numeric: tabular-nums lining-nums; color: var(--es-text); }
+/* 0.10.4: the guild banner's tags wrap onto a second line, and a long ruleset name wraps inside its tag, on a phone. */
+.guild-banner .row:has(> .tag) { flex-wrap: wrap; }
+.guild-banner .tag { white-space: normal; line-height: var(--es-lh-snug); }

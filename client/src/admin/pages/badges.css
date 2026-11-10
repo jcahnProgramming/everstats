@@ -1,0 +1,6 @@
+/* Badge logos preview (0.10.4, BadgesPages.jsx LogoPreview). Tokens only. Each theme column shows the badge at every size
+   it is drawn at: the profile pill (44px), the Settings featured pill (32px), the inline badge (18px), a share card's
+   badge (--es-card-badge-sm, as server/cards draws it), large (112px) and extra large (128px). */
+.logo-prev .bdg-pill, .logo-prev .feat-pill { width: auto; max-width: 100%; cursor: default; }
+.logo-prev-card { display: inline-flex; align-items: center; gap: var(--es-space-6); font-weight: var(--es-weight-semibold); }
+.bdg.card { width: var(--es-card-badge-sm); height: var(--es-card-badge-sm); }

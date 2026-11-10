@@ -78,18 +78,18 @@ const CARDS = [
     change: (c) => (c.new === null ? null : `${c.new >= 0 ? '+' : ''}${formatNumber(c.new)} accounts`),
     body: (c) => {
       const maxM = Math.max(1, ...c.methods.map((m) => m.n));
-      const label = { battlenet: 'Battle.net', discord: 'Discord', passkey: 'Passkey' };
+      const label = { battlenet: 'Battle.net', discord: 'Discord', passkey: 'Player passkeys' };
       return (
         <>
           <div className="kpis">
             <div className="kpi"><span className="l">New · 24 h</span><span className="v">{formatNumber(c.new24)}</span><span className="d"><Delta n={c.new24 - c.new24before} /> vs the day before</span></div>
             <div className="kpi"><span className="l">Beta members</span><span className="v">{formatNumber(c.beta)}</span><span className="d">Beta {c.betaOpen ? 'open' : 'closed'}</span></div>
-            <div className="kpi"><span className="l">2FA or passkey</span><span className="v">{c.total ? `${Math.round((c.strong / c.total) * 100)}%` : '—'}</span><span className="d">{formatNumber(c.strong)} accounts</span></div>
+            <div className="kpi"><span className="l">2FA or passkey</span><span className="v">{c.total ? `${Math.round((c.strong / c.total) * 100)}%` : '—'}</span><span className="d">{formatNumber(c.strong)} accounts{c.totp !== undefined ? ` · 2FA ${formatNumber(c.totp)} · passkey ${formatNumber(c.passkeys)}` : ''}</span></div>
             <div className="kpi"><span className="l">Banned now</span><span className="v">{formatNumber(c.banned)}</span><span className="d">{formatNumber(c.tempBanned)} temporary</span></div>
           </div>
           <div className="cols2">
             <div className="breakdown">
-              <span className="eyebrow">Sign-in methods linked</span>
+              <span className="eyebrow">Player accounts per sign-in method</span>
               {c.methods.map((m) => <Bar key={m.id} label={label[m.id] ?? m.id} value={m.n} max={maxM} />)}
             </div>
             <div className="stack gap-6">

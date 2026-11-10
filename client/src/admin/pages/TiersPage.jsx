@@ -385,7 +385,7 @@ function GroupsPanel({ groups, edits, onEdit }) {
       ) : (
         <div className="dt-wrap">
           <table className="dt">
-            <thead><tr><th scope="col">Group</th><th scope="col">Decision</th><th scope="col">Results now</th><th scope="col">Suggestion</th><th scope="col">Per-stat exceptions</th></tr></thead>
+            <thead><tr><th scope="col">Group</th><th scope="col">Decision</th><th scope="col" className="lo2">Results now</th><th scope="col" className="lo">Suggestion</th><th scope="col">Per-stat exceptions</th></tr></thead>
             <tbody>
               {data.groups.map((g) => {
                 const saved = g.choice?.choice ?? 'cleared';
@@ -396,14 +396,15 @@ function GroupsPanel({ groups, edits, onEdit }) {
                     <td className="dtl" data-label="">
                       <b>{g.label}</b>
                       <span className="sub">{formatNumber(g.statistics)} statistic{g.statistics === 1 ? '' : 's'}{g.farmable ? ' · farmable (category letter only, never overall)' : ''}</span>
+                      <span className="sub"><span className="dm lo2"><span className="l">Now</span> {formatNumber(g.results.counted)} count · {formatNumber(g.results.undecided)} undecided</span>{g.suggestion && <span className="dm lo"><span className="l">Suggested</span> {g.suggestion.forever.label}</span>}</span>
                       {current !== saved && <Chip kind="warn" icon="edit">Unsaved</Chip>}
                     </td>
                     <td data-label="Decision">
                       <Segmented label={`Decision for ${g.label}`} options={options} value={current} onChange={(c) => onEdit(g.label, c)} scroll={false} />
                       <span className="sub">{g.choice ? `${g.choice.origin === 'migration' ? 'From your 0.9 decisions · ' : ''}since ${formatDateTime(g.choice.decidedAt)}` : 'Undecided: counts as nothing'}</span>
                     </td>
-                    <td data-label="Results now" className="t2">{formatNumber(g.results.counted)} count{g.results.overall ? ` (${formatNumber(g.results.overall)} overall)` : ''} · {formatNumber(g.results.undecided)} undecided</td>
-                    <td data-label="Suggestion">
+                    <td data-label="Results now" className="t2 lo2">{formatNumber(g.results.counted)} count{g.results.overall ? ` (${formatNumber(g.results.overall)} overall)` : ''} · {formatNumber(g.results.undecided)} undecided</td>
+                    <td data-label="Suggestion" className="lo">
                       {g.suggestion ? (
                         <span className="gd-stack">
                           <Chip kind="info">{g.suggestion.forever.label}</Chip>

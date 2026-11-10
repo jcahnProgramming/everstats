@@ -289,11 +289,11 @@ const COLUMNS = [
   { id: 'tier', label: 'Tier', get: (m) => LETTER_ORDER[m.tier] ?? 9 },
   { id: 'level', label: 'Level', get: (m) => m.level ?? -1, desc: true },
   { id: 'class', label: 'Class', get: (m) => m.class ?? '' },
-  { id: 'race', label: 'Race', get: (m) => m.race ?? '' },
+  { id: 'race', label: 'Race', lo: true, get: (m) => m.race ?? '' },
   { id: 'rank', label: 'Guild rank', get: (m) => (m.rank ?? 999) },
   // 0.7.0: who claimed the character on Everstats, with their one inline badge (never on leaderboards).
   { id: 'claimed', label: 'Claimed by', get: (m) => m.claimedBy?.username ?? '~' },
-  { id: 'seen', label: 'Last seen in game', get: (m) => (m.lastLoginAt ? Date.parse(m.lastLoginAt) : 0), desc: true },
+  { id: 'seen', label: 'Last seen in game', lo: true, get: (m) => (m.lastLoginAt ? Date.parse(m.lastLoginAt) : 0), desc: true },
 ];
 
 function Roster({ data }) {
@@ -330,7 +330,7 @@ function Roster({ data }) {
             <thead>
               <tr>
                 {COLUMNS.map((col) => (
-                  <th key={col.id} scope="col" aria-sort={sort.id === col.id ? (sort.desc ? 'descending' : 'ascending') : undefined} className={col.id === 'seen' ? 'r' : undefined}>
+                  <th key={col.id} scope="col" aria-sort={sort.id === col.id ? (sort.desc ? 'descending' : 'ascending') : undefined} className={[col.id === 'seen' ? 'r' : null, col.lo ? 'lo' : null].filter(Boolean).join(' ') || undefined}>
                     <button type="button" onClick={() => by(col.id)}>
                       {col.label}{sort.id === col.id && <Icon name={sort.desc ? 'chevron-down' : 'chevron-up'} size="sm" />}
                     </button>
@@ -341,14 +341,18 @@ function Roster({ data }) {
             <tbody>
               {rows.map((m) => (
                 <tr key={m.slug}>
-                  <td><Link to={`/c/${encodeURIComponent(m.slug)}`}>{m.name} <span className="surname">{m.surname}</span></Link></td>
+                  <td>
+                    <Link to={`/c/${encodeURIComponent(m.slug)}`}>{m.name} <span className="surname">{m.surname}</span></Link>
+                    {/* 0.10.4: what the folded columns held, when the card is too narrow for them. */}
+                    <span className="dm muted xsmall">{[m.race, m.lastLoginAt ? `seen ${timeAgo(m.lastLoginAt)}` : null].filter(Boolean).join(' · ')}</span>
+                  </td>
                   <td><TierLink slug={m.slug} letter={m.tier} /></td>
                   <td>{m.level ?? '—'}</td>
                   <td className="t2">{m.class ?? '—'}</td>
-                  <td className="t2">{m.race ?? '—'}</td>
+                  <td className="t2 lo">{m.race ?? '—'}</td>
                   <td className="t2">{m.rankName ?? <span className="muted">not on the last roster</span>}</td>
                   <td>{m.claimedBy ? <NameWithBadge username={m.claimedBy.username} badge={m.claimedBy.badge} /> : <span className="muted">—</span>}</td>
-                  <td className="r t2">{m.lastLoginAt ? timeAgo(m.lastLoginAt) : 'not reported'}</td>
+                  <td className="r t2 lo">{m.lastLoginAt ? timeAgo(m.lastLoginAt) : 'not reported'}</td>
                 </tr>
               ))}
             </tbody>

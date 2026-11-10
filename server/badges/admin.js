@@ -2,18 +2,18 @@ import { PRIMARY_VERSION } from '../core/gameVersions.js';
 import express from 'express';
 import { isProfaneText } from '../accounts/names.js';
 import { HttpError, route } from '../core/errors.js';
-import { FAMILIES, TEMPLATES, templateById } from './catalog.js';
+import { FAMILIES, LOGO_TEMPLATES, TEMPLATES, takesLogo, templateById } from './catalog.js';
 import { CREATOR_BADGE, CREATOR_PLATFORMS, clearAlert, creatorAlerts, creatorState, grantCreator, revokeCreator, startVerification } from './creators.js';
-import { MAX_BYTES, processMark } from './marks.js';
+import { MAX_BYTES, MIN_SIDE, SIZES, backingOf, permissionNote, processLogo } from './logos.js';
 import { getPlatform } from '../accounts/socials.js';
 import { GAME_DATA_RULES, classList, evaluateAccount } from './rules.js';
 import {
-  award, badgeContext, definitionById, definitionId, holderCounts, loadDefinitions, logEvent, markUrl, publicBadge, revoke, sha256, tidyDisplay,
+  DEF_COLUMNS, award, badgeContext, definitionById, definitionId, holderCounts, loadDefinitions, logEvent, logoView, publicBadge, revoke, sha256, tidyDisplay,
 } from './store.js';
 
 /**
  * /api/admin/badges… (0.7.0), mounted inside the admin router AFTER its gate: a plain 404 without an admin session.
- * The admin is not a player and can't hold a badge; every grant, revoke and mark change needs a reason and is logged
+ * The admin is not a player and can't hold a badge; every grant, revoke and logo change needs a reason and is logged
  * in badge_events (append-only). Only MANUAL badges can be granted or revoked here: automatic ones follow their rule.
  */
 const REASON_MAX = 500;
@@ -53,7 +53,7 @@ async function accountBadges(db, accountId) {
   if (!a) throw new HttpError(404, 'No such account.');
   const ctx = await badgeContext(db);
   const rows = await db.query(
-    `SELECT d.*, aw.state, aw.earned_at, aw.source, aw.reason, aw.revoked_at, aw.revoked_by, aw.revoked_reason
+    `SELECT ${DEF_COLUMNS}, aw.state, aw.earned_at, aw.source, aw.reason, aw.revoked_at, aw.revoked_by, aw.revoked_reason
        FROM badge_awards aw JOIN badge_definitions d ON d.id = aw.badge_id WHERE aw.account_id = $1 ORDER BY aw.state, d.sort LIMIT 500`,
     [accountId],
   );
@@ -83,11 +83,14 @@ export function createAdminBadgeRouter({ db, writes }) {
     const ctx = await badgeContext(db);
     const defs = await loadDefinitions(db);
     const counts = await holderCounts(db);
-    const pending = new Map((await db.query('SELECT id, mark_pending_at FROM badge_definitions WHERE mark_pending IS NOT NULL LIMIT 500')).map((x) => [x.id, x.mark_pending_at]));
+    // 0.10.4: logos. The permission note is the admin's (never on a public page); a pending upload waits for Save.
+    const logoRows = await db.query('SELECT badge_id, stage, permission_by, permission_at, permission_how, reason, created_at FROM badge_logos ORDER BY badge_id LIMIT 1000');
+    const savedNote = new Map(logoRows.filter((x) => x.stage === 'saved').map((x) => [x.badge_id, { by: x.permission_by, at: x.permission_at, how: x.permission_how, reason: x.reason, setAt: x.created_at }]));
+    const pending = new Map(logoRows.filter((x) => x.stage === 'pending').map((x) => [x.badge_id, x.created_at]));
     const log = await db.query(
       `SELECT e.id, e.at, e.type, e.badge_id, e.account_id, e.actor, e.reason, e.detail, ac.username, ac.username_claimed
          FROM badge_events e LEFT JOIN accounts ac ON ac.id = e.account_id
-        WHERE e.actor = 'admin' OR e.type = 'backfill' ORDER BY e.at DESC LIMIT 100`,
+        WHERE e.actor = 'admin' OR e.type IN ('backfill', 'logo_carried_over') ORDER BY e.at DESC LIMIT 100`,
     );
     const backfill = await db.one("SELECT at, detail FROM badge_events WHERE type = 'backfill' ORDER BY at DESC LIMIT 1");
     const classes = await classList(db, defs);
@@ -95,11 +98,13 @@ export function createAdminBadgeRouter({ db, writes }) {
     res.json({
       families: FAMILIES,
       templates: TEMPLATES,
+      logoTemplates: LOGO_TEMPLATES,
+      logoRules: { maxBytes: MAX_BYTES, minSide: MIN_SIDE, sizes: SIZES },
       earlySupporter: ctx.early.set ? { start: ctx.early.start, end: ctx.early.end, closed: ctx.early.closed } : null,
       definitions: defs.map((d) => ({
         ...publicBadge(d, ctx), heldBy: counts.get(d.id) ?? 0, rule: d.rule, createdBy: d.created_by, createdAt: d.created_at,
-        markSetAt: d.mark_set_at, pendingMarkAt: pending.get(d.id) ?? null,
-        grantable: d.award === 'manual' && !(d.template === 'partner-pro' && !d.mark_sha),
+        takesLogo: takesLogo(d), logoNote: savedNote.get(d.id) ?? null, pendingLogoAt: pending.get(d.id) ?? null,
+        grantable: d.award === 'manual' && !(d.template === 'partner-pro' && !d.logo),
       })),
       // Blizzard class names on stored characters that no class badge names yet (make one from the class template).
       classesWithoutBadge: classes.filter((c) => !named.has(c)),
@@ -120,7 +125,7 @@ export function createAdminBadgeRouter({ db, writes }) {
     const def = await definitionById(db, String(req.body?.badgeId ?? ''));
     if (!def) throw new HttpError(404, 'No such badge.');
     if (def.award !== 'manual') throw new HttpError(409, `${def.name} is automatic: it follows its rule and can’t be granted by hand.`, 'automatic');
-    if (def.template === 'partner-pro' && !def.mark_sha) throw new HttpError(409, `Upload and save ${def.name}’s mark before granting it.`, 'needs_mark');
+    if (def.template === 'partner-pro' && !def.logo) throw new HttpError(409, `Upload and save ${def.name}’s logo before granting it.`, 'needs_logo');
     if (def.id === CREATOR_BADGE) throw new HttpError(409, 'Verified Content Creator is granted from the creator form: it needs the handles you checked.', 'use_creator_form');
     await db.tx(async (q) => {
       if (!(await q.one('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [accountId]))) throw new HttpError(404, 'No such account.');
@@ -157,7 +162,7 @@ export function createAdminBadgeRouter({ db, writes }) {
   }));
 
   // A new definition from a template (no code change). Manual ones can be granted at once (a Pro Team Partner badge
-  // once its mark is saved); a class badge is automatic and is evaluated for everyone on the worker's next sweep.
+  // once its logo is saved); a class badge is automatic and is evaluated for everyone on the worker's next sweep.
   r.post('/badges/definitions', writes, route(async (req, res) => {
     const t = templateById(req.body?.template);
     if (!t) throw new HttpError(400, 'Choose a template.', 'invalid');
@@ -178,8 +183,9 @@ export function createAdminBadgeRouter({ db, writes }) {
       how = `Owns a level 10+ ${cls}.`;
     }
     if (t.id === 'partner-pro') how ??= 'Granted to verified professional WoW teams after a partnership agreement.';
+    if (t.id === 'partner-community') how ??= 'Granted to the people behind a partner site or community after a partnership agreement.';
     if (t.id === 'achievement') how ??= 'Granted by Everstats staff.';
-    const sort = { 'partner-pro': 140, 'platform-employee': 150, class: 580, achievement: 690 }[t.id];
+    const sort = { 'partner-pro': 140, 'partner-community': 145, 'platform-employee': 150, class: 580, achievement: 690 }[t.id];
     await db.tx(async (q) => {
       if (await q.one('SELECT 1 AS x FROM badge_definitions WHERE id = $1', [id])) throw new HttpError(409, 'A badge with that id already exists.', 'exists');
       if (rule && await q.one("SELECT 1 AS x FROM badge_definitions WHERE rule->>'type' = 'class' AND rule->>'class' = $1", [rule.class])) {
@@ -197,43 +203,80 @@ export function createAdminBadgeRouter({ db, writes }) {
     res.json({ ok: true, id });
   }));
 
-  // ---- Partner marks: upload (needs the permission checkbox) → preview in three themes → save (needs a reason and
-  // the "I've checked the preview" checkbox). The upload is raw bytes; marks.js decides what it is.
-  r.post('/badges/:id/mark', writes, express.raw({ type: () => true, limit: MAX_BYTES + 1024 }), route(async (req, res) => {
-    if (req.query.permission !== 'confirmed') throw new HttpError(400, 'Confirm that the partner has given written permission to use this mark.', 'permission_required');
-    const def = await definitionById(db, String(req.params.id));
-    if (!def || def.template !== 'partner-pro') throw new HttpError(404, 'Only badges made from the Pro Team Partner template take a mark.');
-    const png = await processMark(Buffer.isBuffer(req.body) ? req.body : null);
-    const sha = sha256(png);
+  // ---- Badge logos (0.10.4, badges/logos.js): upload (with the permission note) → the re-encoded result at every size
+  // as a preview → save (the note again, a reason, "I've checked the preview") or Cancel. Remove at any time (reason): the
+  // badge falls back to its own art and every holder keeps it. The upload is raw bytes; logos.js decides what it is.
+  const logoBadge = async (id) => {
+    const def = await definitionById(db, String(id));
+    if (!def || !takesLogo(def)) throw new HttpError(404, 'Only Pro Team, Platform Employee and Community Partner badges take a logo.', 'no_logo_slot');
+    return def;
+  };
+  const noteText = (n) => `${n.by}, ${n.at}: ${n.how}`;
+  const dataUri = (png) => `data:image/png;base64,${png.toString('base64')}`;
+
+  r.post('/badges/:id/logo', writes, express.raw({ type: () => true, limit: MAX_BYTES * 2 }), route(async (req, res) => {
+    const note = permissionNote(req.query);
+    const def = await logoBadge(req.params.id);
+    const sizes = await processLogo(Buffer.isBuffer(req.body) ? req.body : null);
+    const sha = sha256(sizes[256]);
     await db.tx(async (q) => {
-      await q.query('UPDATE badge_definitions SET mark_pending = $2, mark_pending_sha = $3, mark_pending_at = now() WHERE id = $1', [def.id, png, sha]);
-      await logEvent(q, { type: 'mark_uploaded', badgeId: def.id, actor: 'admin', detail: { bytes: png.length, permissionConfirmed: true } });
+      await q.query(
+        `INSERT INTO badge_logos (badge_id, stage, png_64, png_128, png_256, sha, permission_by, permission_at, permission_how)
+         VALUES ($1, 'pending', $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (badge_id, stage) DO UPDATE SET png_64 = EXCLUDED.png_64, png_128 = EXCLUDED.png_128, png_256 = EXCLUDED.png_256, sha = EXCLUDED.sha,
+           permission_by = EXCLUDED.permission_by, permission_at = EXCLUDED.permission_at, permission_how = EXCLUDED.permission_how, created_at = now()`,
+        [def.id, sizes[64], sizes[128], sizes[256], sha, note.by, note.at, note.how],
+      );
+      await logEvent(q, { type: 'logo_uploaded', badgeId: def.id, actor: 'admin', detail: { bytes: sizes[256].length, permission: note } });
     });
-    res.json({ preview: `data:image/png;base64,${png.toString('base64')}`, bytes: png.length });
+    res.json({ preview: Object.fromEntries(SIZES.map((px) => [px, dataUri(sizes[px])])), sizes: SIZES });
   }));
 
-  r.post('/badges/:id/mark/save', writes, route(async (req, res) => {
+  r.post('/badges/:id/logo/save', writes, route(async (req, res) => {
+    const note = permissionNote(req.body);
     const reason = reasonOf(req.body?.reason);
     if (req.body?.previewChecked !== true) throw new HttpError(400, 'Tick “I’ve checked the preview” first.', 'preview_required');
-    const def = await definitionById(db, String(req.params.id));
-    if (!def || def.template !== 'partner-pro') throw new HttpError(404, 'Not found');
+    const backing = backingOf(req.body?.backing);
+    const def = await logoBadge(req.params.id);
+    let replaced = null;
     await db.tx(async (q) => {
-      const rows = await q.query(
-        `UPDATE badge_definitions SET mark = mark_pending, mark_sha = mark_pending_sha, mark_set_at = now(),
-                mark_pending = NULL, mark_pending_sha = NULL, mark_pending_at = NULL
-          WHERE id = $1 AND mark_pending IS NOT NULL RETURNING mark_sha`,
-        [def.id],
+      const pend = await q.one("SELECT sha FROM badge_logos WHERE badge_id = $1 AND stage = 'pending' FOR UPDATE", [def.id]);
+      if (!pend) throw new HttpError(409, 'Upload a logo first.', 'no_upload');
+      const old = await q.one("SELECT permission_by, permission_at, permission_how FROM badge_logos WHERE badge_id = $1 AND stage = 'saved' FOR UPDATE", [def.id]);
+      replaced = old ? { by: old.permission_by, at: old.permission_at, how: old.permission_how } : null;
+      await q.query("DELETE FROM badge_logos WHERE badge_id = $1 AND stage = 'saved'", [def.id]);
+      await q.query(
+        `UPDATE badge_logos SET stage = 'saved', backing = $2, permission_by = $3, permission_at = $4, permission_how = $5, reason = $6, created_at = now()
+          WHERE badge_id = $1 AND stage = 'pending'`,
+        [def.id, backing, note.by, note.at, note.how, reason],
       );
-      if (!rows.length) throw new HttpError(409, 'Upload a mark first.', 'no_upload');
-      await logEvent(q, { type: 'mark_saved', badgeId: def.id, actor: 'admin', reason });
-      await q.query("INSERT INTO admin_events (type, detail) VALUES ('badge.mark_saved', $1::jsonb)", [JSON.stringify({ badge: def.id })]);
+      await logEvent(q, { type: old ? 'logo_replaced' : 'logo_saved', badgeId: def.id, actor: 'admin', reason, detail: { permission: note, backing } });
+      // The Audit log: the badge, the permission note (who / when / how) and the reason; never the image.
+      await q.query("INSERT INTO admin_events (type, detail) VALUES ('badge.logo_saved', $1::jsonb)", [JSON.stringify({
+        badge: def.id, permission: note, backing, reason, value: noteText(note), ...(replaced ? { before: noteText(replaced) } : {}),
+      })]);
     });
     const saved = await definitionById(db, def.id);
-    res.json({ ok: true, mark: markUrl(saved) });
+    res.json({ ok: true, replaced: Boolean(replaced), logo: logoView(saved) });
   }));
 
-  r.delete('/badges/:id/mark/pending', writes, route(async (req, res) => {
-    await db.query('UPDATE badge_definitions SET mark_pending = NULL, mark_pending_sha = NULL, mark_pending_at = NULL WHERE id = $1', [String(req.params.id)]);
+  r.delete('/badges/:id/logo/pending', writes, route(async (req, res) => {
+    await db.query("DELETE FROM badge_logos WHERE badge_id = $1 AND stage = 'pending'", [String(req.params.id)]);
+    res.json({ ok: true });
+  }));
+
+  // Remove: the badge shows its own art again (the template's, or the monogram); holders keep the badge.
+  r.delete('/badges/:id/logo', writes, route(async (req, res) => {
+    const reason = reasonOf(req.body?.reason);
+    const def = await logoBadge(req.params.id);
+    await db.tx(async (q) => {
+      const old = await q.one("SELECT permission_by, permission_at, permission_how FROM badge_logos WHERE badge_id = $1 AND stage = 'saved' FOR UPDATE", [def.id]);
+      if (!old) throw new HttpError(409, `${def.name} has no saved logo.`, 'no_logo');
+      const was = { by: old.permission_by, at: old.permission_at, how: old.permission_how };
+      await q.query("DELETE FROM badge_logos WHERE badge_id = $1 AND stage = 'saved'", [def.id]);
+      await logEvent(q, { type: 'logo_removed', badgeId: def.id, actor: 'admin', reason, detail: { permission: was } });
+      await q.query("INSERT INTO admin_events (type, detail) VALUES ('badge.logo_removed', $1::jsonb)", [JSON.stringify({ badge: def.id, permission: was, reason, before: noteText(was) })]);
+    });
     res.json({ ok: true });
   }));
 

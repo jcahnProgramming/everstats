@@ -20,7 +20,9 @@ import './site.css';
  *                scoped (characters and guilds carry their version and region; their child tables join to them);
  *                tables that can't be are labelled "All versions" / "All regions". Expiry = fetched + keep days.
  *   Sweep history   every sweep (retention_sweeps), paged, problems highlighted.
- *   Our own data    the registry's OURS list with its reason.
+ *   0.10.4: the registry's three classes, each its own table: Blizzard API data (above, with its expiry buckets),
+ *   Player-uploaded data (row counts, "kept until the player deletes it", the player's delete path; empty and saying
+ *   "Arrives with the companion addon" until 0.14.0), and Everstats' own data (the OURS list with its reason).
  *
  * Different from the mockup, on purpose: no "Run sweep now" (sweeps run hourly in both processes, and a failure is
  * retried at the next hour; there is no endpoint that starts one), and no invented "retried at" times: the history
@@ -50,7 +52,7 @@ export function RetentionPage() {
       <Panel panel={p} title="Status" id="retention-status" sub={<Chip kind="scope" icon="globe">All versions</Chip>}>
         {(d) => <Status d={d} />}
       </Panel>
-      <Panel panel={p} title={`Blizzard data · ${scopeName}`} id="retention-kinds" flush ghostRows={6}
+      <Panel panel={p} title={`Blizzard API data · ${scopeName}`} id="retention-kinds" flush ghostRows={6}
         sub={p.data?.countedAt ? <span className="muted xsmall">Counted {timeAgo(p.data.countedAt)} (kept a minute)</span> : null}
         footer={(
           <div className="legend2 site-legend">
@@ -71,7 +73,11 @@ export function RetentionPage() {
         )}>
         {(d) => <Sweeps d={d} />}
       </Panel>
-      <Panel panel={p} title="Data that isn’t Blizzard’s" id="retention-ours" flush
+      <Panel panel={p} title="Player-uploaded data" id="retention-player" flush sub={<Chip kind="scope" icon="globe">All versions</Chip>}
+        footer={(d) => classLine(d, 'player')}>
+        {(d) => <Player d={d} />}
+      </Panel>
+      <Panel panel={p} title="Everstats’ own data" id="retention-ours" flush
         footer="Everstats’ own data is kept; any deletion of it is named in CLAUDE.md with its reason. Backups hold only this data.">
         {(d) => (
           <div className="dt-wrap">
@@ -87,6 +93,37 @@ export function RetentionPage() {
         )}
       </Panel>
     </>
+  );
+}
+
+const classLine = (d, id) => d.classes?.find((c) => c.id === id)?.kept ?? null;
+
+/** Player-uploaded data (0.10.4): never swept. Empty until the companion addon uploads anything. */
+function Player({ d }) {
+  if (!d.player?.length) {
+    return (
+      <Empty icon="hourglass" title="Arrives with the companion addon">
+        Statistics players upload about their own characters will be listed here, kept until the player deletes them or their
+        account is deleted. The 30-day sweep never touches them.
+      </Empty>
+    );
+  }
+  return (
+    <div className="dt-wrap">
+      <table className="dt">
+        <thead><tr><th>Table</th><th className="r num">Rows</th><th>Kept</th><th className="t2">How the player deletes it</th></tr></thead>
+        <tbody>
+          {d.player.map((x) => (
+            <tr key={x.table}>
+              <td className="dtl" data-label=""><b className="mono">{x.table}</b><span className="sub">{x.holds}</span></td>
+              <td className="r num" data-label="Rows">{nOrDash(x.rows)}</td>
+              <td data-label="Kept">Until the player deletes it</td>
+              <td className="t2" data-label="Player deletes">{x.deletePath}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

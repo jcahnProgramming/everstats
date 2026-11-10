@@ -1,4 +1,4 @@
-import { BLIZZARD, OLDEST } from './registry.js';
+import { BLIZZARD, OLDEST, assertSweepable } from './registry.js';
 import { retentionPolicy } from './policy.js';
 
 /**
@@ -8,11 +8,16 @@ import { retentionPolicy } from './policy.js';
  *
  * It runs every hour in BOTH the web app and the worker (whichever gets the advisory lock first), so a stopped worker
  * doesn't stop the sweep. A table that fails is recorded and the others still run.
+ *
+ * 0.10.4: it sweeps "Blizzard API data" ONLY. The whole list is checked (registry.js assertSweepable) before anything
+ * is deleted: an entry classed player-uploaded or our own throws, and nothing at all is swept. `entries` exists for the
+ * test that proves it; production always passes the registry's BLIZZARD list.
  */
 const LOCK_KEY = 4_812_030;
 export const SWEEP_EVERY_MS = 60 * 60 * 1000;
 
-export async function runRetentionSweep(db, { processName = 'web', now = Date.now, pruneBackups = null, log = console } = {}) {
+export async function runRetentionSweep(db, { processName = 'web', now = Date.now, pruneBackups = null, log = console, entries = BLIZZARD } = {}) {
+  assertSweepable(entries);
   return db.withClient(async (q) => {
     const got = await q.one('SELECT pg_try_advisory_lock($1) AS ok', [LOCK_KEY]);
     if (!got.ok) return { skipped: 'another process is sweeping' };
@@ -22,7 +27,7 @@ export async function runRetentionSweep(db, { processName = 'web', now = Date.no
       const deleted = {};
       const problems = [];
       const ctx = { query: q.query, one: q.one, rebuildCombined: false };
-      for (const entry of BLIZZARD) {
+      for (const entry of entries) {
         try {
           await q.query('BEGIN');
           deleted[entry.table] = await entry.sweep(ctx, policy.cutoff);

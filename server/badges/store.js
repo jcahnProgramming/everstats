@@ -16,8 +16,9 @@ import { FAMILIES, FAMILY_IDS, FEATURED_MAX, FIRST_FAMILIES, familyOf } from './
  *   pinned    the ONE badge shown inline next to the username (header, "Claimed by", guild rosters). Nothing pinned →
  *             the first featured badge; nothing featured → the first public badge; nothing public → no inline badge.
  */
-const DEF_COLUMNS = `d.id, d.family, d.name, d.description, d.how, d.art, d.template, d.monogram, d.award, d.rule, d.kept_while_held,
-  d.time_limited, d.verified, d.verification, d.sort, d.mark_sha, d.mark_set_at, d.created_at, d.created_by, d.art_temporary, d.game_version`;
+export const DEF_COLUMNS = `d.id, d.family, d.name, d.description, d.how, d.art, d.template, d.monogram, d.award, d.rule, d.kept_while_held,
+  d.time_limited, d.verified, d.verification, d.sort, d.created_at, d.created_by, d.art_temporary, d.game_version,
+  (SELECT jsonb_build_object('sha', l.sha, 'backing', l.backing, 'setAt', l.created_at) FROM badge_logos l WHERE l.badge_id = d.id AND l.stage = 'saved') AS logo`;
 
 export async function loadDefinitions(db) {
   return db.query(`SELECT ${DEF_COLUMNS} FROM badge_definitions d ORDER BY d.sort, d.id LIMIT 500`);
@@ -72,9 +73,16 @@ export function availabilityFor(def, ctx, account) {
 
 const dateOnly = (d) => new Date(d).toISOString().slice(0, 10);
 
-export const markUrl = (def) => (def.mark_sha ? `/api/badges/${def.id}/mark.png?v=${def.mark_sha.slice(0, 12)}` : null);
+/** 0.10.4: a saved logo's three re-encoded sizes, served by our own route (badges/routes.js), versioned by its hash. */
+export const LOGO_SIZES = Object.freeze([64, 128, 256]);
+export function logoView(def) {
+  const l = def.logo;
+  if (!l?.sha) return null;
+  const v = String(l.sha).slice(0, 12);
+  return { backing: l.backing ?? 'none', srcs: Object.fromEntries(LOGO_SIZES.map((px) => [px, `/api/badges/${def.id}/logo/${px}.png?v=${v}`])) };
+}
 
-/** What any page may show about a definition (never the mark bytes, never who granted it). */
+/** What any page may show about a definition (never the logo bytes, never who granted it or its permission note). */
 export function publicBadge(def, ctx = null) {
   const fam = familyOf(def.family);
   return {
@@ -88,7 +96,8 @@ export function publicBadge(def, ctx = null) {
     art: def.art,
     template: def.template,
     monogram: def.monogram,
-    mark: markUrl(def),
+    // 0.10.4: a partner's logo (null = the badge's own art). Never who granted it: that is the admin's.
+    logo: logoView(def),
     award: def.award,
     verified: def.verified,
     timeLimited: def.time_limited,

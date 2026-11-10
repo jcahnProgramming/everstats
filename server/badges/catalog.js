@@ -92,19 +92,34 @@ export const SEED_BADGES = Object.freeze([
 
 /**
  * Templates the admin makes NEW definitions from (no code change). What each needs:
- *   partner-pro        a name; a mark upload (PNG/WebP, re-encoded) before it can be granted. Manual.
- *   platform-employee  a name and a one-letter monogram. Manual (work-email verification later: `verification`).
+ *   partner-pro        a name; a logo (badges/logos.js) saved before it can be granted. Manual.
+ *   platform-employee  a name and a one-letter monogram (the art until a logo is saved). Manual (work-email verification later).
+ *   partner-community  0.10.4: a name, one badge per partner site or community (Wowhead, Icy Veins… made here by the admin
+ *                      when a partnership exists, never seeded). The Community Partner art until a logo is saved. Manual.
  *   class              Blizzard's class name exactly as characters carry it. Automatic. Uses the class template's art.
  *   achievement        a name. Manual: an automatic achievement needs a rule, and rules are code (badges/rules.js).
  */
 export const TEMPLATES = Object.freeze([
-  { id: 'partner-pro', family: 'partner', art: 'templates/partner-pro', label: 'Pro Team Partner', award: 'manual', needs: ['mark'] },
+  { id: 'partner-pro', family: 'partner', art: 'templates/partner-pro', label: 'Pro Team Partner', award: 'manual', needs: ['logo'] },
   { id: 'platform-employee', family: 'partner', art: 'templates/platform-employee', label: 'Platform Employee', award: 'manual', needs: ['monogram'] },
+  { id: 'partner-community', family: 'partner', art: 'partner/community-partner', label: 'Community Partner', award: 'manual', needs: [] },
   { id: 'class', family: 'class', art: 'templates/class-template', label: 'Class', award: 'automatic', needs: ['class'] },
   { id: 'achievement', family: 'achievement', art: 'templates/achievement-template', label: 'Achievement', award: 'manual', needs: [] },
 ]);
 /** Old or friendlier addresses for a badge page → its id (0.8.1: the staff badges' new names). */
 export const BADGE_ALIASES = Object.freeze({ 'everstats-staff': 'dev-team', 'everstats-moderator': 'moderator' });
+
+/**
+ * 0.10.4: the templates whose badges take a LOGO (badges/logos.js), and what one logo stands for. A badge made from one
+ * of these (or seeded with it: Blizzard Employee, Discord Employee) has at most one saved logo; without one it shows its
+ * own art (the template's, or the platform-employee monogram).
+ */
+export const LOGO_TEMPLATES = Object.freeze({
+  'partner-pro': { label: 'Pro Team', per: 'team' },
+  'platform-employee': { label: 'Platform Employee', per: 'company' },
+  'partner-community': { label: 'Community Partner', per: 'partner' },
+});
+export const takesLogo = (def) => Boolean(def?.template && Object.hasOwn(LOGO_TEMPLATES, def.template));
 
 export const templateById = (id) => TEMPLATES.find((t) => t.id === id) ?? null;
 export const familyOf = (id) => FAMILIES.find((f) => f.id === id) ?? null;

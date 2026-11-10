@@ -11,7 +11,7 @@ import { categoryKey, loadCatalog } from '../stats/catalog.js';
 import { nextPeriodStart, periodOpen, periodStart, rollingOpen } from '../stats/periods.js';
 import { retentionPolicy } from '../retention/policy.js';
 import { parseSlug } from '../stats/slug.js';
-import { characterStatistics, characterView, hiddenRenders } from './view.js';
+import { characterStatistics, characterView, featuredExtras, hiddenRenders } from './view.js';
 import { resolveProfileName } from '../accounts/usernames.js';
 import { PLATFORMS, getPlatform, linkFor } from '../accounts/socials.js';
 import { pinCards, pinsOf } from '../stats/pins.js';
@@ -195,7 +195,8 @@ export function createPublicRouter({ db, limits, networkOf }) {
       const cards = await pinCards(db, ids, featured);
       if (cards.length) sections.push({ id: 'pins', character: { name: featured.name, surname: featured.surname, slug: featured.slug, ruleset: featured.ruleset_name, rulesetId: featured.ruleset_id }, cards, fetchedAt: featured.last_fetched_at });
     }
-    if (featured) sections.push({ id: 'featured', character: { ...view(featured), tierBrief: await tierBrief(db, featured) } });
+    // 0.10.4: the featured card's third column: the owner's pinned badge and the character's best placements.
+    if (featured) sections.push({ id: 'featured', character: { ...view(featured), tierBrief: await tierBrief(db, featured), ...(await featuredExtras(db, featured, a.id)) } });
     const others = chars.filter((c) => c.id !== featured?.id).map(view);
     if (others.length) sections.push({ id: 'characters', characters: others });
     if (guilds.size) sections.push({ id: 'guilds', guilds: [...guilds.values()] });
@@ -318,6 +319,8 @@ export function createPublicRouter({ db, limits, networkOf }) {
           return {
             id, name: s.name, named: s.named, grading: s.grading, nonzero: bc?.nonzero ?? 0,
             tied: everyoneTied(bc),
+            // 0.10.4: the value everyone shares, so a tied card says it instead of leaving empty rows.
+            tiedValue: everyoneTied(bc) ? Number(bc.max) : null,
             top: top.map((t) => rowView(t, chars.get(t.character_id), null)),
           };
         }),

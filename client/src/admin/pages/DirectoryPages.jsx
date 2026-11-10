@@ -248,7 +248,7 @@ export function AccountsDirectoryPage() {
               <div className="dt-wrap">
                 <table className="dt">
                   <thead>
-                    <tr><th>Account</th><th>Status</th><th>Sign-in methods</th><th>2FA</th><th className="r num">Characters</th><th className="r num">Badges</th><th>Feedback</th><th>Reports</th><th>Created</th><th>Last sign-in</th><th className="r"><span className="sr-only">Open</span></th></tr>
+                    <tr><th>Account</th><th>Status</th><th className="lo">Sign-in methods</th><th className="lo">2FA</th><th className="r num lo">Characters</th><th className="r num lo2">Badges</th><th className="lo2">Feedback</th><th>Reports</th><th className="lo2">Created</th><th className="lo">Last sign-in</th><th className="r"><span className="sr-only">Open</span></th></tr>
                   </thead>
                   <tbody>
                     {data.accounts.map((a) => (
@@ -256,16 +256,25 @@ export function AccountsDirectoryPage() {
                         <td className="dtl" data-label="">
                           <span className="who2"><span className="av" aria-hidden="true">{initials(a)}</span><Link className="tgt" to={`/admin/directory/accounts/${a.id}`}>{accountLabel(a)}</Link></span>
                           <span className="sub">#{a.id}{a.displayName ? ` · ${a.displayName}` : ''}{a.role === 'moderator' ? ' · moderator' : ''}{a.beta ? ' · beta member' : ''}</span>
+                          <span className="sub">
+                            <span className="dm lo">{signInWords(a.signIn)}</span>
+                            <span className="dm lo"><span className="l">2FA</span> {a.twoFactor ? 'on' : 'off'}</span>
+                            <span className="dm lo"><span className="l">Characters</span> {formatNumber(a.characters)}</span>
+                            <span className="dm lo2"><span className="l">Badges</span> {formatNumber(a.badges)}</span>
+                            <span className="dm lo2"><span className="l">Feedback</span> {a.feedback.unread > 0 ? `${a.feedback.unread} unread` : a.feedback.threads}</span>
+                            <span className="dm lo2"><span className="l">Created</span> {formatDate(a.createdAt)}</span>
+                            <span className="dm lo"><span className="l">Last sign-in</span> {a.lastSignIn ? timeAgo(a.lastSignIn) : 'not recorded'}</span>
+                          </span>
                         </td>
                         <td data-label="Status"><StatusChip status={a.status} /></td>
-                        <td className="t2" data-label="Sign-in methods">{signInWords(a.signIn)}</td>
-                        <td data-label="2FA">{a.twoFactor ? <Chip kind="ok">On</Chip> : <Chip kind="off">Off</Chip>}</td>
-                        <td className="r num" data-label="Characters">{formatNumber(a.characters)}</td>
-                        <td className="r num" data-label="Badges">{formatNumber(a.badges)}</td>
-                        <td data-label="Feedback">{a.feedback.unread > 0 ? <Chip kind="info">{a.feedback.unread} unread</Chip> : <span className="muted">{a.feedback.threads}</span>}</td>
+                        <td className="t2 lo" data-label="Sign-in methods">{signInWords(a.signIn)}</td>
+                        <td className="lo" data-label="2FA">{a.twoFactor ? <Chip kind="ok">On</Chip> : <Chip kind="off">Off</Chip>}</td>
+                        <td className="r num lo" data-label="Characters">{formatNumber(a.characters)}</td>
+                        <td className="r num lo2" data-label="Badges">{formatNumber(a.badges)}</td>
+                        <td className="lo2" data-label="Feedback">{a.feedback.unread > 0 ? <Chip kind="info">{a.feedback.unread} unread</Chip> : <span className="muted">{a.feedback.threads}</span>}</td>
                         <td data-label="Reports">{a.openReports > 0 ? <Chip kind="warn">{a.openReports} open</Chip> : <span className="muted">0</span>}</td>
-                        <td data-label="Created"><span className="t2 nw">{formatDate(a.createdAt)}</span></td>
-                        <td data-label="Last sign-in"><span className="t2 nw">{a.lastSignIn ? timeAgo(a.lastSignIn) : 'Not recorded'}</span></td>
+                        <td className="lo2" data-label="Created"><span className="t2 nw">{formatDate(a.createdAt)}</span></td>
+                        <td className="lo" data-label="Last sign-in"><span className="t2 nw">{a.lastSignIn ? timeAgo(a.lastSignIn) : 'Not recorded'}</span></td>
                         <td className="r" data-label=""><div className="act"><Link className="btn ghost sm" to={`/admin/directory/accounts/${a.id}`}>Open</Link></div></td>
                       </tr>
                     ))}
@@ -929,19 +938,20 @@ export function GuildsDirectoryPage() {
             ) : (
               <div className="dt-wrap">
                 <table className="dt">
-                  <thead><tr><th>Guild</th><th>Faction</th><th>Tracked / roster</th><th>Ranked</th><th>Guild Master</th><th className="r num">Links</th><th>Reports</th><th className="r"><span className="sr-only">Open</span></th></tr></thead>
+                  <thead><tr><th>Guild</th><th className="lo">Faction</th><th>Tracked / roster</th><th className="lo2">Ranked</th><th>Guild Master</th><th className="r num lo">Links</th><th>Reports</th><th className="r"><span className="sr-only">Open</span></th></tr></thead>
                   <tbody>
                     {data.guilds.map((g) => (
                       <tr key={g.id}>
                         <td className="dtl" data-label="">
                           <Link className="tgt" to={`/admin/directory/guilds/${g.id}/links`}>{g.name}</Link>
                           <span className="sub">{[g.realm, g.ruleset?.name].filter(Boolean).join(' · ') || g.slug}</span>
+                          <span className="sub"><span className="dm lo">{factionWord(g.faction)}</span><span className="dm lo2">{g.ranked ? 'Ranked' : `Not ranked · needs ${g.minMembers}`}</span><span className="dm lo"><span className="l">Links</span> {g.links}</span></span>
                         </td>
-                        <td className="t2" data-label="Faction">{factionWord(g.faction)}</td>
+                        <td className="t2 lo" data-label="Faction">{factionWord(g.faction)}</td>
                         <td data-label="Tracked / roster"><RosterRatio tracked={g.tracked} roster={g.roster} /></td>
-                        <td data-label="Ranked">{g.ranked ? <Chip kind="ok">Ranked</Chip> : <Chip kind="off">Not ranked · needs {g.minMembers}</Chip>}</td>
+                        <td className="lo2" data-label="Ranked">{g.ranked ? <Chip kind="ok">Ranked</Chip> : <Chip kind="off">Not ranked · needs {g.minMembers}</Chip>}</td>
                         <td data-label="Guild Master">{g.gm ? (g.gm.username ? <Link className="tgt" to={`/admin/directory/accounts/${g.gm.id}`}>@{g.gm.username}</Link> : <Link to={`/admin/directory/accounts/${g.gm.id}`}>GM claimed</Link>) : <Chip kind="off">Unclaimed</Chip>}</td>
-                        <td className="r num" data-label="Links">{g.links}</td>
+                        <td className="r num lo" data-label="Links">{g.links}</td>
                         <td data-label="Reports">{g.openReports > 0 ? <Chip kind="warn">{g.openReports} open</Chip> : <span className="muted">0</span>}</td>
                         <td className="r" data-label=""><div className="act"><Link className="btn ghost sm" to={`/admin/directory/guilds/${g.id}/links`}>Open</Link>{g.publicPath && <Link className="btn ghost sm" to={g.publicPath}>Guild page</Link>}</div></td>
                       </tr>

@@ -167,3 +167,23 @@ test('one dashboard card failing leaves the others answering (the page shows it 
     await t.db.query('ALTER TABLE character_gold_public_x RENAME TO character_gold_public');
   }
 });
+
+test('0.10.4: the dashboard counts PLAYER passkeys only (accounts with one); the admin’s passkeys never count', async () => {
+  const h = await admin();
+  const c = t.client();
+  const before = (await c.get('/api/admin/dashboard?range=launch', h)).json.cards.players;
+  const pk = (x) => x.methods.find((m) => m.id === 'passkey').n;
+  // The admin's own passkey (admin_passkeys) is not a player's.
+  await t.db.query("INSERT INTO admin_passkeys (credential_id, public_key, sign_count, transports) VALUES ('admin-cred-fixture', $1, 0, '{}')", [Buffer.from([1])]);
+  assert.equal(pk((await c.get('/api/admin/dashboard?range=launch', h)).json.cards.players), pk(before));
+  // A passkey added from Settings is a passkeys row (the INSERT account/routes.js makes); two on one account count once.
+  const acct = (await t.db.one('INSERT INTO accounts DEFAULT VALUES RETURNING id')).id;
+  for (const cred of ['player-cred-1', 'player-cred-2']) {
+    await t.db.query("INSERT INTO passkeys (account_id, credential_id, public_key, sign_count, transports, name) VALUES ($1, $2, $3, 0, '{}', 'Passkey')", [acct, cred, Buffer.from([1])]);
+  }
+  const after = (await c.get('/api/admin/dashboard?range=launch', h)).json.cards.players;
+  assert.equal(pk(after), pk(before) + 1);
+  assert.equal(after.passkeys, pk(after));
+  assert.equal(after.strong, before.strong + 1);
+  assert.equal(after.totp, before.totp);
+});

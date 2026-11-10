@@ -287,7 +287,7 @@ function VersionSwitcher({ global }) {
   }
   return (
     <div className="anchor vs" ref={box}>
-      <button type="button" className="vswitch" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <button type="button" className="vswitch" title={`${versionName} · ${region.toUpperCase()}`} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <Icon name="globe" /><span>{versionName}</span><span className="reg">{region.toUpperCase()}</span><Icon name="chevron-down" />
       </button>
       {open && (

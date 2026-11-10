@@ -1,6 +1,23 @@
 {
   "releases": [
     {
+      "version": "0.10.4",
+      "date": "2026-11-10",
+      "title": "Partner logos, tidier leaderboards and profiles",
+      "kind": "dev",
+      "sections": {
+        "New": [
+          "Partner badges can now carry their team’s or company’s logo: pro teams, platform employees and community partners. The badge’s name always stays alongside it."
+        ],
+        "Improved": [
+          "A profile’s featured character now shows its owner’s pinned badge and the character’s best leaderboard placements.",
+          "On the leaderboards index, a board where everyone is tied shows the value they share instead of empty rows.",
+          "“Drag to reorder” only appears when there’s more than one thing to move.",
+          "The guild roster fits its card on smaller screens instead of hiding columns off the edge."
+        ]
+      }
+    },
+    {
       "version": "0.10.3",
       "date": "2026-11-10",
       "title": "A rebuilt admin area",

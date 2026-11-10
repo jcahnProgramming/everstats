@@ -274,7 +274,8 @@ export function Sortable({
         })}
       </div>
       <div className="sort-foot">
-        <span className="muted xsmall sort-hint"><span aria-hidden="true">⠿</span> Drag to reorder{lockedCount ? ` · ${lockedNote.toLowerCase()}` : ''}</span>
+        {/* 0.10.4: nothing to reorder below two movable items (one guild on the dashboard said "Drag to reorder"). */}
+        {shown.length - lockedCount >= 2 && <span className="muted xsmall sort-hint"><span aria-hidden="true">⠿</span> Drag to reorder{lockedCount ? ` · ${lockedNote.toLowerCase()}` : ''}</span>}
         {status && (
           <span className="sort-status small" role="status">
             {status.text === 'Saving…' ? status.text : <><Icon name="check" size="sm" />{status.text}</>}

@@ -58,18 +58,21 @@ async function playersCard(db, { since, from }) {
             count(*) FILTER (WHERE beta_member)::int AS beta,
             count(*) FILTER (WHERE EXISTS (SELECT 1 FROM account_totp t WHERE t.account_id = a.id AND t.state = 'enabled')
                               OR EXISTS (SELECT 1 FROM passkeys p WHERE p.account_id = a.id))::int AS strong,
+            count(*) FILTER (WHERE EXISTS (SELECT 1 FROM account_totp t WHERE t.account_id = a.id AND t.state = 'enabled'))::int AS totp,
             count(*) FILTER (WHERE everstats_banned(a.id))::int AS banned
        FROM accounts a`,
     [since],
   );
   const methods = await db.query('SELECT provider, count(DISTINCT account_id)::int AS n FROM account_identities GROUP BY provider ORDER BY provider LIMIT 10');
+  // 0.10.4 (checked): PLAYER passkeys only. The admin's passkeys live in admin_passkeys and are never counted here; a
+  // passkey added from Settings is a passkeys row (account/routes.js). Accounts with at least one, not passkeys.
   const passkeyAccounts = (await db.one('SELECT count(DISTINCT account_id)::int AS n FROM passkeys')).n;
   const tempBanned = (await db.one("SELECT count(DISTINCT account_id)::int AS n FROM account_bans WHERE lifted_at IS NULL AND ends_at IS NOT NULL AND ends_at > now()")).n;
   const warned = (await db.one("SELECT count(DISTINCT account_id)::int AS n FROM moderation_actions WHERE type = 'warning' AND ($1::timestamptz IS NULL OR at >= $1)", [since])).n;
   const beta = await betaState(db);
   return {
     total: p.total, new: since ? p.new : null, new24: p.new24, new24before: p.new24before, beta: p.beta, betaOpen: beta.open,
-    strong: p.strong, banned: p.banned, tempBanned, warned,
+    strong: p.strong, totp: p.totp, passkeys: passkeyAccounts, banned: p.banned, tempBanned, warned,
     methods: [...methods.map((m) => ({ id: m.provider, n: m.n })), { id: 'passkey', n: passkeyAccounts }],
     goldPublic: (await db.one('SELECT count(*)::int AS n FROM character_gold_public')).n,
     days: await perDay(db, "SELECT date_trunc('day', created_at AT TIME ZONE 'UTC') AS day, count(*) AS n FROM accounts WHERE created_at >= $1 GROUP BY 1 LIMIT 100", [], from),

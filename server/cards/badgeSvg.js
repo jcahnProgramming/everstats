@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { FRAME_D, logoBox } from '../badges/logoBox.js';
 
 /**
  * Badge SVG for share cards (0.8.0). The card templates take a badge as SVG markup (fill.js data-slot-html: "ONLY for
@@ -9,8 +10,8 @@ import { resolve } from 'node:path';
  * letters render in the card's own self-hosted Cinzel.
  *
  * Only two things in a drawing are ever changed, exactly as on the site (badges/art.jsx, guildBadges/art.jsx): a
- * partner's uploaded mark fills the partner-mark slot (as a data: URI of our own re-encoded PNG), and a platform
- * employee's monogram replaces the template's "?". Ids are prefixed per badge so two badges on one card can't clash.
+ * partner badge's LOGO (0.10.4) keeps only the frame and fills badges/logoBox.js's box (a data: URI of our own
+ * re-encoded 256 px PNG), and a platform employee's monogram replaces the template's "?". A guild emblem fills its slot. Ids are prefixed per badge so two badges on one card can't clash.
  * A file that can't be read gives null: the card leaves the badge out rather than draw a wrong one.
  */
 const ROOTS = {
@@ -74,11 +75,21 @@ function uniqueIds(svg) {
 
 const dataUri = (png) => (png ? `data:image/png;base64,${Buffer.from(png).toString('base64')}` : null);
 
-/** A player badge (publicBadge shape: art, monogram) → SVG markup or null. `mark` is the partner mark's PNG bytes. */
-export function playerBadgeSvg(badge, { mark = null } = {}) {
+/**
+ * A player badge (publicBadge shape: art, monogram, logo) → SVG markup or null. `logo` is the saved logo's 256 px PNG
+ * bytes (badge.logo says the backing): the frame paths stay, everything else inside is replaced by the logo.
+ */
+export function playerBadgeSvg(badge, { logo = null } = {}) {
   let svg = raw('player', badge?.art);
   if (!svg) return null;
-  if (mark) svg = replaceSlot(svg, 'partner-mark', `<image href="${dataUri(mark)}" x="17" y="17" width="30" height="30" preserveAspectRatio="xMidYMid meet"/>`);
+  if (logo) {
+    const open = /^<svg[^>]*>/.exec(svg)?.[0];
+    const frame = svg.match(new RegExp('<path [^>]*/>', 'g'))?.filter((x) => x.includes(`d="${FRAME_D}"`)) ?? [];
+    if (!open || !frame.length) return null;
+    const box = logoBox(false, badge.logo?.backing);
+    const plate = box.plate ? `<rect x="${box.plate.x}" y="${box.plate.y}" width="${box.plate.size}" height="${box.plate.size}" rx="${box.plate.r}" style="fill:var(--bi)"/>` : '';
+    return uniqueIds(`${open}${frame.join('')}${plate}<image href="${dataUri(logo)}" x="${box.x}" y="${box.y}" width="${box.size}" height="${box.size}" preserveAspectRatio="xMidYMid meet"/></svg>`);
+  }
   if (badge.monogram) {
     const r = slotRange(svg, 'platform-monogram');
     // As on the site (badges/art.jsx): the text inside the monogram slot becomes the monogram.

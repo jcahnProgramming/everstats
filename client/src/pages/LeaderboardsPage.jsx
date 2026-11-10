@@ -180,15 +180,26 @@ export function LeaderboardsPage() {
   );
 }
 
+/** 0.10.4: a board where everyone with any is tied. Instead of one line over empty rows (stretched to its neighbours'
+ *  height), the card shows the value they share, large, and how many share it. The value is the board's own. */
+function TiedLine({ n, value, who }) {
+  return (
+    <span className="mini-tied">
+      {value !== null && value !== undefined && <span className="mini-tied-v">{formatNumber(value)}</span>}
+      <span className="t2 small">All {formatNumber(n)} {who} are tied{value !== null && value !== undefined ? ' at this' : ''}</span>
+    </span>
+  );
+}
+
 function MiniBoard({ board: b, ruleset, population }) {
   const to = `/leaderboards/${ruleset.id}/${b.id}`;
   return (
-    <Link className="panel mini" to={to}>
+    <Link className={`panel mini${b.tied ? ' is-tied' : ''}`} to={to}>
       <span className="hd"><b className="mini-title" title={displayName(b.name)}>{displayName(b.name)}</b><span className="muted xsmall nowrap">{formatNumber(b.nonzero)} with any</span></span>
       {b.nonzero === 0 ? (
         <span className="ln mini-note"><span /><span className="muted xsmall">Nobody tracked has any yet ({formatNumber(population)} tracked)</span><span /></span>
       ) : b.tied ? (
-        <span className="ln mini-note"><span /><span className="muted xsmall">All {formatNumber(b.nonzero)} with any are tied</span><span /></span>
+        <TiedLine n={b.nonzero} value={b.tiedValue} who="with any" />
       ) : b.top.map((r) => (
         <span key={r.slug ?? r.name} className="ln">
           <span className={`rk${r.rank <= 3 ? ` r${r.rank}` : ''}`}>{r.rank}</span>
@@ -204,12 +215,12 @@ function MiniBoard({ board: b, ruleset, population }) {
 function MiniGuildBoard({ board: b, ruleset, minMembers }) {
   const to = `/leaderboards/guilds/${ruleset.id}/${b.id}`;
   return (
-    <Link className="panel mini" to={to}>
+    <Link className={`panel mini${b.tied ? ' is-tied' : ''}`} to={to}>
       <span className="hd"><b className="mini-title" title={displayName(b.name)}>{displayName(b.name)}</b><span className="muted xsmall nowrap">{formatNumber(b.ranked)} guild{b.ranked === 1 ? '' : 's'}</span></span>
       {b.ranked === 0 ? (
         <span className="ln mini-note"><span /><span className="muted xsmall">{b.notYet ? `${formatNumber(b.notYet)} not ranked yet (under ${minMembers} members)` : 'No ranked guild has any yet'}</span><span /></span>
       ) : b.tied ? (
-        <span className="ln mini-note"><span /><span className="muted xsmall">All {formatNumber(b.ranked)} ranked guilds are tied</span><span /></span>
+        <TiedLine n={b.ranked} value={b.tiedValue} who="ranked guilds" />
       ) : b.top.map((r) => (
         <span key={r.slug} className="ln">
           <span className={`rk${r.rank <= 3 ? ` r${r.rank}` : ''}`}>{r.rank}</span>
