@@ -24,7 +24,8 @@ import { connectedRealmsFromSearch, listedConnectedRealms } from '../../realms/p
  * analyseProbe() builds the results and the plain-English answers from it plus the stored responses, so a probe can be
  * re-analysed later without asking Blizzard anything.
  */
-const MAX_DISCOVERED = 2; // discovered values tried per entry, stopping at the first 200
+const MAX_DISCOVERED = 2; // discovered values tried per entry, stopping at the first 200 (a current_season comes on top)
+const MAX_EVERY = 12; // an `every` entry (pvp brackets): each linked value is its own data, all tried up to this
 const HEARTBEAT_EVERY = 5; // requests
 const OUTLINE = { maxDepth: 6, maxKeys: 150 };
 const ANALYSE_BATCH = 20;
@@ -118,9 +119,12 @@ const fill = (template, ctx, values = {}) => String(template)
 /**
  * Candidate values for an entry from one earlier 200 answer, best first:
  *   1. the entry's custom `pick`;
+ *   then (0.10.4), ahead of whatever follows: the answer's own `current_season` (its link, else its id for the one
+ *      missing *season* {param}), marked `current`: season indexes list retired seasons first and those answer 403;
  *   2. links in the answer whose path matches this entry's path (they carry their own namespace);
  *   3. the answer's own values, when they cover every {param} ("the same season as …");
  *   4. the ids its item list carries, when exactly one {param} is still missing.
+ * `linksOnly` entries (a house, a pvp bracket) stop after 2: an id from some other list would be a guess.
  */
 export function candidatesFrom(entry, src, success, ctx) {
   const fixed = entry.fixed ?? {};
@@ -134,6 +138,11 @@ export function candidatesFrom(entry, src, success, ctx) {
   const out = [];
   const seen = new Set();
   const own = decode(String(success.path).split('?')[0]).toLowerCase();
+  const known = success.values ?? {};
+  const missing = needed.filter((p) => !(p in known));
+  const current = currentSeason(success.json, { re, names, needed, missing, known, fixed, fromLabel });
+  if (current) seen.add(JSON.stringify(current.values));
+  const withCurrent = (list) => (current ? [current, ...list] : list);
   for (const { href } of hrefsIn(success.json)) {
     const p = pathOf(href);
     if (!p || decode(p).toLowerCase() === own) continue;
@@ -141,14 +150,12 @@ export function candidatesFrom(entry, src, success, ctx) {
     if (!m) continue;
     const values = Object.fromEntries(names.map((n, i) => [n, m[i + 1]]));
     if (Object.values(values).some((v) => String(v).toLowerCase() === 'index')) continue;
-    const key = JSON.stringify(values);
+    const key = JSON.stringify({ ...values, ...fixed });
     if (seen.has(key)) continue;
     seen.add(key);
     out.push({ values: { ...values, ...fixed }, ns: nsOf(href), basis: `linked from ${fromLabel}` });
   }
-  if (out.length) return out;
-  const known = success.values ?? {};
-  const missing = needed.filter((p) => !(p in known));
+  if (out.length || entry.linksOnly) return withCurrent(out);
   if (needed.length && missing.length === 0) {
     return [{ values: { ...Object.fromEntries(needed.map((p) => [p, known[p]])), ...fixed }, ns: null, basis: `same values as ${fromLabel}` }];
   }
@@ -164,7 +171,27 @@ export function candidatesFrom(entry, src, success, ctx) {
       out.push({ values, ns: null, basis: `listed in ${fromLabel}` });
     }
   }
-  return out;
+  return withCurrent(out);
+}
+
+/**
+ * 0.10.4: an answer's `current_season` as a candidate: its own link when that matches the entry's path, else its id for
+ * the one missing {param} named like a season. Null when the answer names no current season (nothing is assumed).
+ */
+function currentSeason(json, { re, names, needed, missing, known, fixed, fromLabel }) {
+  const cur = isObj(json) ? json.current_season : null;
+  if (!isObj(cur)) return null;
+  const href = typeof cur.key?.href === 'string' ? cur.key.href : typeof cur.href === 'string' ? cur.href : null;
+  const p = href ? pathOf(href) : null;
+  const m = p ? re.exec(decode(p)) : null;
+  if (m) {
+    const values = Object.fromEntries(names.map((n, i) => [n, m[i + 1]]));
+    return { values: { ...values, ...fixed }, ns: nsOf(href), basis: `current_season in ${fromLabel}`, current: true };
+  }
+  const id = cur.id;
+  if (missing.length !== 1 || !/season/i.test(missing[0]) || !(typeof id === 'number' || (typeof id === 'string' && id))) return null;
+  const base = Object.fromEntries(needed.filter((p) => p in known).map((p) => [p, known[p]]));
+  return { values: { ...base, [missing[0]]: String(id), ...fixed }, ns: null, basis: `current_season in ${fromLabel}`, current: true };
 }
 
 const subjectKind = (e) => (e.id.startsWith('character.') ? 'character' : e.id.startsWith('guild.') ? 'guild' : e.id.startsWith('account.') ? 'account' : 'data');
@@ -328,15 +355,29 @@ export async function runProbe({ db, runId, fetch = globalThis.fetch, sleep, now
       if (candidates.length) break;
       tried.push(`${src.replace(/^[a-z]+\./, '')} answered with no ${params.join('/')} in it`);
     }
-    if (!candidates.length && e.common) {
+    if (e.every) {
+      // 0.10.4 (pvp brackets): every value an answer links is its own data, all tried; then the common values no answer
+      // linked, every one.
+      const linked = candidates.slice(0, MAX_EVERY);
+      const have = new Set(linked.map((cand) => JSON.stringify(cand.values)));
+      const extra = (e.common ?? []).map((values) => ({ values: { ...values, ...(e.fixed ?? {}) }, ns: null, basis: 'common value (no index lists these)' }))
+        .filter((cand) => !have.has(JSON.stringify(cand.values)));
+      candidates = [...linked, ...extra];
+      common = true;
+    } else if (!candidates.length && e.common) {
       candidates = e.common.map((values) => ({ values: { ...values, ...(e.fixed ?? {}) }, ns: null, basis: 'common value (no index lists these)' }));
       common = true;
     }
-    if (!candidates.length) return skip(e, `no real ${params.join(' / ')} to try (${tried.join('; ') || 'no source'})`);
+    if (!candidates.length) {
+      // 0.10.4: an entry that says what an answer without its value means (`none`: a house) says exactly that.
+      const answeredAll = (e.from ?? []).length > 0 && e.from.every((src) => results.get(src)?.success);
+      return skip(e, e.none && answeredAll ? e.none : `no real ${params.join(' / ')} to try (${tried.join('; ') || 'no source'})`);
+    }
     if (e.preferPrimary && ctx.primaryId !== null) {
       candidates.sort((a, b) => (String(b.values[e.preferPrimary]) === String(ctx.primaryId)) - (String(a.values[e.preferPrimary]) === String(ctx.primaryId)));
     }
-    for (const cand of common ? candidates : candidates.slice(0, MAX_DISCOVERED)) {
+    // 0.10.4: a current_season goes first and doesn't count toward MAX_DISCOVERED, so a 403 still leaves two listed ids.
+    for (const cand of common ? candidates : candidates.slice(0, MAX_DISCOVERED + (candidates[0]?.current ? 1 : 0))) {
       if (await shouldStop()) return null;
       const checked = e.ns === 'static' && live.staticCheck?.candidates.some((c) => c.ns === namespace && c.real);
       const r = await attempt(e, fill(e.path, ctx, cand.values), checked ? namespace : (cand.ns ?? namespace), cand.values, cand.basis);

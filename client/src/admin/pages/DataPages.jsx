@@ -199,15 +199,15 @@ function QueueTable({ d }) {
   return (
     <div className="dt-wrap">
       <table className="dt">
-        <thead><tr><th>Priority</th><th className="t2">What</th><th className="r num">Waiting</th><th className="r num">Running</th><th className="r">Oldest waiting</th><th>Share of the queue</th></tr></thead>
+        <thead><tr><th>Priority</th><th className="t2">What</th><th className="r num">Waiting</th><th className="r num lo">Running</th><th className="r lo">Oldest waiting</th><th>Share of the queue</th></tr></thead>
         <tbody>
           {d.queue.map((q) => (
             <tr key={q.priority}>
-              <td className="dtl" data-label=""><b>P{q.priority}</b></td>
+              <td className="dtl" data-label=""><b>P{q.priority}</b><span className="sub"><span className="dm lo"><span className="l">Running</span> {formatNumber(q.running)}</span><span className="dm lo"><span className="l">Oldest</span> {q.oldest ? ageOf(q.oldest) : '—'}</span></span></td>
               <td className="t2" data-label="What">{PRIORITY_NAMES[q.priority] ?? `Priority ${q.priority}`}</td>
               <td className="r num" data-label="Waiting">{formatNumber(q.queued)}</td>
-              <td className="r num" data-label="Running">{formatNumber(q.running)}</td>
-              <td className="r nw" data-label="Oldest waiting">{q.oldest ? ageOf(q.oldest) : '—'}</td>
+              <td className="r num lo" data-label="Running">{formatNumber(q.running)}</td>
+              <td className="r nw lo" data-label="Oldest waiting">{q.oldest ? ageOf(q.oldest) : '—'}</td>
               <td data-label="Share of the queue"><Bar value={pct(q.queued, max)} label={`${formatNumber(q.queued)} waiting`} /></td>
             </tr>
           ))}
@@ -223,18 +223,18 @@ function BudgetTable({ d }) {
       <span className="small t2">Each version’s ceiling on the shared {formatNumber(d.budget.perSecond)} requests a second. Inside a version, lookups go first.</span>
       <div className="dt-wrap">
         <table className="dt">
-          <thead><tr><th>Version</th><th>Ceiling</th><th className="r num">Waiting for budget</th><th className="r num">Queued</th><th className="r num">Running</th><th className="r num">Finished · 1 h</th></tr></thead>
+          <thead><tr><th>Version</th><th>Ceiling</th><th className="r num">Waiting for budget</th><th className="r num">Queued</th><th className="r num lo">Running</th><th className="r num lo">Finished · 1 h</th></tr></thead>
           <tbody>
             {d.versions.map((v) => (
               <tr key={v.id}>
-                <td className="dtl" data-label=""><b>{v.name}</b>{!v.enabled && <span className="sub">Off · admin only</span>}</td>
+                <td className="dtl" data-label=""><b>{v.name}</b>{!v.enabled && <span className="sub">Off · admin only</span>}<span className="sub"><span className="dm lo"><span className="l">Running</span> {formatNumber(v.running)}</span><span className="dm lo"><span className="l">Finished · 1 h</span> {formatNumber(v.finishedHour)}{v.failedHour ? ` (${formatNumber(v.failedHour)} failed)` : ''}</span></span></td>
                 <td data-label="Ceiling">
                   <div className="ratio"><span className="num">{v.share === null ? '—' : `${v.share}%`}</span><Bar value={v.share ?? 0} tone={v.enabled ? '' : 'off'} label={`${v.share ?? 0}% ceiling`} /></div>
                 </td>
                 <td className="r num" data-label="Waiting for budget">{formatNumber(v.waitingForBudget)}</td>
                 <td className="r num" data-label="Queued">{formatNumber(v.queued)}</td>
-                <td className="r num" data-label="Running">{formatNumber(v.running)}</td>
-                <td className="r num" data-label="Finished · 1 h">{formatNumber(v.finishedHour)}{v.failedHour ? <span className="sub">{formatNumber(v.failedHour)} failed</span> : null}</td>
+                <td className="r num lo" data-label="Running">{formatNumber(v.running)}</td>
+                <td className="r num lo" data-label="Finished · 1 h">{formatNumber(v.finishedHour)}{v.failedHour ? <span className="sub">{formatNumber(v.failedHour)} failed</span> : null}</td>
               </tr>
             ))}
           </tbody>

@@ -1,4 +1,5 @@
 import { createElement, memo } from 'react';
+import { FRAME_D, logoBox, logoSizeFor } from '../../../server/badges/logoBox.js';
 
 /**
  * Badge art (0.7.0). The SVGs in ./art/ are the design export's files COPIED VERBATIM (design/v2-badges/badges/), so
@@ -7,8 +8,11 @@ import { createElement, memo } from 'react';
  * once, here, and drawn as React elements, whose styles go through the CSSOM (allowed): the art follows the page's
  * theme, and the letters (S, PT, B, D, ?) render in the site's self-hosted Cinzel.
  *
- * Templates: a partner's uploaded mark replaces the partner-mark slot (an <image> from our own origin, CSP 'self'); a
- * platform-employee monogram replaces the template's "?" letter. Nothing else in a drawing is ever changed.
+ * Templates: a platform-employee monogram replaces the template's "?" letter. Nothing else in a drawing is ever changed,
+ * except by a logo (below: an <image> from our own origin, CSP 'self').
+ *
+ * 0.10.4: a badge with a saved LOGO (Pro Team, Platform Employee, Community Partner) keeps only its frame and draws the
+ * logo in the box server/badges/logoBox.js gives (the same numbers as share cards). The name stays a text pill.
  *
  * A standalone SVG served on its own (a share image, later) would NOT have Cinzel: convert its text to outlines first.
  */
@@ -67,10 +71,6 @@ function parsed(path) {
 export const hasArt = (path) => Boolean(FILES[`./art/${path}.svg`]);
 
 function render(node, ctx, key, extra = null) {
-  if (node.slot === 'partner-mark' && ctx.mark) {
-    const box = ctx.inline ? { x: 16, y: 16, width: 32, height: 32 } : { x: 17, y: 17, width: 30, height: 30 };
-    return createElement('image', { key, href: ctx.mark, ...box, preserveAspectRatio: 'xMidYMid meet' });
-  }
   if (node.tag === 'text' && ctx.monogram && (node.text === '?' || ctx.inMonogramSlot)) {
     return createElement('text', { key, ...node.props }, ctx.monogram);
   }
@@ -79,13 +79,24 @@ function render(node, ctx, key, extra = null) {
   return createElement(node.tag, { key, ...node.props, ...extra }, children);
 }
 
+/** The frame alone, plus the logo (and its plate) in the shared box. Nothing else from the drawing. */
+function renderLogo(node, logo, inline, size) {
+  const box = logoBox(inline, logo.backing);
+  const frame = node.children.filter((c) => c.tag === 'path' && c.props.d === FRAME_D).map((c, i) => render(c, {}, `f${i}`));
+  const plate = box.plate ? createElement('rect', { key: 'plate', x: box.plate.x, y: box.plate.y, width: box.plate.size, height: box.plate.size, rx: box.plate.r, style: { fill: 'var(--bi)' } }) : null;
+  const href = logo.srcs?.[logoSizeFor(size)] ?? logo.srcs?.[256] ?? null;
+  const image = href ? createElement('image', { key: 'logo', href, x: box.x, y: box.y, width: box.size, height: box.size, preserveAspectRatio: 'xMidYMid meet' }) : null;
+  return createElement(node.tag, { key: 'root', ...node.props, 'aria-hidden': 'true', focusable: 'false' }, [...frame, plate, image].filter(Boolean));
+}
+
 /**
- * <BadgeArt badge size /> → the badge's <svg>, aria-hidden (the wrapper carries the name). size 'inline' uses the
- * simplified *-inline.svg drawing.
+ * <BadgeArt badge inline size /> → the badge's <svg>, aria-hidden (the wrapper carries the name). inline uses the
+ * simplified *-inline.svg drawing; size ('inline' | 'std' | 'lg' | 'xl') picks the logo's re-encoded size.
  */
-export const BadgeArt = memo(function BadgeArt({ badge, inline = false }) {
+export const BadgeArt = memo(function BadgeArt({ badge, inline = false, size = null }) {
   const path = inline && hasArt(`${badge.art}-inline`) ? `${badge.art}-inline` : badge.art;
   const node = parsed(path);
   if (!node) return <svg viewBox="-3 -3 70 70" aria-hidden="true" focusable="false" />;
-  return render(node, { mark: badge.mark ?? null, monogram: badge.monogram ?? null, inline }, 'root', { 'aria-hidden': 'true', focusable: 'false' });
+  if (badge.logo) return renderLogo(node, badge.logo, inline, size ?? (inline ? 'inline' : 'std'));
+  return render(node, { monogram: badge.monogram ?? null }, 'root', { 'aria-hidden': 'true', focusable: 'false' });
 });

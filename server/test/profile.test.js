@@ -68,3 +68,25 @@ test('profile fields: handles only (never URLs), each checked against its platfo
   const again = (await t.client().get('/api/users/fixtureplayer')).json;
   assert.equal(again.sections[0].bio, null);
 });
+
+test('0.10.4: the featured character shows its best placements: never a tied board, a board of one, or a death', async () => {
+  // Continues from the profile above: fixtureplayer's featured character is 8001 on ruleset 2.
+  const q = t.db;
+  await q.query(`INSERT INTO characters (id, slug, name, surname, ruleset_id, profile_state, source, data_fetched_at, stats_fetched_at, level)
+                 VALUES (8101, 'rival-one', 'Rival', 'One', 2, 'ok', 'lookup', now(), now(), 20), (8102, 'rival-two', 'Rival', 'Two', 2, 'ok', 'lookup', now(), now(), 20)`);
+  await q.query(`INSERT INTO statistics (id, name, category_path) VALUES
+     (701, 'Fixture best', '[{"name":"Kills"}]'), (702, 'Fixture second', '[{"name":"Kills"}]'), (703, 'Fixture tied', '[{"name":"Kills"}]'),
+     (704, 'Fixture alone', '[{"name":"Kills"}]'), (705, 'Fixture deaths', '[{"name":"Deaths"}]')`);
+  const v = (c, s, n) => `(${c}, ${s}, 2, ${n}, now())`;
+  await q.query(`INSERT INTO character_statistics (character_id, statistic_id, ruleset_id, value, fetched_at) VALUES
+     ${[v(8001, 701, 50), v(8101, 701, 10), v(8102, 701, 5),   // #1 of 3
+        v(8001, 702, 20), v(8101, 702, 30), v(8102, 702, 5),   // #2 of 3
+        v(8001, 703, 4), v(8101, 703, 4), v(8102, 703, 4),      // everyone tied: no placement
+        v(8001, 704, 9),                                        // the only one with any: no placement
+        v(8001, 705, 99), v(8101, 705, 1)].join(', ')}`);      // deaths: leaderboard-only, never shown off
+  (await import('../stats/catalog.js')).clearCatalogCache();
+  const res = (await t.client().get('/api/users/fixtureplayer')).json;
+  const f = res.sections.find((s) => s.id === 'featured').character;
+  assert.deepEqual(f.placements.map((p) => [p.id, p.rank, p.withAny]), [[701, 1, 3], [702, 2, 3]]);
+  assert.equal(f.badge?.id, 'beta-tester'); // its one inline badge: created while the beta was open
+});

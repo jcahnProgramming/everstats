@@ -39,3 +39,20 @@ test('every preview row on the leaderboards index has its character, however man
   const blank = rows.filter((r) => !r.name || !r.slug);
   assert.deepEqual(blank, [], `${blank.length} preview rows had no character`);
 });
+
+test('0.10.4: a board where everyone with any is tied says so with the value they share; others carry no tied value', async () => {
+  const q = t.db;
+  await q.query("INSERT INTO statistics (id, name, category_path) VALUES (900, 'Fixture tied statistic', '[{\"id\":1,\"name\":\"Fixture\"}]')");
+  await q.query(
+    `INSERT INTO character_statistics (character_id, statistic_id, ruleset_id, value, fetched_at)
+     VALUES (10000, 900, 2, 7, now()), (10001, 900, 2, 7, now()), (10002, 900, 2, 7, now())`,
+  );
+  (await import('../stats/catalog.js')).clearCatalogCache(); // the statistic is new to this process
+  const idx = (await t.client().get('/api/leaderboards?ruleset=2')).json;
+  const boards = idx.categories.flatMap((c) => c.boards);
+  const tied = boards.find((b) => b.id === 900);
+  assert.equal(tied.tied, true);
+  assert.equal(tied.tiedValue, 7);
+  assert.equal(tied.nonzero, 3);
+  assert.equal(boards.find((b) => b.id === 1).tiedValue, null);
+});

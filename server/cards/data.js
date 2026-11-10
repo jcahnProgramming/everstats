@@ -71,7 +71,7 @@ async function guildBySlug(db, slug) {
   return g ? { status: 'ok', g } : { status: 'not_found' };
 }
 
-const markOfPlayerBadge = async (db, id) => (await db.one('SELECT mark FROM badge_definitions WHERE id = $1', [id]))?.mark ?? null;
+const logoOfPlayerBadge = async (db, id) => (await db.one("SELECT png_256 FROM badge_logos WHERE badge_id = $1 AND stage = 'saved'", [id]))?.png_256 ?? null;
 const markOfGuild = async (db, guildId) => (await db.one('SELECT mark FROM guild_partner_marks WHERE guild_id = $1 AND mark_sha IS NOT NULL', [guildId]))?.mark ?? null;
 
 /** The slots in the order the character sheet shows them; shirt and tabard are left off the strip (no stats, cosmetic). */
@@ -134,7 +134,7 @@ export async function characterCard(db, { slug, options }) {
   if (!stats.length) return { status: 'unavailable', reason: 'This character has no statistic with a value above zero yet, and only real values go on a card.' };
   const tier = await overallTier(db, row);
   const badge = c.claimedBy?.badge ?? null;
-  const badgeSvg = badge ? playerBadgeSvg(badge, { mark: badge.mark ? await markOfPlayerBadge(db, badge.id) : null }) : null;
+  const badgeSvg = badge ? playerBadgeSvg(badge, { logo: badge.logo ? await logoOfPlayerBadge(db, badge.id) : null }) : null;
   const bySlot = new Map((c.equipment ?? []).map((i) => [i.slot, i]));
   const gear = GEAR_ORDER.map((s) => bySlot.get(s)).filter(Boolean).map((i) => {
     const look = options.gear === 'transmog' && i.transmog ? i.transmog : null;

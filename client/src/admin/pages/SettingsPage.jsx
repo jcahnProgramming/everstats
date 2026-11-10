@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { api } from '../../api.js';
 import { Icon } from '../../chrome/Icon.jsx';
 import { Segmented } from '../../components/Controls.jsx';
 import { formatDateTime, formatNumber, timeAgo } from '../../format.js';
 import { Panel, usePanel } from '../shell/refresh.jsx';
-import { ActionButton, ActionStatus, Change, Chip, ConfirmDialog, Empty, PageHead, ScopeChip, useAction, useHit } from '../shell/parts.jsx';
+import { ActionButton, ActionStatus, Change, Chip, ConfirmDialog, Empty, InPageNav, PageHead, ScopeChip, useAction, useHit } from '../shell/parts.jsx';
 import './site.css';
 
 /**
@@ -94,7 +94,6 @@ export function SettingsPage() {
   const [rowErrors, setRowErrors] = useState({});
   const [confirm, setConfirm] = useState(null);
   const save = useAction();
-  const { hash } = useLocation();
   useHit(sp.data && keys.data);
 
   const byKey = useMemo(() => new Map((sp.data?.settings ?? []).map((s) => [s.key, s])), [sp.data]);
@@ -133,7 +132,6 @@ export function SettingsPage() {
   };
 
   const rowProps = (s) => ({ s, draft: drafts[s.key], setDraft: (d) => setDraft(s.key, d), error: rowErrors[s.key] ?? null });
-  const current = SECTIONS.find((x) => `#${x.id}` === hash)?.id ?? null;
 
   return (
     <>
@@ -151,11 +149,10 @@ export function SettingsPage() {
         </div>
       )}
       <div className="inpage">
-        <nav aria-label="Settings sections">
-          {SECTIONS.map((x) => <a key={x.id} href={`#${x.id}`} aria-current={current === x.id ? 'true' : undefined}>{x.label}</a>)}
+        <InPageNav label="Settings sections" sections={SECTIONS}>
           <Link to="/admin/tiers">Tier settings ›</Link>
           <Link to="/admin/features">Switches ›</Link>
-        </nav>
+        </InPageNav>
         <div className="stack gap-16">
           <Panel panel={keys} title="API keys" id="keys" flush sub={<span className="muted xsmall">Values are never shown</span>}
             footer="Stored encrypted with the root key from .env and never sent to a browser: you see whether a key is set, where from, and when. Keys in .env are used when none is stored here. Everstats never writes .env.">

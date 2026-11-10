@@ -21,7 +21,11 @@ import { NATIVE_VERSION } from '../../core/gameVersions.js';
  *   id      stable (stored as discovery_responses.endpoint 'ep.<id>')
  *   area    PROBE_AREAS id (how the results are grouped)
  *   from    entry ids whose 200 answers supply {param}s
- *   common  [{ param: value }]: tried when no `from` answer supplies one (pvp brackets, house numbers)
+ *   common  [{ param: value }]: tried when no `from` answer supplies one (pvp brackets)
+ *   linksOnly true: values only from links in a `from` answer whose path matches (never ids from some list)
+ *   every   true: every linked value is tried (each is its own data), then the `common` ones not linked
+ *   none    the skip reason, in words, when every `from` answered without a value ("the character profile names no house")
+ *   A `from` answer's `current_season` is tried first (season indexes list retired seasons first; those answer 403).
  *   fixed   { param: value }: a constant alongside discovered values (recorded)
  *   pick    (json) → [{ param: value }]: a custom reading of the `from` answer (only where links can't supply it)
  *   query   extra parameters (search endpoints only)
@@ -88,7 +92,8 @@ export const PROBE_ENDPOINTS = [
   c('collections-heirlooms', 'collections', '/collections/heirlooms'),
   c('collections-transmogs', 'collections', '/collections/transmogs'),
   c('collections-decor', 'housing', '/collections/decor', { first: true, later: true }),
-  c('house', 'housing', '/house/house-{houseNumber}', { first: true, later: true, from: ['character.profile'], common: [{ houseNumber: '1' }] }),
+  // 0.10.4: the house number only from the profile's own link to its house (no `common` guess); none → a recorded skip.
+  c('house', 'housing', '/house/house-{houseNumber}', { first: true, later: true, from: ['character.profile'], linksOnly: true, none: 'the character profile names no house' }),
   c('professions', 'professions', '/professions'),
   c('quests', 'quests', '/quests'),
   c('quests-completed', 'quests', '/quests/completed'),
@@ -96,7 +101,9 @@ export const PROBE_ENDPOINTS = [
   c('specializations', 'classes', '/specializations'),
   c('titles', 'collections', '/titles'),
   c('pvp-summary', 'pvp', '/pvp-summary'),
-  c('pvp-bracket', 'pvp', '/pvp-bracket/{pvpBracket}', { first: true, from: ['character.pvp-summary'], common: [{ pvpBracket: '2v2' }, { pvpBracket: '3v3' }, { pvpBracket: 'rbg' }] }),
+  // 0.10.4: every bracket pvp-summary links first (the only source of per-spec names: shuffle-{class}-{spec},
+  // blitz-{class}-{spec}; never built), then 2v2 / 3v3 / rbg (no bracket index exists) where not linked.
+  c('pvp-bracket', 'pvp', '/pvp-bracket/{pvpBracket}', { first: true, from: ['character.pvp-summary'], linksOnly: true, every: true, common: [{ pvpBracket: '2v2' }, { pvpBracket: '3v3' }, { pvpBracket: 'rbg' }] }),
   c('encounters', 'journal', '/encounters'),
   c('encounters-dungeons', 'journal', '/encounters/dungeons'),
   c('encounters-raids', 'journal', '/encounters/raids'),

@@ -9,6 +9,7 @@ import { GuildBadgeIcon, GuildPill, guildBadgeName } from '../../guildBadges/Gui
 import { ActionButton, ActionStatus, Chip, ConfirmDialog, Empty, PageHead, ScopeChip, useAction } from '../shell/parts.jsx';
 import { Panel, usePanel } from '../shell/refresh.jsx';
 import './moderation.css';
+import './badges.css';
 
 /**
  * Badges (0.10.3, design/v5-admin pages badges, badges-guild). Everything the 0.7.0 BadgesAdminPage and the 0.7.1
@@ -16,14 +17,14 @@ import './moderation.css';
  *
  *   /admin/badges/player   grant / revoke (reason required, logged), the beta-membership grant, Verified Content Creator
  *                          (its handle-change alert, the code, the checked handles), the badge table with holders,
- *                          partner marks, badges from templates, the Early Supporter window, the back-fill, the log
+ *                          badge logos (0.10.4: Pro Team, Platform Employee, Community Partner), badges from templates, the Early Supporter window, the back-fill, the log
  *   /admin/badges/guild    milestone thresholds I–V with a preview and guilds per level, staff grants / revokes,
  *                          the Early Guild window, partner emblems, a new Deeds badge, the back-fill, the log
  *
  * Every manual badge the server lists is grantable here (Dev Tester included: a new award of it starts hidden on the
  * profile until its holder shows it). Badges are cosmetic; the admin holds none.
  *
- * Different from the design, on purpose: no native <select> (pill radio groups instead); partner marks and emblems are
+ * Different from the design, on purpose: no native <select> (pill radio groups instead); badge logos and guild emblems are
  * PNG or WebP only (SVG can carry scripts); "Holders" opens the public badge page, which lists them.
  */
 const THEMES = [['forever', 'Forever'], ['alliance', 'Alliance'], ['horde', 'Horde']];
@@ -63,8 +64,8 @@ export function PlayerBadgesTab() {
       <Panel panel={p} title={s ? `Player badges · ${s.definitions.length}` : 'Player badges'} id="list" flush>
         {(d) => <BadgeTable state={d} onGrant={(id) => { setBadgeId(id); scrollTo('grant'); }} />}
       </Panel>
-      <Panel panel={p} title="Partner mark" id="mark">
-        {(d) => <MarkPanel state={d} onChanged={p.reload} />}
+      <Panel panel={p} title="Badge logos" id="logo">
+        {(d) => <LogoPanel state={d} onChanged={p.reload} />}
       </Panel>
       <Panel panel={p} title="Create a badge from a template" id="template">
         {(d) => <TemplatePanel state={d} onChanged={p.reload} />}
@@ -173,9 +174,9 @@ function AccountGrant({ state, accountId, setAccountId, badgeId, setBadgeId, onC
             <div className="radio-list" role="radiogroup" aria-labelledby="grant-list-h">
               {manual.map((d) => (
                 <button key={d.id} type="button" role="radio" aria-checked={badgeId === d.id} className="bdg-pill" disabled={!d.grantable} onClick={() => setBadgeId(d.id)}
-                  title={d.grantable ? undefined : 'Upload and save its mark first'}>
+                  title={d.grantable ? undefined : 'Upload and save its logo first'}>
                   <BadgeIcon badge={d} labelled={false} />
-                  <span className="bdg-pill-name">{d.name}{d.grantable ? '' : ' (needs a mark)'}</span>
+                  <span className="bdg-pill-name">{d.name}{d.grantable ? '' : ' (needs a logo)'}</span>
                 </button>
               ))}
             </div>
@@ -342,7 +343,7 @@ function BadgeTable({ state, onGrant }) {
                 <tr key={d.id}>
                   <td className="dtl" data-label=""><span className="who2"><BadgeIcon badge={d} size="inline" /><b>{d.name}</b></span>{d.artTemporary && <span className="sub">Temporary art</span>}</td>
                   <td className="t2" data-label="Family">{d.familyLabel}</td>
-                  <td data-label="How it’s given">{d.award === 'automatic' ? <Chip kind="ok">Automatic</Chip> : d.grantable ? <Chip kind="info">Manual</Chip> : <Chip kind="warn">Manual · needs a mark first</Chip>}{d.createdBy === 'admin' && <span className="sub">made here</span>}</td>
+                  <td data-label="How it’s given">{d.award === 'automatic' ? <Chip kind="ok">Automatic</Chip> : d.grantable ? <Chip kind="info">Manual</Chip> : <Chip kind="warn">Manual · needs a logo first</Chip>}{d.createdBy === 'admin' && <span className="sub">made here</span>}</td>
                   <td className="r num" data-label="Holders">{formatNumber(d.heldBy)}</td>
                   <td className="r" data-label=""><div className="act">
                     {d.award === 'manual' && d.grantable && d.id !== state.creator?.badgeId && <button type="button" className="btn sm ghost" onClick={() => onGrant(d.id)}>Grant…</button>}
@@ -358,80 +359,157 @@ function BadgeTable({ state, onGrant }) {
   );
 }
 
-function MarkPanel({ state, onChanged }) {
-  const teams = state.definitions.filter((d) => d.template === 'partner-pro');
-  const [id, setId] = useState(teams[0]?.id ?? null);
-  const [permission, setPermission] = useState(false);
+/**
+ * Badge logos (0.10.4, server/badges/logos.js): a partner's own branding inside its badge's frame, for every Pro Team,
+ * Platform Employee and Community Partner badge. Only WITH permission: who granted it, when and how are required (the
+ * server refuses an upload or a save without them) and go to the audit log. The upload comes back re-encoded at every
+ * size and is previewed in all three themes, at every pill size and at share-card size, before Save; Cancel discards it.
+ * Remove (reason, players see it) puts the badge's own art back; nobody loses the badge.
+ */
+const EMPTY_NOTE = { grantedBy: '', grantedAt: '', how: '' };
+const today = () => new Date().toISOString().slice(0, 10);
+
+function LogoPanel({ state, onChanged }) {
+  const badges = state.definitions.filter((d) => d.takesLogo);
+  const [id, setId] = useState(badges[0]?.id ?? null);
+  const [note, setNote] = useState(EMPTY_NOTE);
   const [preview, setPreview] = useState(null);
+  const [backing, setBacking] = useState('none');
   const [checked, setChecked] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const act = useAction();
-  const team = teams.find((t) => t.id === id) ?? null;
-  const upload = (file) => {
+  const def = badges.find((b) => b.id === id) ?? null;
+  const rules = state.logoRules;
+  const noteReady = note.grantedBy.trim() && note.grantedAt && note.how.trim();
+  const reset = () => {
     setPreview(null);
     setChecked(false);
+    setBacking(def?.logo?.backing ?? 'none');
+  };
+  const discard = () => {
+    if (preview) api(`/api/admin/badges/${id}/logo/pending`, { method: 'DELETE' }).catch(() => {});
+    reset();
+  };
+  const upload = (file) => {
+    reset();
     if (!file) return;
-    if (!['image/png', 'image/webp'].includes(file.type)) {
-      act.set('failed', 'Only PNG or WebP files (no SVG): an SVG can carry scripts.');
+    // The server decides what the file is from its bytes (a PNG named .jpg is fine; an SVG named .png is not).
+    if (file.size > rules.maxBytes) {
+      act.set('failed', `That file is over ${rules.maxBytes / 1024} KB.`);
       return;
     }
     act.run(async () => {
-      const res = await fetch(`/api/admin/badges/${id}/mark?permission=confirmed`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': file.type }, body: file });
+      const qs = new URLSearchParams({ grantedBy: note.grantedBy.trim(), grantedAt: note.grantedAt, how: note.how.trim() });
+      const res = await fetch(`/api/admin/badges/${id}/logo?${qs}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? `Upload failed (${res.status})`);
       setPreview(body.preview);
-    }, { done: 'Uploaded: check the preview, then save', working: 'Uploading…' });
+    }, { done: 'Re-encoded: check every size in every theme, then save', working: 'Uploading…' });
   };
-  if (teams.length === 0) return <span className="muted small">No Pro Team Partner badges yet. Make the team’s badge first (Create a badge from a template, below).</span>;
-  const shown = team ? { ...team, mark: preview ?? team.mark } : null;
+  if (!badges.length) return <span className="muted small">No badge takes a logo yet. Make a Pro Team or Community Partner badge from a template (below).</span>;
+  const kind = def ? state.logoTemplates[def.template] : null;
+  const shown = def ? { ...def, logo: preview ? { backing, srcs: preview } : def.logo } : null;
+  const fallback = def?.template === 'platform-employee' ? `its “${def.monogram ?? '?'}” monogram` : 'its own art';
+  const set = (k) => (e) => setNote((n) => ({ ...n, [k]: e.target.value }));
   return (
     <div className="mod-split">
       <div className="mod-stack">
-        <span className="t2 small">Upload a partner’s official mark into the Pro Team Partner template: only after a signed partnership and written permission.</span>
-        <div className="radio-list" role="radiogroup" aria-label="Partner badge">
-          {teams.map((t) => (
-            <button key={t.id} type="button" role="radio" aria-checked={id === t.id} className="bdg-pill" onClick={() => { setId(t.id); setPreview(null); setChecked(false); }}>
-              <BadgeIcon badge={t} labelled={false} /><span className="bdg-pill-name">{t.name}{t.mark ? '' : ' (no mark yet)'}</span>
+        <span className="t2 small">A partner’s own logo inside its badge’s frame: one per Pro Team, per company (Platform Employee) and per Community Partner. <b>Only with the partner’s permission</b>, recorded below. The badge’s name always stays a text pill.</span>
+        <div className="radio-list" role="radiogroup" aria-label="Badge">
+          {badges.map((b) => (
+            <button key={b.id} type="button" role="radio" aria-checked={id === b.id} className="bdg-pill"
+              onClick={() => { discard(); setId(b.id); setBacking(b.logo?.backing ?? 'none'); act.reset(); }}>
+              <BadgeIcon badge={b} labelled={false} /><span className="bdg-pill-name">{b.name} <span className="muted xsmall">· {state.logoTemplates[b.template]?.label}{b.logo ? '' : ' · no logo'}</span></span>
             </button>
           ))}
         </div>
-        <label className="check"><input type="checkbox" checked={permission} onChange={(e) => setPermission(e.target.checked)} /> The partner has given written permission to use this mark</label>
+        {def && (
+          <div className="note small">
+            <Icon name="info" />
+            {def.logo ? (
+              <span className="stack gap-6">
+                <span><b>Saved logo</b>{def.logoNote?.setAt ? ` since ${formatDate(def.logoNote.setAt)}` : ''}. Permission: {def.logoNote ? `${def.logoNote.by} · ${def.logoNote.at} · ${def.logoNote.how}` : 'not recorded'}.</span>
+                <span><button type="button" className="btn sm danger" onClick={() => setRemoving(true)}>Remove logo…</button></span>
+              </span>
+            ) : <span>No logo: {def.name} shows {fallback}.{def.template === 'partner-pro' ? ' A Pro Team badge can be granted once its logo is saved.' : ''}</span>}
+          </div>
+        )}
+        <fieldset className="plain-fieldset stack gap-6">
+          <legend className="small t2">Permission (all three required, saved to the audit log)</legend>
+          <Field label="Who granted it" value={note.grantedBy} onChange={set('grantedBy')} maxLength={120} placeholder="Name and role at the partner" />
+          <Field label="When" type="date" value={note.grantedAt} max={today()} onChange={set('grantedAt')} />
+          <Field label="How" value={note.how} onChange={set('how')} maxLength={200} placeholder="e.g. email from their marketing lead, Nov 2026" />
+        </fieldset>
         <div className="dropzone">
           <Icon name="download" />
-          <b>Choose the mark</b>
-          <span className="small">PNG or WebP only (no SVG). At least 256 × 256, square works best, transparent background, no frame: the badge adds its own. Up to 2 MB. Re-encoded on the server; nothing but the pixels is kept.</span>
-          <input type="file" accept="image/png,image/webp" disabled={!permission || act.busy} aria-label="Mark file (PNG or WebP)" onChange={(e) => upload(e.target.files?.[0])} />
+          <b>Choose the logo</b>
+          <span className="small">PNG or WebP only (no SVG, no JPEG), checked by its content. At least {rules.minSide} × {rules.minSide}, up to {rules.maxBytes / 1024} KB; square with a transparent background works best, no frame (the badge adds its own). Re-encoded on the server at {rules.sizes.join(', ')} px with no metadata; the original isn’t kept.</span>
+          <input type="file" accept="image/png,image/webp" disabled={!noteReady || act.busy} aria-label="Logo file (PNG or WebP)" onChange={(e) => { upload(e.target.files?.[0]); e.target.value = ''; }} />
+          {!noteReady && <span className="muted xsmall">Fill in the permission first.</span>}
         </div>
         <ActionStatus action={act} />
         {preview && (
+          <Segmented label="Backing" value={backing} onChange={setBacking} options={[{ id: 'none', label: 'No backing' }, { id: 'plate', label: 'Light plate (for dark logos)' }]} />
+        )}
+        {preview && (
           <div className="row gap-10 wrap-row">
-            <label className="check"><input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> I’ve checked the preview in all three themes and at inline size</label>
-            <button type="button" className="btn gold" disabled={!checked} onClick={() => setSaving(true)}>Save mark…</button>
-            <button type="button" className="btn ghost" onClick={() => { setPreview(null); setChecked(false); api(`/api/admin/badges/${id}/mark/pending`, { method: 'DELETE' }).catch(() => {}); act.reset(); }}>Cancel</button>
+            <label className="check"><input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> I’ve checked every size in all three themes</label>
+            <button type="button" className="btn gold" disabled={!checked || !noteReady} onClick={() => setSaving(true)}>{def?.logo ? 'Replace logo…' : 'Save logo…'}</button>
+            <button type="button" className="btn ghost" onClick={() => { discard(); act.reset(); }}>Cancel</button>
           </div>
         )}
       </div>
-      {shown && <ThemePreview note={preview ? 'Showing the uploaded mark (not saved yet).' : shown.mark ? 'Showing the saved mark.' : 'Showing the neutral placeholder (“PT”) until a mark is uploaded.'}>
-        {() => (
-          <>
-            <BadgeIcon badge={shown} size="lg" labelled={false} />
-            <span className="row gap-10"><BadgeIcon badge={shown} labelled={false} /><BadgeIcon badge={shown} size="inline" labelled={false} /></span>
-          </>
-        )}
-      </ThemePreview>}
+      {shown && (
+        <LogoPreview badge={shown}
+          note={preview ? 'Showing the uploaded logo, re-encoded by the server (not saved yet).' : def.logo ? 'Showing the saved logo.' : `No logo yet: showing ${fallback}.`} />
+      )}
       {saving && (
-        <ConfirmDialog title={`Save this mark for ${team.name}?`} confirmLabel="Save mark" danger={false} playersSee
-          what="It replaces the saved mark (the old one isn’t kept) and shows wherever the badge does. The badge can be granted once a mark is saved."
+        <ConfirmDialog title={`${def.logo ? 'Replace' : 'Save'} the logo for ${def.name}?`} confirmLabel={def.logo ? 'Replace logo' : 'Save logo'} danger={false} playersSee
+          what={`It shows wherever ${def.name} does (profiles, pills, inline badges, share cards) at once${def.logo ? ', in place of the saved one (the old image isn’t kept; its permission note stays in the audit log)' : ''}. Permission: ${note.grantedBy.trim()} · ${note.grantedAt} · ${note.how.trim()}.`}
           onClose={() => setSaving(false)}
           onConfirm={async (reason) => {
-            await api(`/api/admin/badges/${id}/mark/save`, { method: 'POST', body: { reason, previewChecked: checked } });
-            act.set('done', `Mark saved: ${team.name} can be granted now`);
+            await api(`/api/admin/badges/${id}/logo/save`, { method: 'POST', body: { ...note, reason, previewChecked: checked, backing } });
+            act.set('done', `Logo saved for ${def.name}${kind ? ` (${kind.label})` : ''}`);
             setPreview(null);
             setChecked(false);
-            setPermission(false);
+            setNote(EMPTY_NOTE);
             onChanged();
           }} />
       )}
+      {removing && (
+        <ConfirmDialog title={`Remove ${def.name}’s logo?`} confirmLabel="Remove logo" playersSee
+          what={`${def.name} goes back to ${fallback} everywhere at once. Everyone who holds it keeps it. The image is deleted; its permission note and your reason stay in the audit log.`}
+          onClose={() => setRemoving(false)}
+          onConfirm={async (reason) => {
+            await api(`/api/admin/badges/${id}/logo`, { method: 'DELETE', body: { reason } });
+            act.set('done', `Logo removed: ${def.name} shows ${fallback} again`);
+            onChanged();
+          }} />
+      )}
+    </div>
+  );
+}
+
+/** One badge at every size it's drawn at, in all three themes: pills (profile 44px, Settings 32px), inline, card, large. */
+function LogoPreview({ badge, note }) {
+  return (
+    <div className="stack gap-8">
+      <span className="eyebrow">Preview · all three themes · every size</span>
+      <div className="mod-preview3">
+        {THEMES.map(([theme, label]) => (
+          <div key={theme} data-theme={theme} className="logo-prev">
+            <span className="eyebrow">{label}</span>
+            <span className="bdg-pill"><BadgeIcon badge={badge} labelled={false} /><span className="bdg-pill-name">{badge.name}</span></span>
+            <span className="feat-pill"><BadgeIcon badge={badge} labelled={false} /><span className="bdg-pill-name">{badge.name}</span></span>
+            <span className="row gap-6 small"><span className="handle mono">@username</span><BadgeIcon badge={badge} size="inline" labelled={false} /></span>
+            <span className="logo-prev-card"><BadgeIcon badge={badge} size="card" labelled={false} /><span className="small">{badge.name}</span></span>
+            <span className="row gap-10"><BadgeIcon badge={badge} size="lg" labelled={false} /><BadgeIcon badge={badge} size="xl" labelled={false} /></span>
+            <span className="muted xsmall">pill 44 · pill 32 · inline 18 · share card · 112 · 128</span>
+          </div>
+        ))}
+      </div>
+      <span className="muted xsmall">{note}</span>
     </div>
   );
 }
@@ -449,7 +527,8 @@ function ThemePreview({ note, children }) {
 }
 
 const TEMPLATE_HELP = {
-  'partner-pro': 'A professional team’s own partner badge. Granted by hand, and only once its mark is uploaded and saved.',
+  'partner-pro': 'A professional team’s own partner badge. Granted by hand, and only once its logo is saved (Badge logos, above; with the team’s permission).',
+  'partner-community': 'One partner site or community (Wowhead, Icy Veins…), made when a partnership exists. Granted by hand; shows the Community Partner art until its logo is saved (Badge logos, above).',
   'platform-employee': 'An employee badge for a sign-in platform: one capital letter on the verified rosette. Granted by hand with a reason; work-email verification comes after 1.0.',
   class: 'A class Blizzard adds. Automatic: it goes to everyone who owns a level 10+ character whose class Blizzard names exactly as typed here, on the next pass (within 6 hours).',
   achievement: 'A new achievement. Granted by hand: an automatic rule needs code (server/badges/rules.js).',
@@ -523,7 +602,10 @@ const PLAYER_ACTIONS = {
   granted: 'Granted', revoked: 'Revoked', mark_uploaded: 'Mark uploaded', mark_saved: 'Mark updated', created: 'Badge created', backfill: 'Back-fill',
   renamed: 'Renamed', creator_started: 'Creator verification started', creator_verified: 'Creator handles verified',
   creator_handle_changed: 'Creator changed a verified handle', creator_revoked: 'Creator marks removed', creator_alert_checked: 'Handle change checked',
+  logo_uploaded: 'Logo uploaded (not saved)', logo_saved: 'Logo saved', logo_replaced: 'Logo replaced', logo_removed: 'Logo removed',
+  logo_carried_over: 'Partner mark became its logo (0.10.4)',
 };
+const permissionLine = (d) => (d?.permission && typeof d.permission === 'object' ? `Permission: ${d.permission.by} · ${d.permission.at} · ${d.permission.how}` : null);
 
 function PlayerLog({ state }) {
   if (state.log.length === 0) return <Empty icon="audit" title="Nothing logged yet" />;
@@ -538,7 +620,7 @@ function PlayerLog({ state }) {
               <td data-label="Action"><Chip kind={e.type === 'granted' ? 'ok' : e.type === 'revoked' ? 'err' : 'info'}>{PLAYER_ACTIONS[e.type] ?? e.type}</Chip></td>
               <td data-label="Badge">{e.badgeId ? state.definitions.find((d) => d.id === e.badgeId)?.name ?? e.badgeId : '—'}</td>
               <td data-label="Account">{e.accountId ? <Link className="tgt" to={`/admin/directory/accounts/${e.accountId}`}>{e.username ? `@${e.username}` : `#${e.accountId}`}</Link> : '—'}</td>
-              <td className="t2" data-label="Reason">{e.reason ?? (e.type === 'backfill' ? `${e.detail.accounts} accounts` : '')}</td>
+              <td className="t2" data-label="Reason">{[e.reason, permissionLine(e.detail)].filter(Boolean).join(' · ') || (e.type === 'backfill' ? `${e.detail.accounts} accounts` : e.type === 'logo_carried_over' ? 'Permission not recorded (uploaded before 0.10.4)' : '')}</td>
             </tr>
           ))}
         </tbody>

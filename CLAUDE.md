@@ -138,6 +138,9 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   dim and show a progress line without moving; a failed panel keeps its height with an inline error and Retry; data
   older than 5 minutes is "Stale". Only a panel on its own clock (`{ everyMs }`: Worker jobs, a grading in flight)
   refreshes itself. Two contexts (stable actions, changing state): one context looped (0.10.3, see "Bugs that cost us").
+- **In-page section lists follow the scroll** (0.10.4, `parts.jsx InPageNav`): the section being read is aria-current, a
+  click scrolls there and writes `#id` (replaceState). Any new in-page list uses it. **Data tables fit their card**: mark
+  low-priority columns `.lo` / `.lo2` and repeat their values as `.dm` spans in the first cell (see "Bugs that cost us").
 - **Every admin action shows working → done → result in place** (`shell/parts.jsx` useAction / ActionButton /
   ActionStatus). Destructive or visitor-affecting ones use ConfirmDialog: a required reason (audit-logged), the
   affected list, an acknowledgement for what players see.
@@ -242,6 +245,10 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 - Stop: `POST /runs/:id/stop` sets `stop_requested_at`; the run checks before every request and ends `stopped` with
   the results so far. `analyseProbe` builds results and the plain-English answers (`probe/answers.js`: yes / no /
   unknown, never a guess) from stored responses + `summary.live`, so Re-analyse asks Blizzard nothing.
+- 0.10.4: an index's `current_season` (its link, else its id) is tried FIRST, on top of the two listed ids (retired seasons
+  403). The house number comes only from the profile's own house link (`linksOnly`; none → skip "the character profile
+  names no house"). Brackets: every one pvp-summary links (`every`; Solo Shuffle / Blitz names, `shuffle|blitz-{class}-{spec}`,
+  come ONLY from there, never built), then common 2v2 / 3v3 / rbg not linked; answer `pvp-shuffle-blitz` says which.
 - Exports: CSV one row per request (or skip); JSON with the summary, outlines and every body cut to 20,000 characters.
 
 ## Crawler and the production data (0.4.0: `server/crawler/`, `server/stats/`, `server/characters/`)
@@ -572,9 +579,22 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   partner always first, even granted into a full row), `pinned` (the ONE inline badge; else first featured, else first
   public, else none). Names always visible: pills (badge + name) on the profile, All badges and Settings; the 18px inline
   badge shows its name on hover, focus and tap. **No inline badges on leaderboards**: header, "Claimed by", guild rosters.
-- **Partner marks** (`badges/marks.js`): PNG/WebP only, decided by magic bytes AND the decoder, never SVG; ≤ 2 MB,
-  ≤ 4096² decoded, ≥ 256 a side; re-encoded by sharp to a 256² PNG with no metadata. Upload needs the written-permission
-  box, Save needs a reason and "I've checked the preview". A Pro Team Partner badge can't be granted before its mark.
+- **Badge logos (0.10.4, `badges/logos.js`, `badge_logos`, /admin/badges/player#logo):** one per Pro Team, Platform
+  Employee (per company) and Community Partner badge (`partner-community` template, one per partner site, made by the admin
+  when a partnership exists, **never seeded**); catalog.js `LOGO_TEMPLATES` says which. Admin-only; PNG/WebP decided by
+  magic bytes AND the decoder (never SVG, JPEG or the extension); ≤ 512 KB, ≥ 128 a side, ≤ 4096² decoded; transparent
+  margins trimmed, re-encoded to square PNGs at 64 / 128 / 256 px with no metadata; the original is never kept or served
+  (`GET /api/badges/:id/logo/{64|128|256}.png?v=<hash>`, nosniff, sandbox CSP; `mark.png` = the 256). **Permission note
+  required** (who granted it, when, how: all three, 400 `permission_required` on upload AND save), stored with the logo,
+  never public; save also needs a reason and "I've checked the preview" (every pill size, inline, share-card size, large,
+  in all three themes, from the server's re-encoded result); Cancel discards the staged upload. Save/replace/remove:
+  `admin_events` `badge.logo_saved` / `badge.logo_removed` (badge, the note, reason, the previous note as `before`; never
+  bytes) + `badge_events`. **Replace or remove deletes the old image** (our data; the admin asked, the note stays in the
+  log); remove → the badge's own art (template glyph or monogram), **holders keep the badge**. With a logo the drawing keeps
+  only the plaque frame and puts the logo in `badges/logoBox.js`'s box (optional light `plate` backing), the same on the
+  site (`badges/art.jsx`) and cards (`cards/badgeSvg.js`); the name stays a text pill. A Pro Team badge can't be granted
+  before its logo. 0.7.0 marks became saved logos in migration 031 with the note "not recorded (uploaded before 0.10.4)".
+  Guild partner emblems keep `badges/marks.js` (≤ 2 MB, ≥ 256, one 256² PNG).
 
 ## Guild page management (0.7.0: `server/guilds/manage.js`, `server/guilds/links.js`, `pages/GuildManage.jsx`)
 
@@ -748,8 +768,10 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   - **Turning 2FA off deletes the secret and recovery codes.** Reason: a stale secret is a liability.
   - **Finished crawl-queue items** (`crawl_queue`) are deleted an hour after they finish. Reason: they are work orders;
     what they fetched lives in the character tables, and request counts in `crawler_hours` (kept forever).
-  - **A partner mark is replaced** when the admin saves a new one (the old bytes are overwritten; `badge_events` keeps
-    that it changed), and an unsaved upload is discarded on Cancel. Reason: only the mark in use is kept, by design.
+  - **A partner badge logo is replaced or removed** when the admin saves a new one or removes it (0.10.4, `badge_logos`;
+    0.7.0's marks moved there); the old image bytes are overwritten or deleted, `admin_events` and `badge_events` keep
+    that it changed and the permission note, and an unsaved upload is discarded on Cancel. Reason: only the logo in use is
+    kept, and a partner may withdraw permission.
   - **Removing a domain from the guild-link blocklist** deletes that row. Reason: the admin asked; `admin_events` logs it.
   - **Showing a hidden render again** deletes its `character_render_hidden` row (0.7.1). Reason: the owner asked; the
     account's history logs it.
@@ -809,8 +831,20 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   no Blizzard data, so they no longer take 3 days of the window); worst case ≈ 29 days 1 hour anywhere. "Last N days"
   boards and the privacy page follow keep-days. **Never put Blizzard data in a backup**: a new Blizzard table goes in
   registry.js BLIZZARD, and that alone keeps it out of the dump.
-- `registry.js` classifies EVERY table: Blizzard data (with its fetched-at column and a sweep) or ours (with a reason).
-  `server/test/retention.test.js` fails on a table in neither list: **a new table must be classified there.**
+- `registry.js` classifies EVERY table in exactly ONE of three classes (0.10.4, `CLASSES`): **Blizzard API data**
+  (`BLIZZARD`: its fetched-at column and a sweep; deleted at 29 days), **Player-uploaded data** (`PLAYER`: owner column
+  + the player's delete path; kept until the player deletes it or their account is deleted; empty until the companion
+  addon, 0.14.0) and **Everstats' own data** (`OURS`, with a reason). `server/test/retention.test.js` fails on a table
+  in no class or two, a player-uploaded table on the sweep list, carrying a sweep, named by a Blizzard sweep, without an
+  `accounts ON DELETE CASCADE` owner, or hanging off a Blizzard table: **a new table must be classified there.**
+- **The sweep sweeps "Blizzard API data" ONLY** (0.10.4): `runRetentionSweep` runs `assertSweepable` on its whole list
+  before deleting anything and refuses (throws, nothing swept) if any entry is player-uploaded or ours. The Data
+  retention page shows each class as its own table; player-uploaded says "Arrives with the companion addon" until then.
+- **Rule for 0.14.0 (the companion addon):** player-uploaded values live in their own PLAYER tables, never in a Blizzard
+  table (`character_statistics`, snapshots, gains…: the sweep and the characters purge would delete them), are never
+  backed up as Blizzard data, and are **never mixed into a Blizzard-sourced board, table, tier, total or card without
+  being labelled "player-uploaded"** wherever they show. A player deletes them from Settings; deleting the account
+  cascades. Add the account merge step (`account/merge.js`) with the table.
 - The sweep (`sweep.js`) runs hourly in the web app AND the worker (advisory lock: one at a time); the worker also
   prunes backups. A character Blizzard hasn't returned for the window is stripped to a stub of our data (id, owner,
   hidden, tracked since: `profile_state 'purged'`) and leaves lists until a sign-in finds it again. A character that
@@ -1018,6 +1052,12 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
   every panel's register effect, whose cleanup removed the state, which was reported again: "Maximum update depth
   exceeded", and no admin link changed the page. Stable functions and changing state live in separate contexts. The
   tests didn't catch it (no client tests render React); clicking through the real app did.
+- **A clipped overflow is invisible to a scroll check** (found here, 0.10.4): four admin tables ran outside their cards on
+  dev at 1568px while check-overflow passed. `.es` clips sideways (`overflow-x: clip`), so the page never scrolled, and
+  the tables sat in `overflow: visible` wrappers, so nothing was a scroll box; the check also ran on short synthetic
+  names, at no width between 1440 and 1920, and on the primary version only (Tiers' Suggestion column shows elsewhere).
+  Admin tables now fit by their OWN box (`.dt-wrap` is a size container: `.lo2` columns fold below 1200px, `.lo` below
+  960px into a detail line, the card layout below 720px; `admin-app.css`); settings rows stack the same way.
 
 ## Testing
 
@@ -1039,6 +1079,12 @@ report the version in the pulled `CHANGELOG.json`, and fail if `.env` changed. G
   strips (sideways only, at ≤ 719 px, no track). Run it in every visual pass. 0.10.3: `--admin=<es_admin cookie of a
   LOCAL server> --admin-ids=account:ID,guild:ID,feedback:ID` checks every admin page in `shell/nav.js` PAGES instead.
   From Git Bash, prefix `MSYS_NO_PATHCONV=1` or `/c/…` arguments become `C:/…`.
+  **0.10.4:** widths 1920, 1568 (the owner's window), 1440, 1024, 720, 390; it also fails on content CLIPPED rather than
+  scrolled (`.es` has `overflow-x: clip`, so a spill never scrolled the page) and on a table or card escaping the bordered
+  box around it; version-scoped admin pages are checked on a second version too (`?v=retail`). `--only=a,b` and
+  `--widths=…` narrow a run. **Run it on realistic data:** `DATABASE_URL=<a LOCAL database> node
+  scripts/seed-overflow-fixtures.js` fills a local database (refuses any other) with maximum-length usernames, display
+  names, guild and character names, long reasons, every column set and all five versions, and prints the `--admin` flags.
 
 ## Changelog and versioning
 

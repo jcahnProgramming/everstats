@@ -15,8 +15,12 @@ const PROF = 'profile-forever-us';
 const C = '/profile/wow/character/path-vexley';
 const calls = [];
 let onCall = null;
+// 0.10.4: a test may lay extra answers over the fake Forever (house, pvp-summary brackets, season indexes).
+let overlay = null;
 
 function blizzard(path, ns, auth, query) {
+  const extra = overlay?.(path, ns);
+  if (extra !== undefined) return extra;
   if (path === C) {
     return {
       _links: { self: { href: `${API}${C}?namespace=${PROF}` } }, id: 77, name: 'Path', achievement_points: 0,
@@ -249,6 +253,12 @@ test('a probe tries every endpoint, takes real ids, records 404s, skips with rea
   assert.deepEqual(entry(s, 'data.pet').attempts.map((a) => [a.path, a.namespace, a.status]), [['/data/wow/pet/39', DYN, 200]]);
   // Common values only where nothing lists them, every one tried and recorded.
   assert.deepEqual(entry(s, 'character.pvp-bracket').attempts.map((a) => [a.values.pvpBracket, a.basis.startsWith('common'), a.status]), [['2v2', true, 404], ['3v3', true, 404], ['rbg', true, 404]]);
+  // 0.10.4: no house is ever guessed: a profile without a house link is a recorded skip in plain words.
+  assert.equal(entry(s, 'character.house').attempts.length, 0);
+  assert.equal(entry(s, 'character.house').skipped, 'the character profile names no house');
+  assert.equal(answer(s, 'pvp-shuffle-blitz').verdict, 'unknown');
+  assert.ok(answer(s, 'pvp-shuffle-blitz').text.startsWith('pvp-summary answered 404, so no Solo Shuffle or Blitz bracket name was found and none were tried.'));
+  assert.ok(answer(s, 'pvp-shuffle-blitz').text.includes('shuffle-{class}-{spec}'));
   // No id, no request: a recorded skip naming why.
   assert.equal(entry(s, 'data.toy').attempts.length, 0);
   assert.match(entry(s, 'data.toy').skipped, /no real toyId to try \(toy-index 404\/404; collections-toys 404\)/);
@@ -499,4 +509,61 @@ test('0.10.1: Forever keeps its static namespace exactly as before: no check, no
   assert.equal(s.namespaces.staticUsed, STATIC_NS);
   assert.ok(!calls.some((x) => /namespace=static-forever-us/.test(x.url)), 'the plain Forever namespace (403) is never asked');
   assert.ok(!s.answers.some((a) => a.id === 'static-namespace'));
+});
+
+test('0.10.4: current_season first, a retired 403 falls to listed ids, the house from the profile link, brackets from pvp-summary', async () => {
+  const profLink = (x) => `${API}${C}${x}?namespace=${PROF}`;
+  const seasonIdx = (base, ids, current) => ({
+    seasons: ids.map((id) => ({ key: { href: `${API}${base}/${id}?namespace=${DYN}` }, id })),
+    current_season: { key: { href: `${API}${base}/${current}?namespace=${DYN}` }, id: current },
+  });
+  overlay = (path, ns) => {
+    if (path === C) {
+      const keep = overlay;
+      overlay = null; // the plain fake profile, then its house link
+      try {
+        return { ...blizzard(C, ns), house: { href: profLink('/house/house-3') } };
+      } finally {
+        overlay = keep;
+      }
+    }
+    if (path === `${C}/house/house-3`) return { id: 3 };
+    if (path === `${C}/pvp-summary`) return { brackets: ['3v3', 'shuffle-priest-shadow', 'blitz-priest-shadow'].map((b) => ({ href: profLink(`/pvp-bracket/${b}`) })) };
+    if (path === `${C}/pvp-bracket/3v3` || path === `${C}/pvp-bracket/shuffle-priest-shadow`) return { rating: 1 };
+    if (ns !== DYN) return undefined;
+    if (path === '/data/wow/pvp-season/index') return seasonIdx('/data/wow/pvp-season', [1, 2, 3], 40);
+    if (path === '/data/wow/pvp-season/40') return { id: 40 };
+    if (['1', '2', '3'].map((x) => `/data/wow/pvp-season/${x}`).includes(path)) return [403, { code: 403 }];
+    if (path === '/data/wow/mythic-keystone/season/index') return seasonIdx('/data/wow/mythic-keystone/season', [1, 2], 9);
+    if (path === '/data/wow/mythic-keystone/season/2') return { id: 2 };
+    if (['1', '9'].map((x) => `/data/wow/mythic-keystone/season/${x}`).includes(path)) return [403, { code: 403 }];
+    return undefined;
+  };
+  try {
+    const queued = await startProbe();
+    await runQueued();
+    const run = await getRun(queued.json.run.id);
+    assert.equal(run.status, 'done', run.problem);
+    const s = run.summary;
+    const tried = (id, param) => entry(s, id).attempts.map((a) => [a.values[param], a.status]);
+    // The index's current season first; it answered, so no retired season was asked.
+    assert.deepEqual(tried('data.pvp-season', 'pvpSeasonId'), [['40', 200]]);
+    assert.ok(entry(s, 'data.pvp-season').attempts[0].basis.startsWith('current_season in /data/wow/pvp-season/index'));
+    // A current season that 403s doesn't use up the two listed ones.
+    assert.deepEqual(tried('data.mythic-keystone-season', 'seasonId'), [['9', 403], ['1', 403], ['2', 200]]);
+    // The character's own season path takes the current season's id from the index (its mythic profile 404s here).
+    assert.equal(entry(s, 'character.mythic-keystone-season').attempts[0].values.seasonId, '9');
+    assert.ok(answer(s, 'mythic').text.includes('current season (9) answered 403; then listed: 1 403, 2 200'));
+    // The house number is the profile's own link, nothing else.
+    assert.deepEqual(entry(s, 'character.house').attempts.map((a) => [a.path, a.status, a.basis.startsWith('linked from')]), [[`${C}/house/house-3`, 200, true]]);
+    // Brackets: every one pvp-summary links (shuffle/blitz names only from there), then 2v2 and rbg, which it didn't link.
+    assert.deepEqual(entry(s, 'character.pvp-bracket').attempts.map((a) => [a.values.pvpBracket, a.basis.startsWith('linked from') ? 'linked' : 'common', a.status]), [
+      ['3v3', 'linked', 200], ['shuffle-priest-shadow', 'linked', 200], ['blitz-priest-shadow', 'linked', 404], ['2v2', 'common', 404], ['rbg', 'common', 404],
+    ]);
+    const sb = answer(s, 'pvp-shuffle-blitz');
+    assert.equal(sb.verdict, 'yes');
+    assert.ok(sb.text.startsWith(`From ${C}/pvp-summary: shuffle-priest-shadow 200, blitz-priest-shadow 404.`), sb.text);
+  } finally {
+    overlay = null;
+  }
 });

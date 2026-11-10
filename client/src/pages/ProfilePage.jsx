@@ -9,7 +9,7 @@ import { ServiceUnavailable } from '../components/States.jsx';
 import { RenderFrame } from '../components/Stats.jsx';
 import { TierBadge, TierBrief } from '../components/Tier.jsx';
 import { formatNumber } from '../format.js';
-import { BadgeRow } from '../badges/Badges.jsx';
+import { BadgePill, BadgeRow } from '../badges/Badges.jsx';
 import { ReportButton } from '../moderation/Moderation.jsx';
 import { useSession } from '../session.jsx';
 
@@ -208,8 +208,44 @@ function FeaturedSection({ section }) {
           <Link className="btn sm self-start" to={`/c/${encodeURIComponent(c.slug)}`}>Character page</Link>
           <Provenance source="Blizzard Entertainment’s game data API" fetchedAt={c.fetchedAt} />
         </div>
+        <FeaturedExtras c={c} />
       </div>
     </section>
+  );
+}
+
+/**
+ * 0.10.4: the featured card's third column (it sat empty beside the details): the owner's pinned badge and the
+ * character's best overall placements, as the server ranks them (stats/boards.js, the character page's own ranks).
+ * Nothing to show → the column says so plainly, never a made-up placement.
+ */
+function FeaturedExtras({ c }) {
+  const places = c.placements ?? [];
+  return (
+    <div className="stack gap-12 featured-extras">
+      {c.badge && (
+        <div className="stack gap-6">
+          <span className="eyebrow">Pinned badge</span>
+          <span className="self-start"><BadgePill badge={c.badge} /></span>
+        </div>
+      )}
+      <div className="stack gap-6">
+        <span className="eyebrow">Best placements</span>
+        {places.length ? (
+          <ol className="plain featured-places">
+            {places.map((p) => (
+              <li key={p.id}>
+                <span className={`rk${p.rank <= 3 ? ` r${p.rank}` : ''}`}>#{formatNumber(p.rank)}</span>
+                <span className="stack gap-2 grow-col">
+                  <Link to={c.ruleset ? `/leaderboards/${c.ruleset.id}/${p.id}` : '/leaderboards'}>{displayName(p.name)}</Link>
+                  <span className="muted xsmall">of {formatNumber(p.withAny)} with any{c.ruleset ? ` on ${c.ruleset.name}` : ''} · {formatNumber(p.value)}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        ) : <span className="muted small">Not on a leaderboard yet: a placement shows once this character has more of a statistic than someone else tracked.</span>}
+      </div>
+    </div>
   );
 }
 

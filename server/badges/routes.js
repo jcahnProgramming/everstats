@@ -4,14 +4,14 @@ import { HttpError, route } from '../core/errors.js';
 import { limitBy } from '../core/rateLimit.js';
 import { BADGE_ALIASES, FAMILIES, FEATURED_MAX } from './catalog.js';
 import {
-  availabilityFor, badgeContext, clearToasts, definitionById, heldAwards, holderCounts, isHidden, loadDefinitions, pendingToasts, publicBadge,
+  LOGO_SIZES, availabilityFor, badgeContext, clearToasts, definitionById, heldAwards, holderCounts, isHidden, loadDefinitions, pendingToasts, publicBadge,
   rowOrder, setDisplay,
 } from './store.js';
 
 /**
  * Badge pages and the player's badge settings (0.7.0).
  *   GET  /api/badges/:id                 the badge detail page (public)
- *   GET  /api/badges/:id/mark.png        a partner's mark (the admin's re-encoded upload)
+ *   GET  /api/badges/:id/logo/:size.png  a badge's logo (64, 128 or 256 px; the admin's re-encoded upload; mark.png = 256)
  *   GET  /api/account/badges             Settings → Badges: earned, earnable, no longer available
  *   PUT  /api/account/badges             { shown, featured, pinned }
  *   POST /api/account/badges/seen        { ids } clears "new" (the popover or the detail page was opened)
@@ -73,17 +73,26 @@ export function createBadgeRouter({ db, limits, networkOf }) {
     });
   }));
 
-  r.get('/badges/:id/mark.png', route(async (req, res) => {
-    const row = await db.one('SELECT mark FROM badge_definitions WHERE id = $1 AND mark IS NOT NULL', [idOf(req.params.id)]);
-    if (!row) throw new HttpError(404, 'No mark.', 'no_mark');
+  // 0.10.4: a badge's saved logo, one of our own re-encoded PNGs (never the uploaded file). The address carries ?v=<hash>,
+  // so a replaced logo is a new address; a removed one answers 404. mark.png is the 0.7.0 address (the 256 px size).
+  const sendLogo = async (req, res, px) => {
+    const row = await db.one(`SELECT png_${px} AS png FROM badge_logos WHERE badge_id = $1 AND stage = 'saved'`, [idOf(req.params.id)]);
+    if (!row) throw new HttpError(404, 'No logo.', 'no_logo');
     res.set({
       'Content-Type': 'image/png',
       'Cache-Control': 'public, max-age=86400',
-      'Content-Disposition': 'inline; filename="mark.png"',
+      'Content-Disposition': `inline; filename="logo-${px}.png"`,
       'Content-Security-Policy': "default-src 'none'; sandbox",
+      'X-Content-Type-Options': 'nosniff',
     });
-    res.end(row.mark);
+    res.end(row.png);
+  };
+  r.get('/badges/:id/logo/:size.png', route(async (req, res) => {
+    const px = Number(req.params.size);
+    if (!LOGO_SIZES.includes(px)) throw new HttpError(404, 'No logo.', 'no_logo');
+    await sendLogo(req, res, px);
   }));
+  r.get('/badges/:id/mark.png', route((req, res) => sendLogo(req, res, 256)));
 
   r.use('/account/badges', requireAccount);
 

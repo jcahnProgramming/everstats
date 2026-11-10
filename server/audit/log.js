@@ -34,6 +34,9 @@ const TYPES = {
   'badge.revoked': { area: 'badges', label: (d) => `Badge revoked: ${d.badge}`, target: (d) => ACCOUNT(d.account) },
   'badge.created': { area: 'badges', label: (d) => `Badge created: ${d.badge}`, target: (d) => ({ kind: 'badge', id: d.badge, href: `/admin/badges/player#badge-${d.badge}` }) },
   'badge.mark_saved': { area: 'badges', label: (d) => `Partner mark saved: ${d.badge}`, target: (d) => ({ kind: 'badge', id: d.badge, href: `/admin/badges/player#badge-${d.badge}` }) },
+  // 0.10.4: badge logos. `value` / `before` are the permission note (who, when, how) as text; never the image.
+  'badge.logo_saved': { area: 'badges', label: (d) => `Badge logo ${d.before ? 'replaced' : 'saved'}: ${d.badge}${d.permission ? ` (permission: ${d.permission.by}, ${d.permission.at}, ${d.permission.how})` : ''}`, target: (d) => ({ kind: 'badge', id: d.badge, href: `/admin/badges/player#logo` }) },
+  'badge.logo_removed': { area: 'badges', label: (d) => `Badge logo removed: ${d.badge}`, target: (d) => ({ kind: 'badge', id: d.badge, href: `/admin/badges/player#logo` }) },
   'badge.creator_started': { area: 'badges', label: () => 'Creator verification started', target: (d) => ACCOUNT(d.account) },
   'badge.creator_verified': { area: 'badges', label: () => 'Creator verified', target: (d) => ACCOUNT(d.account) },
   'guild_badge.granted': { area: 'badges', label: (d) => `Guild badge granted: ${d.badge}`, target: (d) => (d.guild ? { kind: 'guild', id: String(d.guild), href: `/admin/directory/guilds?id=${d.guild}` } : null) },

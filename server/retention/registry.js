@@ -1,18 +1,31 @@
 /**
- * Every table in the database, classified (CLAUDE.md "Retention"). server/test/retention.test.js FAILS when a table
- * exists that isn't listed here, so a new table can't quietly hold Blizzard data past the window.
+ * Every table in the database, in exactly ONE of three classes (CLAUDE.md "Retention"; 0.10.4).
+ * server/test/retention.test.js FAILS when a table exists that isn't listed here, so a new table can't quietly hold
+ * Blizzard data past the window, and a player's own uploads can't quietly be swept.
  *
- *   BLIZZARD  holds data that came from Blizzard's API. Each entry: what it holds, which column says when it was last
- *             fetched from Blizzard, and sweep(q, cutoff) → rows changed. The sweep deletes (or, for a character,
- *             strips to a stub of Everstats' own data) everything last fetched before the cutoff.
- *   OURS      Everstats' own data: why it isn't Blizzard data. Keeping a Blizzard ID (a character or statistic id) is
- *             allowed; the terms let us check that an ID still exists.
+ *   BLIZZARD  "Blizzard API data": came from Blizzard's API or is derived from it. Each entry: what it holds, which
+ *             column says when it was last fetched from Blizzard, and sweep(q, cutoff) → rows changed. The sweep deletes
+ *             (or, for a character, strips to a stub of Everstats' own data) everything last fetched before the cutoff:
+ *             29 days for Blizzard's 30-day maximum. THE ONLY CLASS THE SWEEP MAY TOUCH (sweep.js refuses anything else).
+ *   PLAYER    "Player-uploaded data" (0.10.4, empty until the companion addon, 0.14.0): what a player uploaded about
+ *             their own characters. Kept until the player deletes it or their account is deleted; never swept, never
+ *             in a Blizzard table. Each entry: what it holds, its owner column (an account id with ON DELETE CASCADE, so
+ *             deleting the account deletes it) and the player's own delete path (where in Settings, and the route).
+ *             A player-uploaded value shown beside Blizzard's is always labelled "player-uploaded".
+ *   OURS      "Everstats' own data": why it isn't Blizzard data. Keeping a Blizzard ID (a character or statistic id) is
+ *             allowed; the terms let us check that an ID still exists. Deletions of it are named in CLAUDE.md.
  *
- * Order matters: children before parents (foreign keys), characters last but one, then the catalog names.
+ * Order matters in BLIZZARD: children before parents (foreign keys), characters last but one, then the catalog names.
  */
+export const CLASSES = Object.freeze({
+  blizzard: { id: 'blizzard', label: 'Blizzard API data', kept: 'Deleted 29 days after it was fetched (Blizzard’s 30-day maximum)' },
+  player: { id: 'player', label: 'Player-uploaded data', kept: 'Kept until the player deletes it or their account is deleted' },
+  ours: { id: 'ours', label: 'Everstats’ own data', kept: 'Kept; any deletion is named in CLAUDE.md with its reason' },
+});
+
 const n = (rows) => rows.length;
 
-export const BLIZZARD = [
+export const BLIZZARD = Object.freeze([
   {
     // 0.10.3: a Release tools snapshot's fingerprint (counts, hashes, a sample character) is derived from Blizzard data.
     // Its label row (release_snapshots) is ours and stays, saying the data aged out.
@@ -261,9 +274,17 @@ export const BLIZZARD = [
     // The decision (kind, value, approved/rejected) is ours and stays; the quoted Blizzard text is blanked.
     sweep: async (q, cutoff) => n(await q.query("UPDATE discovery_decisions SET reasoning = '' WHERE reasoning <> '' AND decided_at < $1 RETURNING 1", [cutoff])),
   },
-];
+].map((e) => Object.freeze({ ...e, class: CLASSES.blizzard.id })));
 
-export const OURS = {
+/**
+ * Player-uploaded data (0.10.4). Empty: the companion addon (0.14.0) adds the first table. An entry:
+ *   { table, holds, owner: 'account_id', deletePath: 'Settings › … (DELETE /api/…)' }
+ * The owner column must reference accounts(id) ON DELETE CASCADE (retention.test.js checks it), and the table must not
+ * be a child of a Blizzard table (the characters purge would otherwise reach it).
+ */
+export const PLAYER = Object.freeze([].map((e) => Object.freeze({ ...e, class: CLASSES.player.id })));
+
+export const OURS = Object.freeze({
   _migrations: 'Which migrations ran',
   // 0.10.3
   admin_prefs: 'The admin’s own choices: dashboard card order and hidden cards, auto-refresh interval, a collapsed sidebar',
@@ -339,7 +360,8 @@ export const OURS = {
   account_guilds: 'Guilds a player follows on their dashboard, own guilds they hid from it, and the order (Blizzard guild ids only) (0.9.1)',
   character_gold_public: 'The owner’s “Show my gold stats publicly” choice per character (character id, account id, since) (0.9.0)',
   reports: 'Player reports about profiles and guild descriptions: what, an optional note, the reported text as it was; no reporter (0.8.2)',
-};
+  badge_logos: 'Partner logos the admin uploaded with permission (re-encoded PNGs) and the permission note: who, when, how (0.10.4)',
+});
 
 /** Oldest "last fetched from Blizzard" per category still stored (for the admin page). */
 export const OLDEST = [
@@ -374,3 +396,37 @@ export const OLDEST = [
   ['guild_fetches', 'SELECT min(requested_at) AS t FROM guild_fetches'],
   ['guild_fetch_members', 'SELECT min(listed_at) AS t FROM guild_fetch_members'],
 ];
+
+/** A table's class id ('blizzard' | 'player' | 'ours'), or null when it isn't classified. */
+export function classOf(table) {
+  if (BLIZZARD.some((e) => e.table === table)) return CLASSES.blizzard.id;
+  if (PLAYER.some((e) => e.table === table)) return CLASSES.player.id;
+  if (Object.hasOwn(OURS, table)) return CLASSES.ours.id;
+  return null;
+}
+
+/**
+ * Throws unless every entry may be swept: classed "Blizzard API data", in BLIZZARD, and in no other class. sweep.js runs
+ * it on the whole list before deleting anything, so a player-uploaded or own table registered for sweeping stops the
+ * sweep instead of losing a player's data.
+ */
+export function assertSweepable(entries) {
+  for (const e of entries) {
+    const inOther = PLAYER.some((p) => p.table === e.table) || Object.hasOwn(OURS, e.table);
+    if (e.class !== CLASSES.blizzard.id || inOther || !BLIZZARD.some((b) => b.table === e.table)) {
+      throw new Error(`retention: refusing to sweep ${e.table}: only "${CLASSES.blizzard.label}" is ever swept`);
+    }
+  }
+  return entries;
+}
+
+// A table in two classes is a registry mistake: refuse to load at all.
+{
+  const seen = new Map();
+  for (const [cls, tables] of [['blizzard', BLIZZARD.map((e) => e.table)], ['player', PLAYER.map((e) => e.table)], ['ours', Object.keys(OURS)]]) {
+    for (const t of new Set(tables)) {
+      if (seen.has(t) && seen.get(t) !== cls) throw new Error(`retention registry: ${t} is classed both ${seen.get(t)} and ${cls}`);
+      seen.set(t, cls);
+    }
+  }
+}
