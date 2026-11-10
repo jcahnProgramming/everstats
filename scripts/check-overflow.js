@@ -6,15 +6,22 @@
 // 0.9.0 shipped a one-pixel scrollbar on the character tab bar and a gear strip whose hidden names escaped it; this is
 // the check that would have caught both.
 //
-//   node scripts/check-overflow.js http://localhost:3000 [/c/name-surname] [/g/guild-slug]
+//   node scripts/check-overflow.js http://localhost:3000 [/c/name-surname] [/g/guild-slug] [--profile=/u/name] [--cookie=name=value]
 //
-// Pages: the character page (both tabs), the Collections transmog screen, a guild page and the leaderboards index.
-// Give a real character and guild that exist on the server you point it at. Chromium: `npx playwright-core install
-// --only-shell chromium`. Themes are switched on the page (data-theme), so no sign-in is needed.
+// Pages: the character page (both tabs), the Collections transmog screen, a guild page and the leaderboards index;
+// 0.9.2: a public profile with --profile, and the signed-in home page (the dashboard, "Your guilds") with --cookie (a
+// session cookie of a test account, e.g. es_session=… on a local server; never a real player's). Give a real
+// character and guild that exist on the server you point it at. Chromium: `npx playwright-core install --only-shell
+// chromium`. Themes are switched on the page (data-theme), so no sign-in is needed for them.
 import { chromium } from 'playwright-core';
 
-const [base = 'http://localhost:3000', character = '/c/path-vexley', guild = '/g/post-nerf-clarity'] = process.argv.slice(2);
-const PAGES = [character, `${character}/collections`, `${character}/collections/transmog`, guild, '/leaderboards'];
+const flags = Object.fromEntries(process.argv.slice(2).filter((a) => a.startsWith('--')).map((a) => {
+  const i = a.indexOf('=');
+  return [a.slice(2, i < 0 ? undefined : i), i < 0 ? '' : a.slice(i + 1)];
+}));
+const [base = 'http://localhost:3000', character = '/c/path-vexley', guild = '/g/post-nerf-clarity'] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const PAGES = [character, `${character}/collections`, `${character}/collections/transmog`, guild, '/leaderboards',
+  ...(flags.profile ? [flags.profile] : []), ...(flags.cookie ? ['/'] : [])];
 const WIDTHS = [1920, 1440, 1024, 720, 390];
 const THEMES = ['forever', 'alliance', 'horde'];
 const PHONE = 719;
@@ -25,7 +32,12 @@ const INTENDED = ['.seg.phone-scroll', '.armory-col', '.armory-bottom', '.slotpi
 const browser = await chromium.launch();
 const problems = [];
 for (const width of WIDTHS) {
-  const page = await browser.newPage({ viewport: { width, height: 1000 } });
+  const ctx = await browser.newContext({ viewport: { width, height: 1000 } });
+  if (flags.cookie) {
+    const [name, ...rest] = flags.cookie.split('=');
+    await ctx.addCookies([{ name, value: rest.join('='), url: base }]);
+  }
+  const page = await ctx.newPage();
   for (const path of PAGES) {
     await page.goto(base + path, { waitUntil: 'networkidle' });
     for (const theme of THEMES) {
@@ -50,7 +62,7 @@ for (const width of WIDTHS) {
       for (const f of found) problems.push(`${path} @${width}px ${theme}: ${f}`);
     }
   }
-  await page.close();
+  await ctx.close();
 }
 await browser.close();
 if (problems.length) {

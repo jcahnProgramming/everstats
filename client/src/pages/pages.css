@@ -176,7 +176,7 @@ ol.codes { margin: 0; list-style: none; }
 .beta-banner-link:hover .beta-banner-text { color: var(--es-text); text-decoration: underline; }
 .beta-banner-close { flex: none; }
 .beta-list { padding-left: var(--es-space-18); margin: 0; }
-.settings-beta { margin: var(--es-space-4) 0 var(--es-space-8); white-space: normal; line-height: var(--es-lh-snug); }
+.settings-beta { margin: var(--es-space-4) 0 var(--es-space-8); white-space: nowrap; line-height: var(--es-lh-snug); max-width: 100%; }
 
 /* ---------------------------------------------------------------- 0.4.0: character page */
 .grid-auto.col-base { --col: var(--es-size-col-min); }

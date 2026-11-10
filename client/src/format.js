@@ -4,6 +4,13 @@ export const formatNumber = (n) => (Number.isFinite(n) ? n.toLocaleString('en-US
 
 export const formatDate = (iso) => (iso ? new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : null);
 
+/** "Nov 9" in the current year, "Nov 9, 2025" otherwise (0.9.2: short labels that must stay on one line). */
+export const formatShortDate = (iso) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', d.getFullYear() === new Date().getFullYear() ? { month: 'short', day: 'numeric' } : { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
 export const formatDateTime = (iso) => (iso ? new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : null);
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

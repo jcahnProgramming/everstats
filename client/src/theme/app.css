@@ -265,6 +265,8 @@ body { background-color: var(--es-bg); color: var(--es-text); }
 .signup-call { align-items: center; flex-wrap: wrap; }
 .guild-name .gverified { margin-left: var(--es-space-12); }
 .gbadge-row { row-gap: var(--es-space-14); }
+.gbadge-fit { display: inline-flex; flex: none; } /* 0.9.2: one measurable box per pill (guildBadges/GuildBadges.jsx useFitOnOneLine) */
+.gbadge-row .gmore { flex: none; white-space: nowrap; }
 .gpill-anchor { position: relative; display: inline-flex; }
 .gpill .ico { width: var(--es-space-12); height: var(--es-space-12); }
 .gbdg-pop .hd .gbdg { cursor: default; }
@@ -375,6 +377,10 @@ form.panel { position: relative; }
 .ranklist li.has-share > .share-row { position: absolute; right: var(--es-space-8); top: 50%; transform: translateY(-50%); opacity: 1; }
 .why-list li { flex-wrap: nowrap; }
 .tier-card .tier-card-weight { display: block; }
+/* 0.9.2: category names wrap (two lines) instead of an ellipsis, and the weight line is always whole. */
+.tier-card-text { min-width: 0; gap: var(--es-space-2); }
+.tier-card-title { overflow-wrap: break-word; line-height: var(--es-lh-snug); }
+.tier-cards.fillgrid { --fg-gap: var(--es-space-10); }
 
 /* ================================================================ Sortable (0.8.1, components/Sortable.jsx)
    One drag-and-drop list for every order: the lifted item follows the pointer, the rest slide (transform), a dashed
@@ -515,8 +521,13 @@ li.verified-mark .mono { text-transform: none; letter-spacing: 0; color: var(--e
 
 /* 0.9.0 tier distribution bars: ranked letters only, each non-zero letter at least wide enough for "S 1"
    (server/stats/tiers.js tierBarParts sets the widths); Unranked on its own line, never a segment */
-.tierbar-ranked > span { flex: none; white-space: nowrap; padding: 0 var(--es-space-2); font-variant-numeric: tabular-nums lining-nums; }
-.tier-unranked-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--es-space-4) var(--es-space-8); }
+.tierbar-ranked > span { flex: none; white-space: nowrap; padding: 0 var(--es-space-2); font-variant-numeric: tabular-nums lining-nums; position: relative; }
+/* 0.9.2: the invisible full label each segment is measured against (components/Tier.jsx useNarrowSegments). */
+.tierbar-ranked .tb-measure { position: absolute; left: 0; top: 0; visibility: hidden; white-space: nowrap; padding: 0 var(--es-space-2); pointer-events: none; }
+/* 0.9.2: the shield and its words stay on one line; only the words wrap. */
+.tier-unranked-line { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--es-space-8); }
+.tier-unranked-line > .tier { flex: none; }
+.tier-unranked-text { min-width: 0; }
 
 /* 0.9.0 provisional tier letters: never a real letter's look. A hatched ring in the letter's colour (the "dashed"
    outline: a clip-path shield can't take a dashed border), a hollow centre and "≈B" in body text colour, always beside
@@ -587,4 +598,52 @@ details.panel > summary { cursor: pointer; font-weight: var(--es-weight-semibold
 .yg-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--es-space-6) var(--es-space-10); min-width: 0; }
 .yg-name { overflow-wrap: anywhere; text-decoration: none; }
 .yg-actions { margin-top: auto; }
-.yg-list { display: grid; gap: var(--es-space-14); grid-template-columns: repeat(auto-fill, minmax(min(var(--es-size-col-min-md), 100%), 1fr)); }
+
+/* 0.9.2: rows that always fill (components/fillGrid.js): a wrapping flex row, each item one column of --fg-lg / -md / -sm
+   wide (minus the gaps); a short last row's items grow to share it, so there's never an empty slot or one lonely card.
+   Items in a row stretch to the same height. */
+.fillgrid { --fg-gap: var(--es-space-12); display: flex; flex-wrap: wrap; gap: var(--fg-gap); }
+.fillgrid > * { --fg-cols: var(--fg-lg, 1); flex: 1 1 calc((100% - (var(--fg-cols) - 1) * var(--fg-gap)) / var(--fg-cols)); min-width: 0; box-sizing: border-box; }
+@media (max-width: 1099px) { .fillgrid > * { --fg-cols: var(--fg-md, 1); } }
+@media (max-width: 719px) { .fillgrid > * { --fg-cols: var(--fg-sm, 1); } }
+.yg-list { --fg-gap: var(--es-space-14); }
+@media (max-width: 719px) { .ccounts.fillgrid { --fg-gap: var(--es-space-8); } }
+/* 0.9.2: the account-wide legend: the marker (glyph + its words, never split) and the explanation side by side. */
+.acct-legend { display: flex; align-items: flex-start; gap: var(--es-space-8); }
+.acct-legend > .acct { flex: none; }
+/* 0.9.2: leaderboard preview cards show their whole title (wrapping, never "Achievements earned: Eas…"); the count
+   beside it stays on one line. */
+.mini .hd { align-items: flex-start; }
+.mini .hd .mini-title { flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; line-height: var(--es-lh-snug); }
+.mini .hd .nowrap { flex: none; white-space: nowrap; }
+/* 0.9.2 the dashboard's "Your gold" table: headers and the character cell wrap and the padding tightens below 1100 px
+   (it was 709px of nowrap table in a 670px box at 720); money values stay whole. On phones it scrolls (no track). */
+.gold-table .tbl th, .gold-table .tbl td:first-child { white-space: normal; }
+.gold-table { scrollbar-width: none; }
+.gold-table::-webkit-scrollbar { display: none; }
+@media (max-width: 1099px) { .gold-table .tbl th, .gold-table .tbl td { padding-left: var(--es-space-8); padding-right: var(--es-space-8); } }
+/* 0.9.2 public profile: rank and its change on one line; the featured character's details centred beside the render. */
+.pin-rank-line { display: flex; flex-wrap: nowrap; align-items: baseline; gap: var(--es-space-8); min-width: 0; }
+.pin-rank-line > * { white-space: nowrap; }
+.featured-grid { align-items: center; }
+/* The Transmog section's preview chips (most collected slots). */
+.tm-slot { display: inline-flex; align-items: center; gap: var(--es-space-6); }
+.tm-slot b { margin-left: var(--es-space-2); }
+
+/* A WIDE guild card (one guild, or the last row's lone card) is laid out across: identity and badge | placement and next
+   unlocks | members by tier | actions. Decided by the card's own width (a container query), so it follows the grid at
+   every window size; narrow cards stay stacked. */
+.yg-item { container-type: inline-size; }
+.yg-col-id, .yg-col-goal, .yg-col-tiers { display: flex; flex-direction: column; gap: var(--es-space-10); min-width: 0; }
+@container (min-width: 560px) {
+  .yg-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "id goal" "tiers act"; gap: var(--es-space-12) var(--es-space-24); align-items: start; }
+  .yg-card > .yg-col-id { grid-area: id; }
+  .yg-card > .yg-col-goal { grid-area: goal; }
+  .yg-card > .yg-col-tiers { grid-area: tiers; }
+  .yg-card > .yg-actions { grid-area: act; margin-top: 0; align-self: end; }
+}
+@container (min-width: 860px) {
+  .yg-card { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 1.3fr) auto; grid-template-areas: "id goal tiers act"; }
+  .yg-card > .yg-actions { flex-direction: column; align-items: flex-end; align-self: start; }
+  .yg-card > .yg-actions > .spacer { display: none; }
+}

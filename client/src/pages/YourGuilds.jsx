@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Sortable } from '../components/Sortable.jsx';
+import { fillStyle } from '../components/fillGrid.js';
 import { TierDistribution } from '../components/Tier.jsx';
 import { useToasts } from '../components/Toasts.jsx';
 import { GuildPill } from '../guildBadges/GuildBadges.jsx';
@@ -42,7 +43,10 @@ export function YourGuilds() {
         <span className="muted small">Your characters’ guilds, and any you pin from a guild page ({formatNumber(data.pinnedCount)} of {formatNumber(data.maxPinned)} pinned)</span>
       </div>
       {data.guilds.length > 0 && (
-        <Sortable items={data.guilds} labelOf={(g) => g.name} className="yg-list" itemClassName="yg-item" ariaLabel="Your guilds, in order" onReorder={reorder}
+        // 0.9.2: the dashboard's full width. One guild: a full-width card laid out across. Several: rows of 3 (2 on
+        // tablets, 1 on phones) that always fill, the last row's cards sharing its width (components/fillGrid.js).
+        <Sortable items={data.guilds} labelOf={(g) => g.name} className="yg-list fillgrid" itemClassName="yg-item" ariaLabel="Your guilds, in order" onReorder={reorder}
+          slotStyle={(i, n) => fillStyle(n, { lg: 3, md: 2, sm: 1 })}
           renderItem={(g, { grip }) => (
             <>
               <span className="pin-grip">{grip}</span>
@@ -61,29 +65,38 @@ export function YourGuilds() {
   );
 }
 
+/**
+ * One guild card. 0.9.2: grouped into columns (identity and badge | placement and next unlocks | members by tier |
+ * actions): stacked in a narrow grid cell, laid out across when the card itself is wide (one guild, or the last row's
+ * lone card): a container query in app.css, so it follows the card's width, not the window's.
+ */
 function GuildCard({ g, onUnpin, onHide }) {
   const tag = [g.faction, g.ruleset?.name].filter(Boolean).join(' · ');
   return (
-    <article className="panel yg-card stack gap-10" aria-label={`${g.name}`}>
-      <div className="yg-head">
-        <Link className="h3 yg-name" to={`/g/${encodeURIComponent(g.slug)}`} draggable={false}>&lt;{g.name}&gt;</Link>
-        {g.badge && <span className="yg-badge" data-no-drag><GuildPill badge={g.badge} small ribbon={false} /></span>}
-      </div>
-      <span className="t2 small">{tag}{tag ? ' · ' : ''}{formatNumber(g.tracked)} tracked member{g.tracked === 1 ? '' : 's'}{g.roster ? ` of ${formatNumber(g.roster)}` : ''}</span>
-      <span className="small">
-        {g.best ? <>Best placement: <b className="strong-text">#{formatNumber(g.best.rank)}</b> of {formatNumber(g.best.of)} · {g.best.name}{g.best.mode === 'average' ? ' (average)' : ''}</> : <span className="muted">Not placed on a guild board yet</span>}
-      </span>
-      {g.nextUnlocks.length > 0 && (
-        <div className="stack gap-6">
-          {g.nextUnlocks.map((n) => (
-            <div key={n.id} className="cbar">
-              <div className="hd"><span className="lbl">{n.name} {n.progress?.numeral ?? ''}</span><span className="num"><b>{formatNumber(n.progress?.value)}</b> / {formatNumber(n.progress?.threshold)}</span></div>
-              <div className="bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((n.progress?.pct ?? 0) * 100)} aria-label={`${n.name}: ${Math.round((n.progress?.pct ?? 0) * 100)}% to the next level`}><span style={{ width: `${Math.round((n.progress?.pct ?? 0) * 100)}%` }} /></div>
-            </div>
-          ))}
+    <article className="panel yg-card stack gap-12" aria-label={`${g.name}`}>
+      <div className="yg-col-id">
+        <div className="yg-head">
+          <Link className="h3 yg-name" to={`/g/${encodeURIComponent(g.slug)}`} draggable={false}>&lt;{g.name}&gt;</Link>
+          {g.badge && <span className="yg-badge" data-no-drag><GuildPill badge={g.badge} small ribbon={false} /></span>}
         </div>
-      )}
-      {g.tiers && g.tiers.ranked > 0 && <div className="yg-tiers"><TierDistribution letters={g.tiers.letters} label="Members by tier" /></div>}
+        <span className="t2 small">{tag}{tag ? ' · ' : ''}{formatNumber(g.tracked)} tracked member{g.tracked === 1 ? '' : 's'}{g.roster ? ` of ${formatNumber(g.roster)}` : ''}</span>
+      </div>
+      <div className="yg-col-goal">
+        <span className="small">
+          {g.best ? <>Best placement: <b className="strong-text">#{formatNumber(g.best.rank)}</b> of {formatNumber(g.best.of)} · {g.best.name}{g.best.mode === 'average' ? ' (average)' : ''}</> : <span className="muted">Not placed on a guild board yet</span>}
+        </span>
+        {g.nextUnlocks.length > 0 && (
+          <div className="stack gap-6">
+            {g.nextUnlocks.map((n) => (
+              <div key={n.id} className="cbar">
+                <div className="hd"><span className="lbl">{n.name} {n.progress?.numeral ?? ''}</span><span className="num"><b>{formatNumber(n.progress?.value)}</b> / {formatNumber(n.progress?.threshold)}</span></div>
+                <div className="bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((n.progress?.pct ?? 0) * 100)} aria-label={`${n.name}: ${Math.round((n.progress?.pct ?? 0) * 100)}% to the next level`}><span style={{ width: `${Math.round((n.progress?.pct ?? 0) * 100)}%` }} /></div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {g.tiers && g.tiers.ranked > 0 && <div className="yg-col-tiers yg-tiers"><TierDistribution letters={g.tiers.letters} label="Members by tier" /></div>}
       <div className="row gap-12 wrap-row small yg-actions">
         {g.own ? <span className="tag">Your character’s guild</span> : <span className="tag gold">Pinned</span>}
         <span className="spacer" />

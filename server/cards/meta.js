@@ -6,6 +6,8 @@ import { parseGuildSlug, parseSlug } from '../stats/slug.js';
 import { loadCatalog } from '../stats/catalog.js';
 import { ogPath } from './routes.js';
 import { LAYOUT_VERSION } from './render.js';
+import { pageTitleFor } from '../core/pageTitles.js';
+import { displayName } from '../stats/names.js';
 
 /**
  * Link previews (0.8.0). Discord, Reddit and X read Open Graph / Twitter tags from the HTML and never run our
@@ -67,8 +69,10 @@ async function guildMeta(db, slug) {
 
 async function boardMeta(db, { rulesetId, statisticId, guilds, query }) {
   const rs = await db.one('SELECT name FROM rulesets WHERE id = $1', [rulesetId]);
-  const stat = (await loadCatalog(db)).statistics.get(statisticId);
-  if (!rs || !stat?.name) return null;
+  const found = (await loadCatalog(db)).statistics.get(statisticId);
+  if (!rs || !found?.name) return null;
+  // 0.9.2: the name as pages show it (stats/names.js), so the tab and the preview say the same thing.
+  const stat = { ...found, name: displayName(found.name) };
   const period = ['week', 'rolling'].includes(query.period) ? query.period : 'overall';
   const p = { rulesetId, statisticId, period, mode: query.mode === 'average' ? 'average' : 'total' };
   if (guilds) {
@@ -95,10 +99,21 @@ export async function linkPreviewFor(db, pathname, query) {
     if ((m = /^[/]g[/]([^/]+)(?:[/]share)?[/]?$/.exec(pathname))) return (await guildMeta(db, decodeURIComponent(m[1]))) ?? SITE;
     if ((m = /^[/]leaderboards[/]guilds[/]([0-9]+)[/]([0-9]+)(?:[/]share)?[/]?$/.exec(pathname))) return (await boardMeta(db, { rulesetId: Number(m[1]), statisticId: Number(m[2]), guilds: true, query })) ?? SITE;
     if ((m = /^[/]leaderboards[/]([0-9]+)[/]([0-9]+)(?:[/]share)?[/]?$/.exec(pathname))) return (await boardMeta(db, { rulesetId: Number(m[1]), statisticId: Number(m[2]), guilds: false, query })) ?? SITE;
+    // 0.9.2: a public profile's title is its player's name ("Path (@path)"), as the page's own tab title.
+    if ((m = /^[/]u[/]([^/]+)[/]?$/.exec(pathname))) return (await profileMeta(db, decodeURIComponent(m[1]))) ?? SITE;
   } catch {
     return SITE;
   }
-  return SITE;
+  // 0.9.2: every other page: its title from the shared table (core/pageTitles.js), the plain description, no image.
+  const title = pageTitleFor(pathname);
+  return title ? { ...SITE, title } : SITE;
+}
+
+async function profileMeta(db, username) {
+  if (!/^[a-z0-9_-]{3,20}$/i.test(username)) return null;
+  const a = await db.one('SELECT username, display_name FROM accounts WHERE username = lower($1) AND username_claimed AND NOT everstats_banned(id)', [username]);
+  if (!a) return null;
+  return { title: `${a.display_name ?? a.username} (@${a.username})`, description: `${a.display_name ?? a.username}'s Everstats profile: characters, pinned statistics and badges.`, image: null };
 }
 
 /** The tags for a preview, as HTML (for the head). */

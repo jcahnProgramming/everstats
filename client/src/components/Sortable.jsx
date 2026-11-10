@@ -39,6 +39,8 @@ const moved = (list, from, to) => {
 export function Sortable({
   items, idOf = (x) => x.id, labelOf, lockedOf = () => false, lockedNote = 'Always first', onReorder, renderItem,
   className = '', itemClassName = '', ariaLabel, disabled = false, doneText = 'Saved', undoText = 'Order restored',
+  // 0.9.2: (slot index, count) → a style for that SLOT (a .fillgrid span), whichever item sits in it.
+  slotStyle = null,
 }) {
   const ids = items.map(idOf);
   const byId = new Map(items.map((x) => [idOf(x), x]));
@@ -261,7 +263,7 @@ export function Sortable({
           );
           const cls = ['sort-item', itemClassName, locked ? 'is-locked' : 'is-movable', lifted ? 'is-lifted' : ''].filter(Boolean).join(' ');
           return (
-            <div key={id} role="listitem" className={cls} style={style}
+            <div key={id} role="listitem" className={cls} style={slotStyle ? { ...slotStyle(i, shown.length), ...style } : style}
               ref={(el) => { if (el) els.current.set(id, el); else els.current.delete(id); }}
               onPointerDown={(e) => startPointer(e, id, false)}
               onDragStart={(e) => e.preventDefault()}

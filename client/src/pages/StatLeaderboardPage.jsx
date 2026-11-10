@@ -1,3 +1,5 @@
+import { usePageTitle } from '../pageTitle.js';
+import { displayName } from '../../../server/stats/names.js';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
@@ -37,6 +39,7 @@ export function StatLeaderboardPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [more, setMore] = useState({ rows: [], next: null, busy: false });
+  usePageTitle(data?.statistic?.name ? `${displayName(data.statistic.name)} on ${data.ruleset?.name ?? ''}`.trim() : null); // 0.9.2
 
   useEffect(() => {
     let live = true;
@@ -81,7 +84,7 @@ export function StatLeaderboardPage() {
 
   const s = data.statistic;
   const rows = [...data.rows, ...more.rows];
-  const valueLabel = period === 'overall' ? (s.name ?? 'Value') : 'Gained';
+  const valueLabel = period === 'overall' ? (displayName(s.name) ?? 'Value') : 'Gained';
   // 0.6.0: what it really does for the tiers, from the owner's decisions (never a suggestion).
   const grading = {
     counted: s.countsOverall ? 'Counts toward its category tier and the overall tier' : `Counts toward its own ${s.category} tier, not the overall tier`,
@@ -101,7 +104,7 @@ export function StatLeaderboardPage() {
             <Link to={`/leaderboards?ruleset=${data.ruleset.id}`}>Leaderboards</Link><span aria-hidden="true">/</span>
             <Link to={`/leaderboards?ruleset=${data.ruleset.id}#${s.categoryKey}`}>{s.category}</Link>
           </nav>
-          <h1 className="h1">{s.name ?? 'Statistic no longer available'}</h1>
+          <h1 className="h1">{displayName(s.name) ?? 'Statistic no longer available'}</h1>
           <span className="t2 small">{grading}.{s.named ? ' Ranked by the number; the name beside it is what this character did most.' : ''}</span>
           <CollectionBoardNote collection={data.collection} />
         </div>

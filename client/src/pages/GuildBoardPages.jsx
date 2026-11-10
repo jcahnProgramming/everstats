@@ -1,3 +1,5 @@
+import { usePageTitle } from '../pageTitle.js';
+import { displayName } from '../../../server/stats/names.js';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
@@ -61,6 +63,7 @@ export function GuildBoardPage() {
   const period = usePeriod(params);
   const mode = params.get('mode') === 'average' ? 'average' : 'total';
   const [data, setData] = useState(null);
+  usePageTitle(data?.statistic?.name ? `${displayName(data.statistic.name)}: guild board on ${data.ruleset?.name ?? ''}`.trim() : null); // 0.9.2
   const [error, setError] = useState(null);
   const [more, setMore] = useState({ rows: [], next: null, busy: false });
   const base = `/api/guild-boards/${encodeURIComponent(ruleset)}/${encodeURIComponent(statistic)}?period=${period}&mode=${mode}`;
@@ -109,7 +112,7 @@ export function GuildBoardPage() {
             <Link to={`/leaderboards?view=guilds&ruleset=${data.ruleset.id}`}>Guild boards</Link><span aria-hidden="true">/</span>
             <Link to={`/leaderboards?view=guilds&ruleset=${data.ruleset.id}#${s.categoryKey}`}>{s.category}</Link>
           </nav>
-          <h1 className="h1">{s.name ?? 'Statistic no longer available'}</h1>
+          <h1 className="h1">{displayName(s.name) ?? 'Statistic no longer available'}</h1>
           <span className="t2 small">Guilds ranked by the {mode === 'total' ? 'total' : 'average per member'} of their current tracked members.{' '}
             <Link to={`/leaderboards/${data.ruleset.id}/${s.id}${period === 'overall' ? '' : `?period=${period}`}`}>Characters on this board →</Link></span>
         </div>
@@ -263,7 +266,7 @@ export function GuildMemberBoardPage() {
     <div className="wrap page-pad stack gap-24">
       <div className="stack gap-10">
         <nav aria-label="Breadcrumb" className="crumbs xsmall"><Link to={`/g/${encodeURIComponent(g.slug)}`}>{g.name}</Link><span aria-hidden="true">/</span><span>{s.category}</span></nav>
-        <h1 className="h1">{s.name ?? 'Statistic no longer available'}</h1>
+        <h1 className="h1">{displayName(s.name) ?? 'Statistic no longer available'}</h1>
         <span className="t2 small">{g.name}’s own members{g.ruleset ? <> · <Link to={`/leaderboards/${g.ruleset.id}/${s.id}${period === 'overall' ? '' : `?period=${period}`}`}>everyone on {g.ruleset.name} →</Link></> : null}</span>
       </div>
       <Segmented label="Period" options={periodsFor(data.periods.rolling?.days)} value={period} onChange={(id) => setParams(id === 'overall' ? {} : { period: id })} />
@@ -280,7 +283,7 @@ export function GuildMemberBoardPage() {
               </EmptyState>
             ) : (
               <>
-                <RankedTable valueLabel={period === 'overall' ? (s.name ?? 'Value') : 'Gained'} showTier={false} showMove={false} showGuild={false}
+                <RankedTable valueLabel={period === 'overall' ? (displayName(s.name) ?? 'Value') : 'Gained'} showTier={false} showMove={false} showGuild={false}
                   rows={data.rows.map((r) => ({ ...r, detail: [r.level ? `Level ${r.level}` : null, r.race, r.class].filter(Boolean).join(' · '), valueText: r.text }))} />
                 {data.atZero > 0 && <p className="muted small">{formatNumber(data.atZero)} more tracked member{data.atZero === 1 ? ' is' : 's are'} at 0{what}: not ranked.</p>}
               </>

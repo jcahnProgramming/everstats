@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { TIER_LETTERS, bandRanges, tierBarParts } from '../../../server/stats/tiers.js';
 import { formatNumber } from '../format.js';
@@ -66,22 +67,59 @@ export function letterRange(letter, shares) {
  * also said in words, so it never relies on the bar alone. letters: { S, A, B, C, D, unranked }. unrankedWhy: a node
  * (a link) after "below a tier minimum".
  */
+/**
+ * 0.9.2: which segments are too narrow for "letter + count". Each segment carries an invisible copy of its full label
+ * (.tb-measure); a segment narrower than that copy shows its letter only, with the count in its tooltip and in the
+ * words under the bar. Re-measured whenever the bar's width changes (a card, a phone, a resized window).
+ */
+function useNarrowSegments(ref, key) {
+  const [narrow, setNarrow] = useState('');
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const check = () => {
+      const out = [];
+      for (const seg of el.children) {
+        const m = seg.querySelector('.tb-measure');
+        if (m && m.offsetWidth + 4 > seg.clientWidth) out.push(seg.dataset.letter);
+      }
+      const next = out.join('');
+      setNarrow((prev) => (prev === next ? prev : next));
+    };
+    check();
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(check) : null;
+    ro?.observe(el);
+    return () => {
+      ro?.disconnect();
+    };
+  }, [ref, key]);
+  return narrow;
+}
+
 export function TierDistribution({ letters, label = 'Members by tier', unrankedWhy = null }) {
   const { ranked, parts } = tierBarParts(letters);
   const unranked = letters.unranked ?? 0;
   const words = TIER_LETTERS.map((l) => `${l} ${formatNumber(letters[l] ?? 0)}`).join(' · ');
+  const bar = useRef(null);
+  const narrow = useNarrowSegments(bar, parts.map((p) => `${p.letter}${p.n}:${p.pct}`).join('|'));
   return (
     <div className="stack gap-8">
       <span className="eyebrow">{label}</span>
       {ranked > 0 ? (
-        <div className="tierbar tierbar-ranked" role="img" aria-label={`Ranked: ${words}`}>
-          {parts.map((p) => <span key={p.letter} className={p.letter.toLowerCase()} style={{ width: `${p.pct}%` }}>{p.letter} {formatNumber(p.n)}</span>)}
+        <div ref={bar} className="tierbar tierbar-ranked" role="img" aria-label={`Ranked: ${words}`}>
+          {parts.map((p) => (
+            <span key={p.letter} data-letter={p.letter} className={`${p.letter.toLowerCase()}${narrow.includes(p.letter) ? ' is-narrow' : ''}`} style={{ width: `${p.pct}%` }} title={`${p.letter}: ${formatNumber(p.n)}`}>
+              {narrow.includes(p.letter) ? p.letter : `${p.letter} ${formatNumber(p.n)}`}
+              <span className="tb-measure" aria-hidden="true">{p.letter} {formatNumber(p.n)}</span>
+            </span>
+          ))}
         </div>
       ) : <span className="t2 small">Nobody here has a letter yet.</span>}
       {ranked > 0 && <span className="t2 small tier-words">{formatNumber(ranked)} ranked · {words}</span>}
       {unranked > 0 && (
         <span className="t2 small tier-unranked-line">
-          <TierBadge letter={null} size="sm" /> {formatNumber(unranked)} unranked: below a tier minimum{unrankedWhy ? <> · {unrankedWhy}</> : null}
+          <TierBadge letter={null} size="sm" />
+          <span className="tier-unranked-text">{formatNumber(unranked)} unranked: below a tier minimum{unrankedWhy ? <> · {unrankedWhy}</> : null}</span>
         </span>
       )}
     </div>

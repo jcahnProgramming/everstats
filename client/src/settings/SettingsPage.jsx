@@ -8,7 +8,7 @@ import { Button, Field, Modal, Toggle } from '../components/Controls.jsx';
 import { EmptyState } from '../components/EmptyState.jsx';
 import { TierBadge } from '../components/Tier.jsx';
 import { useToasts } from '../components/Toasts.jsx';
-import { formatDate } from '../format.js';
+import { formatDate, formatShortDate } from '../format.js';
 import { providerNames, startProvider } from '../pages/SignInPages.jsx';
 import { passkeyRegister, passkeySignIn, passkeysSupported, wasCancelled } from '../passkeyClient.js';
 import { useSession } from '../session.jsx';
@@ -91,10 +91,11 @@ export function SettingsPage() {
           <h1 className="h1 settings-title">Settings</h1>
           {account && (
             <span className="muted xsmall settings-since">
-              {account.usernameClaimed ? <span className="mono">@{account.username}</span> : 'No username yet'} · since {formatDate(account.createdAt)}
+              {account.usernameClaimed ? <span className="mono">@{account.username}</span> : 'No username yet'} · joined {formatDate(account.createdAt)}
             </span>
           )}
-          {account?.beta.member && <span className="tag gold self-start settings-beta">Beta member since {formatDate(account.beta.since)}</span>}
+          {/* 0.9.2: named after the badge, on one line, so it doesn't read like a second "since" for the account. */}
+          {account?.beta.member && <span className="tag gold self-start settings-beta" title={`Beta Tester since ${formatDate(account.beta.since)}`}>Beta Tester since {formatShortDate(account.beta.since)}</span>}
         </div>
         <SectionNav sections={sections} />
       </aside>

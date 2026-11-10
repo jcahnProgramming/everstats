@@ -1,3 +1,4 @@
+import { displayName } from '../../../server/stats/names.js';
 import { useCallback, useEffect, useState } from 'react';
 import { YourGold } from '../collections/YourGold.jsx';
 import { YourGuilds } from './YourGuilds.jsx';
@@ -190,7 +191,7 @@ function Featured({ data, onPick, onReordered }) {
               <Link className="panel statcard" draggable={false} to={`/leaderboards/${f.ruleset.id}/${p.id}`}>
               {/* 0.9.0: the label wraps (two lines, a step smaller when long) in a box that leaves room for the grip,
                   so the grip can never sit on it; rank and movement each have their own line, movement at the foot. */}
-              <span className={`eyebrow pin-label${(p.name ?? '').length > 22 ? ' is-long' : ''}`} title={p.name ?? undefined}>{p.name ?? 'Statistic no longer available'}</span>
+              <span className={`eyebrow pin-label${(p.name ?? '').length > 22 ? ' is-long' : ''}`} title={displayName(p.name) ?? undefined}>{displayName(p.name) ?? 'Statistic no longer available'}</span>
               <span className="big">{p.text ? <span className="small muted">{p.text} · </span> : null}{formatNumber(p.value)}</span>
               <span className="small pin-rank">
                 {p.rank !== null ? <span className="t2"><b className="strong-text">#{formatNumber(p.rank)}</b> of {formatNumber(p.withAny)} with any</span> : <span className="muted">Not ranked</span>}
@@ -266,7 +267,7 @@ function PinPicker({ current, onClose, onSaved }) {
                   else n.delete(s.id);
                   return n;
                 })} />
-                {s.name}
+                {displayName(s.name)}
               </label>
             ))}
           </fieldset>

@@ -31,7 +31,7 @@ const CARDS_DIR = resolve(KIT, 'v3-share-cards', 'cards');
  */
 const LAYOUT_DIR = resolve(import.meta.dirname, 'layout');
 const LAYOUT_PATH = '/everstats-layout/';
-export const LAYOUT_VERSION = 3;
+export const LAYOUT_VERSION = 4; // 4 (0.9.2): narrow tier-bar segments show their letter only
 const LAYOUT_TAGS = {
   css: `<link rel="stylesheet" href="${LAYOUT_PATH}cards-layout.css">`,
   js: `<script src="${LAYOUT_PATH}cards-layout.js"></script>`,

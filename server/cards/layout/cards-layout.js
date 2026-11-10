@@ -113,11 +113,22 @@
     wrap.appendChild(line);
   }
 
+  /* 0.9.2: a tier-bar segment too narrow for "S 17" shows its letter only (the same rule as the site's bar,
+     client/src/components/Tier.jsx); the counts are on the card's own words. */
+  function tierLetters(card) {
+    card.querySelectorAll('.ctierbar > span').forEach(function (seg) {
+      var full = seg.textContent.trim();
+      if (!full || seg.scrollWidth <= seg.clientWidth) return;
+      seg.textContent = full.split(/ /)[0];
+    });
+  }
+
   window.everstatsLayout = function () {
     var card = document.querySelector('[data-card]');
     if (!card) return false;
     names(card);
     tierLine(card);
+    tierLetters(card);
     tiles(card);
     renderPanels(card);
     document.documentElement.setAttribute('data-laid-out', '1');

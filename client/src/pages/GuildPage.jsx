@@ -1,3 +1,5 @@
+import { usePageTitle } from '../pageTitle.js';
+import { displayName } from '../../../server/stats/names.js';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { parseGuildSlug } from '../../../server/stats/slug.js';
@@ -53,6 +55,7 @@ export function GuildPage() {
   const slug = parseGuildSlug(raw);
   const navigate = useNavigate();
   const [result, setResult] = useState(null);
+  usePageTitle(result?.guild?.name ? `<${result.guild.name}>` : null); // 0.9.2
 
   const load = useCallback(async () => {
     if (!slug) return;
@@ -384,7 +387,7 @@ function Placements({ data }) {
           {data.placements.map((p) => (
             <Link key={p.statisticId} className="placement" to={`/leaderboards/guilds/${rs.id}/${p.statisticId}${p.mode === 'average' ? '?mode=average' : ''}`}>
               <span className={`rk${p.rank <= 3 ? ` r${p.rank}` : ''} placement-rank`}>#{formatNumber(p.rank)}</span>
-              <span className="small strong-text">{p.name}</span>
+              <span className="small strong-text">{displayName(p.name)}</span>
               <span className="muted xsmall">{p.mode === 'average' ? 'by average per member' : 'by total'} · of {formatNumber(p.of)} guild{p.of === 1 ? '' : 's'} · {formatNumber(Math.round(p.value * 10) / 10)}</span>
             </Link>
           ))}
@@ -464,7 +467,7 @@ function TopMembers({ data }) {
               {cat.statistics.map((s) => (
                 <div key={s.id} className="guild-top">
                   <div className="row gap-8 guild-top-head">
-                    <b className="small flex-fill ellipsis">{s.name}</b>
+                    <b className="small flex-fill ellipsis" title={displayName(s.name)}>{displayName(s.name)}</b>
                     {s.withAny > 0 && <Link className="xsmall nowrap" to={`/g/${encodeURIComponent(slug)}/boards/${s.id}${q}`}>See all {formatNumber(s.withAny)} →</Link>}
                   </div>
                   {s.top.length === 0 ? (

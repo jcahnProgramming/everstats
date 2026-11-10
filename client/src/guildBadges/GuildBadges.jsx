@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { usePopover } from '../badges/Badges.jsx';
@@ -191,20 +191,57 @@ export function GuildName({ guild, link = true, still = false }) {
  * The guild page's badge area: the row (up to 6 pills, pinned first, "+N more"), Next unlocks with the rally line.
  * A guild with nothing to show draws NO row and no heading (states/empty), only Next unlocks.
  */
+/**
+ * 0.9.2: how many of the row's pills fit on ONE line beside "+N more" (the button used to wrap alone onto a second
+ * line). Starts from all of them; while the "+N more" button (or the last pill) sits lower than the first pill, one
+ * fewer is shown and it counts into "+N more" instead. Measured again whenever the row's width changes.
+ */
+function useFitOnOneLine(ref, total) {
+  const [fit, setFit] = useState(total);
+  const width = useRef(null);
+  useLayoutEffect(() => {
+    setFit(total);
+    const el = ref.current;
+    if (!el || typeof ResizeObserver !== 'function') return undefined;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth !== width.current) {
+        width.current = el.clientWidth;
+        setFit(total);
+      }
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+    };
+  }, [ref, total]);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || fit <= 1) return;
+    const items = [...el.children].filter((k) => k.matches('[data-fit-item]'));
+    if (items.length < 2) return;
+    const top = items[0].offsetTop;
+    if (items.some((k) => k.offsetTop > top + 2)) setFit((f) => Math.max(1, f - 1));
+  });
+  return fit;
+}
+
 export function GuildBadgeArea({ data, guild, canManage }) {
   const b = data;
   const [all, setAll] = useState(false);
+  const rowRef = useRef(null);
+  const fit = useFitOnOneLine(rowRef, b?.row.length ?? 0);
   if (!b) return null;
   const any = b.row.length > 0;
   const pinnedId = b.row[0]?.id ?? null;
+  const extra = b.row.length - Math.min(fit, b.row.length) + b.more.length;
   return (
     <section className="stack gap-16" aria-label="Guild badges">
       {any && (
         <>
           <div className="orn"><span className="gem" /><h2 className="h2">Guild badges</h2><span className="rule" />{b.automatic && <span className="muted xsmall">shown automatically</span>}</div>
-          <div className="grow gbadge-row">
-            {b.row.map((x) => <GuildPill key={x.id} badge={x} pinned={x.id === pinnedId} />)}
-            {b.more.length > 0 && <button type="button" className="gmore" aria-haspopup="dialog" onClick={() => setAll(true)}>+{b.more.length} more</button>}
+          <div className="grow gbadge-row" ref={rowRef}>
+            {b.row.slice(0, Math.max(1, fit)).map((x) => <span key={x.id} className="gbadge-fit" data-fit-item=""><GuildPill badge={x} pinned={x.id === pinnedId} /></span>)}
+            {extra > 0 && <button type="button" className="gmore" data-fit-item="" aria-haspopup="dialog" onClick={() => setAll(true)}>+{extra} more</button>}
             {canManage && <Link className="btn sm ghost" to={`/g/${encodeURIComponent(guild.slug)}/manage/badges`}><Icon name="pin" size="sm" />Manage badges</Link>}
           </div>
         </>
