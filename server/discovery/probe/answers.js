@@ -5,7 +5,8 @@
  * one character can't prove): never a guess.
  */
 const fmt = (n) => (Number.isFinite(n) ? n.toLocaleString('en-US') : String(n));
-const short = (t) => String(t).replace('{C}', 'C').replace('{G}', 'G').replace('/data/wow/', '');
+// 0.9.2: "character" and "guild", as the endpoint tables say them (was a bare "C" and "G": "C/collections/mounts").
+const short = (t) => String(t).replace('{C}', 'character').replace('{G}', 'guild').replace('/data/wow/', '');
 const statuses = (e) => e.attempts.map((a) => (a.status === null ? 'no answer' : a.status)).join(' then ');
 
 export function probeAnswers(entries, { foreverTerms = [], primary = null } = {}) {
