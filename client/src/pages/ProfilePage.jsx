@@ -1,3 +1,5 @@
+import { usePageTitle } from '../pageTitle.js';
+import { displayName } from '../../../server/stats/names.js';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
@@ -52,6 +54,7 @@ export function ProfilePage() {
   const session = useSession();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  usePageTitle(data?.profile ? `${data.profile.displayName} (@${data.profile.username})` : null); // 0.9.2
   useEffect(() => {
     let live = true;
     setData(null);
@@ -171,11 +174,12 @@ function PinsSection({ section }) {
       <div className="grid-auto col-sm gap-14">
         {section.cards.map((p) => (
           <Link key={p.id} className="panel statcard" to={`/leaderboards/${c.rulesetId}/${p.id}`}>
-            <span className="eyebrow ellipsis">{p.name ?? 'Statistic no longer available'}</span>
+            <span className="eyebrow ellipsis" title={displayName(p.name) ?? undefined}>{displayName(p.name) ?? 'Statistic no longer available'}</span>
             <span className="big">{p.text ? <span className="small muted">{p.text} · </span> : null}{formatNumber(p.value)}</span>
-            <span className="row gap-8 small">
+            {/* 0.9.2: the change since last week only when there is one to show (no stray "—"), on the rank's line. */}
+            <span className="small pin-rank-line">
               {p.rank !== null ? <span className="t2"><b className="strong-text">#{formatNumber(p.rank)}</b> of {formatNumber(p.withAny)} with any</span> : <span className="muted">Not ranked</span>}
-              <span className={p.move > 0 ? 'up' : p.move < 0 ? 'down' : 'muted'}>{p.move === null ? '—' : p.move > 0 ? `▲ ${p.move}` : p.move < 0 ? `▼ ${-p.move}` : '± 0'}</span>
+              {p.move !== null && <span className={p.move > 0 ? 'up' : p.move < 0 ? 'down' : 'muted'} title="Change in rank since a week ago">{p.move > 0 ? `▲ ${p.move}` : p.move < 0 ? `▼ ${-p.move}` : '± 0'}</span>}
             </span>
           </Link>
         ))}
@@ -190,7 +194,8 @@ function FeaturedSection({ section }) {
   return (
     <section className="panel pad-20 stack gap-14" aria-labelledby="featured-h">
       <span className="eyebrow" id="featured-h">Featured character</span>
-      <div className="grid-auto col-lg gap-18 align-start-grid">
+      {/* 0.9.2: the details sit in the middle of the render's height, not at its top with empty space below. */}
+      <div className="grid-auto col-lg gap-18 featured-grid">
         {c.renderPaused
           ? <RenderFrame><span className="render-crest disp" aria-hidden="true">{(c.name?.[0] ?? '') + (c.surname?.[0] ?? '')}</span><span className="small t2 render-paused-note" role="note">{c.renderPaused}</span></RenderFrame>
           : c.renderHidden

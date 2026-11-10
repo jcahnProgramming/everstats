@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
@@ -13,6 +13,7 @@ import {
 } from './parts.jsx';
 import { TransmogTracker } from './Transmog.jsx';
 import { ShareButton } from '../share/ShareButtons.jsx';
+import { fillStyle } from '../components/fillGrid.js';
 
 /**
  * The Collections tab (0.9.0, design/v4-collections pages/collections-tab and the screens beside it), at
@@ -172,13 +173,30 @@ function usePins() {
 function Overview({ data, base, character: c, onReload }) {
   const { pins, toggle } = usePins();
   const [open, setOpen] = useState(() => new Set());
-  const flip = (id) => setOpen((o) => {
-    const n = new Set(o);
-    if (n.has(id)) n.delete(id);
-    else n.add(id);
-    return n;
-  });
+  // 0.9.2: opening or closing a section keeps the clicked header exactly where it was on screen (the page used to jump
+  // as the section above it changed height): measured before the change, put back right after it renders.
+  const anchor = useRef(null);
+  useLayoutEffect(() => {
+    const a = anchor.current;
+    if (!a) return;
+    anchor.current = null;
+    const el = document.getElementById(a.id);
+    if (el) window.scrollBy(0, el.getBoundingClientRect().top - a.top);
+  }, [open]);
+  const flip = (id, e) => {
+    const head = e?.currentTarget?.closest('[id]');
+    if (head) anchor.current = { id: head.id, top: head.getBoundingClientRect().top };
+    setOpen((o) => {
+      const n = new Set(o);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  };
   const sections = data.sections.filter((s) => s.id !== 'quests'); // quests in progress live inside the Quests section
+  // "Collapse all" only when every section is open; otherwise "Expand all".
+  const allIds = [...sections.map((s) => s.id), ...(data.legacy ? ['legacy'] : [])];
+  const allOpen = allIds.length > 0 && allIds.every((id) => open.has(id));
   return (
     <>
       <section className="stack gap-14" aria-labelledby="coll-h">
@@ -188,13 +206,19 @@ function Overview({ data, base, character: c, onReload }) {
           <span className="muted small">Counts are statistics: pin one to your dashboard, or open its leaderboard.</span>
           {!c.hidden && <ShareButton to={`/c/${encodeURIComponent(c.slug)}/collections/share`} label="Share collections" />}
         </div>
-        <div className="ccounts">
+        {/* 0.9.2: rows that always fill (components/fillGrid.js), never an empty slot at the end. */}
+        <div className="ccounts fillgrid">
           {data.counts.map((k) => (
             <CountCard key={k.key} count={k} glyph={glyphFor(k.key)} pinned={pins ? pins.includes(k.id) : null} onPin={pins ? () => toggle(k.id, k.name) : null}
-              boardTo={c.ruleset && k.board ? `/leaderboards/${c.ruleset.id}/${k.id}` : null} />
+              boardTo={c.ruleset && k.board ? `/leaderboards/${c.ruleset.id}/${k.id}` : null} style={fillStyle(data.counts.length, { lg: 6, md: 4, sm: 2 })} />
           ))}
         </div>
-        {data.counts.some((k) => k.shared) && <p className="muted xsmall"><AccountMarker shared={{ how: 'detected' }} /> appears only where it is known: Blizzard says so, or every character Everstats has fetched on the owner’s account has the identical collection.</p>}
+        {data.counts.some((k) => k.shared) && (
+          <p className="muted xsmall acct-legend">
+            <AccountMarker shared={{ how: 'detected' }} />
+            <span>appears only where it is known: Blizzard says so, or every character Everstats has fetched on the owner’s account has the identical collection.</span>
+          </p>
+        )}
       </section>
       <FamilyBoards boards={data.familyBoards ?? []} ruleset={c.ruleset?.id ?? null} />
       <GoldPanel gold={data.gold} character={c} onChange={onReload} />
@@ -203,10 +227,10 @@ function Overview({ data, base, character: c, onReload }) {
           <h2 className="h2" id="bycoll-h">By collection</h2>
           <span className="muted xsmall">Collapsed by default</span>
           <span className="spacer" />
-          <button type="button" className="linklike small" onClick={() => setOpen(open.size ? new Set() : new Set(sections.map((s) => s.id)))}>{open.size ? 'Collapse all' : 'Expand all'}</button>
+          <button type="button" className="linklike small" onClick={() => setOpen(allOpen ? new Set() : new Set(allIds))}>{allOpen ? 'Collapse all' : 'Expand all'}</button>
         </div>
-        {sections.map((s) => <SectionRow key={s.id} s={s} open={open.has(s.id)} onToggle={() => flip(s.id)} base={base} slug={c.slug} refreshing={data.refreshing} />)}
-        {data.legacy && <LegacyRow legacy={data.legacy} open={open.has('legacy')} onToggle={() => flip('legacy')} base={base} />}
+        {sections.map((s) => <SectionRow key={s.id} s={s} open={open.has(s.id)} onToggle={(e) => flip(s.id, e)} base={base} slug={c.slug} refreshing={data.refreshing} />)}
+        {data.legacy && <LegacyRow legacy={data.legacy} open={open.has('legacy')} onToggle={(e) => flip('legacy', e)} base={base} />}
       </section>
     </>
   );
@@ -289,7 +313,9 @@ function SectionRow({ s, open, onToggle, base, slug, refreshing }) {
       </button>
       {open && (
         <div className="bd" id={`coll-body-${s.id}`}>
-          {PREVIEW_KINDS.has(s.id) && s.state !== 'never' ? <TilePreview kind={s.id} slug={slug} /> : <SectionState section={s} glyph={glyphFor(s.id)} what={label.toLowerCase()} />}
+          {PREVIEW_KINDS.has(s.id) && s.state !== 'never' ? <TilePreview kind={s.id} slug={slug} />
+            : s.id === 'transmog' && s.state === 'ok' ? <TransmogPreview slug={slug} />
+              : <SectionState section={s} glyph={glyphFor(s.id)} what={label.toLowerCase()} />}
           <div className="row gap-12 wrap-row">
             <Link className="btn sm" to={`${base}/${SCREEN_OF[s.id]}`}>Open {label.toLowerCase()}<Icon name="chevron-right" size="sm" /></Link>
             <SectionFresh section={s} refreshing={refreshing} />
@@ -297,6 +323,34 @@ function SectionRow({ s, open, onToggle, base, slug, refreshing }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * 0.9.2: the Transmog section's preview: the slots with the most appearances collected (have / total where Blizzard's
+ * catalog gives a total), each linking into the tracker at that slot.
+ */
+function TransmogPreview({ slug }) {
+  const [sec, setSec] = useState(null);
+  useEffect(() => {
+    let live = true;
+    api(`/api/characters/${encodeURIComponent(slug)}/collections/transmog`).then((r) => { if (live) setSec(r.section); }, () => { if (live) setSec(false); });
+    return () => {
+      live = false;
+    };
+  }, [slug]);
+  if (sec === null) return <span className="muted small" role="status">Loading slots…</span>;
+  if (!sec || !sec.slots?.length) return null;
+  const top = [...sec.slots].sort((a, b) => b.have - a.have).slice(0, 8);
+  return (
+    <div className="stack gap-8">
+      <span className="eyebrow">Most collected slots</span>
+      <div className="row gap-8 wrap-row tm-preview">
+        {top.map((sl) => (
+          <span key={sl.type} className="tag tm-slot"><Glyph name={`slot:${sl.type}`} className="cg sm-glyph" />{sl.name}<b className="num">{formatNumber(sl.have)}{sl.total ? ` / ${formatNumber(sl.total)}` : ''}</b></span>
+        ))}
+      </div>
     </div>
   );
 }

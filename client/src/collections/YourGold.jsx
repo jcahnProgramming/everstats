@@ -22,7 +22,7 @@ export function YourGold() {
   return (
     <section className="panel clip" aria-labelledby="gold-h">
       <div className="row gap-12 wrap-row pad-16"><h2 className="h3" id="gold-h">Your gold</h2><span className="tag">Only you can see this</span><span className="spacer" /><span className="muted xsmall">Updates when you sign in with Battle.net</span></div>
-      <div className="tblbox">
+      <div className="tblbox gold-table">
         <table className="tbl">
           <thead><tr><th scope="col">Character</th><th scope="col" className="r">On hand</th><th scope="col" className="r">Gained</th><th scope="col" className="r">Lost</th><th scope="col" className="r">Item value</th><th scope="col">Shown</th></tr></thead>
           <tbody>

@@ -74,8 +74,9 @@ export function Tile({ item, glyph, onSelect = null, selected = false, size = ''
     </>
   );
   const label = `${name}, ${item.collected ? 'collected' : 'missing'}`;
-  if (!onSelect) return <div className={cls} role="listitem" aria-label={label}>{body}</div>;
-  return <button type="button" className={cls} aria-pressed={selected} aria-label={label} onClick={() => onSelect(item)}>{body}</button>;
+  // 0.9.2: the name shows two lines before it's cut; the whole name is in the tooltip and the accessible name.
+  if (!onSelect) return <div className={cls} role="listitem" aria-label={label} title={name}>{body}</div>;
+  return <button type="button" className={cls} aria-pressed={selected} aria-label={label} title={name} onClick={() => onSelect(item)}>{body}</button>;
 }
 
 /** missing: false while there is no complete catalog (no missing tiles can be drawn, so the key leaves them out). */
@@ -118,10 +119,10 @@ export function StandingBar({ rep }) {
 }
 
 /** Count card (count-card.md): glyph, count, label, pin, board rank and account marker; `.is-off` before any data. */
-export function CountCard({ count, glyph, pinned = null, onPin = null, boardTo = null }) {
+export function CountCard({ count, glyph, pinned = null, onPin = null, boardTo = null, style = undefined }) {
   const off = count.value === null;
   return (
-    <div className={`ccount${pinned ? ' is-pinned' : ''}${off ? ' is-off' : ''}`}>
+    <div className={`ccount${pinned ? ' is-pinned' : ''}${off ? ' is-off' : ''}`} style={style}>
       <Glyph name={glyph} />
       <span className="n num">{off ? '—' : formatNumber(count.value)}{!off && count.total ? <small> / {formatNumber(count.total)}</small> : null}</span>
       {onPin && !off && (

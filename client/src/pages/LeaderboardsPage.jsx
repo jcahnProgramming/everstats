@@ -1,3 +1,4 @@
+import { displayName } from '../../../server/stats/names.js';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
@@ -144,7 +145,7 @@ export function LeaderboardsPage() {
                     <span className="gem" />
                     <span className="lb-cat-title">
                       <span className="h2 h2-panel">{cat.label}</span>
-                      <span className="muted xsmall">{formatNumber(cat.boards.length)} board{cat.boards.length === 1 ? '' : 's'} · {!cat.tierCounted ? 'not graded' : cat.inOverall ? `${cat.tierCounted} graded` : 'own tier only'} · {busiest(cat, guilds)}</span>
+                      <span className="muted xsmall">{formatNumber(cat.boards.length)} board{cat.boards.length === 1 ? '' : 's'} · {!cat.tierCounted ? 'not graded' : cat.inOverall ? `${cat.tierCounted} graded` : 'own category letter, not in the overall tier'} · {busiest(cat, guilds)}</span>
                     </span>
                     <span className="rule" />
                     <Icon name={isOpen ? 'chevron-up' : 'chevron-down'} size="sm" />
@@ -183,7 +184,7 @@ function MiniBoard({ board: b, ruleset, population }) {
   const to = `/leaderboards/${ruleset.id}/${b.id}`;
   return (
     <Link className="panel mini" to={to}>
-      <span className="hd"><b className="ellipsis">{b.name}</b><span className="muted xsmall nowrap">{formatNumber(b.nonzero)} with any</span></span>
+      <span className="hd"><b className="mini-title" title={displayName(b.name)}>{displayName(b.name)}</b><span className="muted xsmall nowrap">{formatNumber(b.nonzero)} with any</span></span>
       {b.nonzero === 0 ? (
         <span className="ln mini-note"><span /><span className="muted xsmall">Nobody tracked has any yet ({formatNumber(population)} tracked)</span><span /></span>
       ) : b.tied ? (
@@ -204,7 +205,7 @@ function MiniGuildBoard({ board: b, ruleset, minMembers }) {
   const to = `/leaderboards/guilds/${ruleset.id}/${b.id}`;
   return (
     <Link className="panel mini" to={to}>
-      <span className="hd"><b className="ellipsis">{b.name}</b><span className="muted xsmall nowrap">{formatNumber(b.ranked)} guild{b.ranked === 1 ? '' : 's'}</span></span>
+      <span className="hd"><b className="mini-title" title={displayName(b.name)}>{displayName(b.name)}</b><span className="muted xsmall nowrap">{formatNumber(b.ranked)} guild{b.ranked === 1 ? '' : 's'}</span></span>
       {b.ranked === 0 ? (
         <span className="ln mini-note"><span /><span className="muted xsmall">{b.notYet ? `${formatNumber(b.notYet)} not ranked yet (under ${minMembers} members)` : 'No ranked guild has any yet'}</span><span /></span>
       ) : b.tied ? (

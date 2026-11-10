@@ -1,3 +1,4 @@
+import { usePageTitle } from '../pageTitle.js';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api.js';
@@ -53,6 +54,7 @@ export function GuildBadgePage() {
   const { id } = useParams();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  usePageTitle(data?.badge?.name ? `${data.badge.name} guild badge` : null); // 0.9.2
   const load = useCallback(async () => {
     setError(null);
     try {

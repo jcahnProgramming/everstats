@@ -1,3 +1,4 @@
+import { usePageTitle } from '../pageTitle.js';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api.js';
@@ -25,6 +26,7 @@ export function BadgePage() {
   const toast = useToasts();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  usePageTitle(data?.badge?.name ? `${data.badge.name} badge` : null); // 0.9.2
   const load = useCallback(async () => {
     try {
       const d = await api(`/api/badges/${encodeURIComponent(id)}`);

@@ -1,3 +1,5 @@
+import { usePageTitle } from '../pageTitle.js';
+import { displayName } from '../../../server/stats/names.js';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { parseSlug } from '../../../server/stats/slug.js';
@@ -39,6 +41,9 @@ export function CharacterPage({ tab = 'stats' }) {
   const { slug, screen = '' } = useParams();
   const parsed = parseSlug(slug);
   const [result, setResult] = useState(null); // null = waiting · body · { error }
+  // 0.9.2: the tab title once the character is in (server/core/pageTitles.js gives the generic one until then).
+  const ch = result?.status === 'ok' ? result.character : null;
+  usePageTitle(ch ? `${ch.name} ${ch.surname}${tab === 'collections' ? ': collections' : ''}` : null);
 
   const load = useCallback(async () => {
     if (!parsed) return;
@@ -355,7 +360,7 @@ function Statistics({ stats, character: c, count, tiers }) {
                   {cat.statistics.map((s) => (
                     <div key={s.id} className="statrow">
                       <span className="nm">
-                        {s.name}
+                        {displayName(s.name)}
                         {s.tierRole !== 'counted' && <span className="ng" title={s.tierRole === 'undecided' ? 'Not reviewed yet, so it doesn’t count toward a tier' : 'Leaderboard only: never counts toward a tier'}>{s.tierRole === 'undecided' ? 'not graded yet' : 'not graded'}</span>}
                         {pins && (
                           <button type="button" className={`pin-btn${pins.includes(s.id) ? ' is-pinned' : ''}`} aria-pressed={pins.includes(s.id)} aria-label={`${pins.includes(s.id) ? 'Unpin' : 'Pin'} ${s.name}`} title={pins.includes(s.id) ? 'Pinned to your dashboard' : 'Pin to your dashboard'} onClick={() => togglePin(s.id, s.name)}>

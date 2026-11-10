@@ -1,9 +1,11 @@
+import { displayName } from '../../../server/stats/names.js';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { formatNumber, timeAgo } from '../format.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { ProvisionalText, TierBadge, letterRange } from './Tier.jsx';
 import { ShareButton } from '../share/ShareButtons.jsx';
+import { fillStyle } from './fillGrid.js';
 
 /**
  * The tier parts of the character page (0.6.0), from GET /api/characters/:slug → tiers (server/tiers/view.js):
@@ -18,6 +20,15 @@ import { ShareButton } from '../share/ShareButtons.jsx';
 const score = (x) => (Number.isFinite(x) ? x.toFixed(1) : '–');
 /** A category's weight in the overall score (0.8.0), as a percent with one decimal. */
 const weightPct = (w) => (Number.isFinite(w) ? `${(Math.round(w * 1000) / 10).toFixed(1)}%` : null);
+/**
+ * 0.9.2: the two counts in one sentence. "Tier-eligible" = every character graded on the ruleset (level 10+, fetched,
+ * visible); "with an overall letter" = those of them who met the minimums. The overall rank is a place among the latter.
+ */
+function eligibleNote(tiers, o) {
+  const rs = tiers.ruleset?.name ?? 'its ruleset';
+  const all = `${formatNumber(tiers.population)} tier-eligible characters on ${rs}`;
+  return Number.isFinite(o?.of) ? `${all}; ${formatNumber(o.of)} of them have met the minimums for an overall letter` : all;
+}
 
 export function OverallTier({ tiers }) {
   if (!tiers) {
@@ -37,7 +48,9 @@ export function OverallTier({ tiers }) {
         {letter ? (
           <>
             <span className="h3">{letterRange(letter, tiers.settings.shares)}</span>
-            <span className="muted xsmall">#{formatNumber(o.rank)} of {formatNumber(o.of)} graded · {tiers.ruleset?.name}</span>
+            {/* 0.9.2: one phrasing for the two numbers: "of N with an overall letter" (met the minimums), and the
+                tier-eligible total (everyone graded on the ruleset) in the tooltip and in "Why this tier". */}
+            <span className="muted xsmall" title={eligibleNote(tiers, o)}>#{formatNumber(o.rank)} of {formatNumber(o.of)} with an overall letter · {tiers.ruleset?.name}</span>
           </>
         ) : (
           <>
@@ -104,13 +117,13 @@ export function WhyThisTier({ tiers, name, shareTo = null }) {
   const overallCats = tiers.categories.filter((c) => c.inOverall);
   return (
     <section id="why-tier" className="stack gap-18" aria-labelledby="why-h">
-      <div className="orn"><span className="gem" /><h2 className="h2" id="why-h">Why this tier</h2><span className="rule" /><span className="muted xsmall">Graded against {formatNumber(tiers.population)} tier-eligible characters on {rs}</span>{shareTo && <ShareButton to={shareTo} label="Share tier" gold={false} />}</div>
+      <div className="orn"><span className="gem" /><h2 className="h2" id="why-h">Why this tier</h2><span className="rule" /><span className="muted xsmall">{eligibleNote(tiers, o)}</span>{shareTo && <ShareButton to={shareTo} label="Share tier" gold={false} />}</div>
       <div className="panel pad-20 stack gap-12">
         <div className="row gap-16 align-start">
           <TierBadge letter={o.letter} size="md" provisional={o.provisional ?? null} />
           <div className="stack gap-6 flex-fill">
             <span className="strong-text">
-              {o.letter ? <>Overall {o.letter} · {letterRange(o.letter, s.shares)} · #{formatNumber(o.rank)} of {formatNumber(o.of)} graded</> : o.provisional ? <>Overall: Unranked · <ProvisionalText letter={o.provisional} /></> : <>Overall: Unranked</>}
+              {o.letter ? <>Overall {o.letter} · {letterRange(o.letter, s.shares)} · #{formatNumber(o.rank)} of {formatNumber(o.of)} with an overall letter</> : o.provisional ? <>Overall: Unranked · <ProvisionalText letter={o.provisional} /></> : <>Overall: Unranked</>}
             </span>
             <span className="t2 small">
               Overall score <b className="strong-text">{score(o.score)}</b> = {s.weighting === 'sqrt'
@@ -128,14 +141,17 @@ export function WhyThisTier({ tiers, name, shareTo = null }) {
         </div>
       </div>
 
-      <div className="grid-auto col-sm gap-10 tier-cards">
+      {/* 0.9.2: names in full (two lines if needed, never an ellipsis), and rows that always fill (components/fillGrid.js):
+          9 categories are 5 + 4 on a desktop, 3 × 3 on a tablet, never one card alone on the last row. */}
+      <div className="fillgrid tier-cards">
         {tiers.categories.map((c) => (
-          <a key={c.key} className="panel row gap-12 tier-card" href={`#why-${c.key}`} onClick={() => setOpen((x) => new Set(x).add(c.key))}>
+          <a key={c.key} className="panel row gap-12 tier-card" href={`#why-${c.key}`} style={fillStyle(tiers.categories.length, { lg: 5, md: 3, sm: 2 })} onClick={() => setOpen((x) => new Set(x).add(c.key))}>
             <TierBadge letter={c.letter} size="md" provisional={c.provisional ?? null} />
-            <span className="stack ellipsis">
+            <span className="stack tier-card-text">
               <span className="tier-card-title">{c.label}</span>
-              <span className="muted xsmall">{c.letter ? `Score ${score(c.score)}` : c.provisional ? <span className="tier-prov-word">Provisional</span> : 'Unranked'}{!c.inOverall ? ' · own tier' : ''}</span>
+              <span className="muted xsmall">{c.letter ? `Score ${score(c.score)}` : c.provisional ? <span className="tier-prov-word">Provisional</span> : 'Unranked'}</span>
               {c.inOverall && weightPct(c.weight) && <span className="muted xsmall tier-card-weight">Weight {weightPct(c.weight)}</span>}
+              {!c.inOverall && <span className="muted xsmall tier-card-weight">Own letter, not in the overall tier</span>}
             </span>
           </a>
         ))}
@@ -152,7 +168,7 @@ export function WhyThisTier({ tiers, name, shareTo = null }) {
                   <span className="h3 cat-title">{c.label}</span>
                   <span className="muted xsmall">
                     Score {score(c.score)} = the average percentile of {c.counted} statistic{c.counted === 1 ? '' : 's'} · {c.nonzero} above zero (a letter needs {c.needed ?? '–'}, {s.categoryHalf}%)
-                    {c.letter ? ` · #${formatNumber(c.rank)} of ${formatNumber(c.of)}` : ''}{c.inOverall ? ` · ${weightPct(c.weight) ? `${weightPct(c.weight)} of the overall score` : 'counts toward the overall tier'}` : c.farmable ? ' · farmable: its own tier only' : ' · its own tier only'}
+                    {c.letter ? ` · #${formatNumber(c.rank)} of ${formatNumber(c.of)}` : ''}{c.inOverall ? ` · ${weightPct(c.weight) ? `${weightPct(c.weight)} of the overall score` : 'counts toward the overall tier'}` : c.farmable ? ' · farmable: its own category letter, not in the overall tier' : ' · its own category letter, not in the overall tier'}
                   </span>
                 </span>
                 <span className="spacer" />
@@ -164,7 +180,7 @@ export function WhyThisTier({ tiers, name, shareTo = null }) {
                   <div className="statrow head why-row" aria-hidden="true"><span className="eyebrow">Statistic</span><span className="eyebrow r">Value</span><span className="eyebrow r">Percentile</span><span className="eyebrow">Counts toward</span></div>
                   {c.statistics.map((st) => (
                     <div key={st.id} className="statrow why-row">
-                      <span className="nm">{st.name ?? 'No longer available'}</span>
+                      <span className="nm">{displayName(st.name) ?? 'No longer available'}</span>
                       <span className="v">{st.text && <span className="named muted">{st.text} · </span>}{formatNumber(st.value)}</span>
                       <span className="v why-pct" title="0–100: the share of the ruleset below this value, plus half of those level with it">{Number.isFinite(st.percentile) ? st.percentile.toFixed(1) : '–'}</span>
                       <span className="muted xsmall">{st.overall ? 'Category + overall' : 'Category only'}</span>

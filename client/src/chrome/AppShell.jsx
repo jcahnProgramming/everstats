@@ -6,6 +6,7 @@ import { parseCharacterSearch } from '../search.js';
 import { useSession } from '../session.jsx';
 import { ToastProvider } from '../components/Toasts.jsx';
 import { BetaBanner, BetaBadge } from './BetaBanner.jsx';
+import { fullTitle, pageTitleFor } from '../../../server/core/pageTitles.js';
 import { UsernamePrompt } from '../components/UsernameClaim.jsx';
 import { BrandMark } from './BrandMark.jsx';
 import { Icon } from './Icon.jsx';
@@ -48,6 +49,8 @@ export function AppShell() {
         <NoticeGate />
         <UsernamePrompt />
         <BadgeToastWatcher />
+        {/* 0.9.2: before <main>, so a page that knows its own title (usePageTitle) sets it after this one. */}
+        <PageTitle pathname={pathname} />
         <main id="main" className="app-main" key={pathname}>
           <Outlet />
         </main>
@@ -64,6 +67,15 @@ export function AppShell() {
       </ToastProvider>
     </div>
   );
+}
+
+/** 0.9.2: the browser-tab title from the shared table (server/core/pageTitles.js); unknown paths are "Not found". */
+function PageTitle({ pathname }) {
+  useEffect(() => {
+    const t = pageTitleFor(pathname);
+    document.title = fullTitle(t === undefined ? 'Not found' : t);
+  }, [pathname]);
+  return null;
 }
 
 function TopBar() {

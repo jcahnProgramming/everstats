@@ -1,3 +1,4 @@
+import { usePageTitle } from '../pageTitle.js';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
@@ -18,6 +19,7 @@ export function GoldBoardPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [more, setMore] = useState({ busy: false });
+  usePageTitle(data?.field?.label ? `${data.field.label}: gold on ${data.ruleset?.name ?? ''}`.trim() : null); // 0.9.2
   useEffect(() => {
     let live = true;
     setData(null);

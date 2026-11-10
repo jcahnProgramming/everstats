@@ -38,9 +38,11 @@ export function BetaBadge() {
 }
 
 export function BetaBanner() {
-  const { beta } = useSession();
+  const { beta, signedIn, loading } = useSession();
   const [dismissed, setDismissed] = useState(readDismissed);
-  if (!beta?.open) return null;
+  // 0.9.2: an invitation to sign up, so only for signed-out visitors (a signed-in player already has an account; the
+  // header's beta badge still links to /beta for everyone).
+  if (!beta?.open || loading || signedIn) return null;
   const stamp = String(beta.openedAt ?? 'open');
   if (dismissed === stamp) return null;
   return (
