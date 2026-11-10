@@ -170,6 +170,17 @@ export const SETTINGS = [
     default: true,
   },
   {
+    // 0.9.1: "Your guilds" on the home page (guilds/follow.js).
+    key: 'dashboard.maxPinnedGuilds',
+    section: 'crawler',
+    label: 'Guilds a player can pin to their dashboard',
+    help: 'How many guilds a player can follow with “Pin to dashboard” on a guild page. Their own characters’ guilds don’t count toward it. Lowering it unpins nothing; it only stops new pins. Default 10.',
+    type: 'integer',
+    min: 1,
+    max: 50,
+    default: 10,
+  },
+  {
     // 0.9.0: "Fetch all members" on guild pages (guilds/fetchAll.js).
     key: 'guilds.fetchConcurrent',
     section: 'crawler',

@@ -310,6 +310,7 @@ export const OURS = {
   account_bans: 'Bans: temporary or permanent, the reason, the message to the player, and how each was lifted (0.8.2)',
   ban_identities: 'The sign-in identities and passkey ids a banned account had when its ban started (ban evasion) (0.8.2)',
   moderation_actions: 'Moderation log: warnings, forced renames, field resets, bans, unbans, role changes, reveals, report decisions (0.8.2)',
+  account_guilds: 'Guilds a player follows on their dashboard, own guilds they hid from it, and the order (Blizzard guild ids only) (0.9.1)',
   character_gold_public: 'The owner’s “Show my gold stats publicly” choice per character (character id, account id, since) (0.9.0)',
   reports: 'Player reports about profiles and guild descriptions: what, an optional note, the reported text as it was; no reporter (0.8.2)',
 };

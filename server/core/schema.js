@@ -1730,4 +1730,25 @@ export const migrations = [
       await q.query('CREATE UNIQUE INDEX statistics_derived ON statistics (derived) WHERE derived IS NOT NULL');
     },
   },
+  {
+    // 0.9.1: "Your guilds" on the home page (guilds/follow.js). The player's choices only: which guilds they follow
+    // ("Pin to dashboard"), which of their own characters' guilds they hid from the section, and the order. Keyed on
+    // Blizzard guild ids WITHOUT a foreign key (a guilds row ages out; the choice is ours and stays).
+    id: '025_your_guilds',
+    async up(q) {
+      await q.query(`
+        CREATE TABLE account_guilds (
+          account_id  bigint NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+          guild_id    bigint NOT NULL,
+          pinned      boolean NOT NULL DEFAULT false,
+          hidden      boolean NOT NULL DEFAULT false,
+          position    integer NOT NULL DEFAULT 0,
+          pinned_at   timestamptz,
+          updated_at  timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (account_id, guild_id)
+        );
+        CREATE INDEX account_guilds_guild ON account_guilds (guild_id);
+      `);
+    },
+  },
 ];

@@ -25,6 +25,7 @@ import { createCardApiRouter, createCardImageRouter } from './cards/routes.js';
 import { createCardRenderer } from './cards/render.js';
 import { spaWithPreviews } from './cards/meta.js';
 import { createCollectionsRouter } from './collections/routes.js';
+import { createFollowRouter } from './guilds/follow.js';
 import { getSetting } from './admin/settings.js';
 
 /**
@@ -111,6 +112,8 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   app.use('/api', createCardApiRouter({ db, limits, networkOf }));
   // 0.9.0: collections, the transmog tracker, Legacy Points and opt-in gold (collections/routes.js).
   app.use('/api', createCollectionsRouter({ db, limits, networkOf }));
+  // 0.9.1: "Your guilds" on the home page, and "Pin to dashboard" on guild pages (guilds/follow.js).
+  app.use('/api', createFollowRouter({ db, limits, networkOf }));
 
   app.use('/api/auth', createAuthRouter({ db, limits, networkOf, fetch }));
   app.use('/api/admin', createAdminRouter({

@@ -44,6 +44,15 @@ export const MERGE_STEPS = [
     },
   },
   {
+    // 0.9.1: followed guilds and the section's choices; the kept account's own choice wins where both have one.
+    id: 'guilds',
+    describe: 'Guilds you follow on your dashboard (and the order) move to the account you keep.',
+    run: async (q, from, to) => {
+      await q.query('INSERT INTO account_guilds (account_id, guild_id, pinned, hidden, position, pinned_at) SELECT $2, guild_id, pinned, hidden, position + 1000, pinned_at FROM account_guilds WHERE account_id = $1 ON CONFLICT (account_id, guild_id) DO NOTHING', [from, to]);
+      await q.query('DELETE FROM account_guilds WHERE account_id = $1', [from]);
+    },
+  },
+  {
     // 0.7.1
     id: 'feedback',
     describe: 'Your feedback messages and Everstats’ replies move to the account you keep.',

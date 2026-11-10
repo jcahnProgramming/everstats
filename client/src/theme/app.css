@@ -578,3 +578,12 @@ details.panel > summary { cursor: pointer; font-weight: var(--es-weight-semibold
    segmented controls marked phone-scroll) scroll by touch or trackpad with no scrollbar track drawn. */
 .seg.phone-scroll, .armory-col, .armory-bottom { scrollbar-width: none; }
 .seg.phone-scroll::-webkit-scrollbar, .armory-col::-webkit-scrollbar, .armory-bottom::-webkit-scrollbar { display: none; }
+
+/* 0.9.1 "Your guilds" cards on the dashboard (pages/YourGuilds.jsx): equal-height cards in the shared drag-and-drop list,
+   the grip in its own reserved corner (as the pinned statistics, 0.9.0), the name wrapping rather than running under it. */
+.yg-item { position: relative; display: flex; }
+.yg-item > .pin-grip { position: absolute; top: var(--es-space-8); right: var(--es-space-8); z-index: 1; }
+.yg-card { flex: 1; min-width: 0; padding: var(--es-space-16); padding-right: var(--es-space-40); }
+.yg-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--es-space-6) var(--es-space-10); min-width: 0; }
+.yg-name { overflow-wrap: anywhere; text-decoration: none; }
+.yg-actions { margin-top: auto; }

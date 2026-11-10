@@ -13,6 +13,7 @@ import { NameWithBadge } from '../badges/Badges.jsx';
 import { GuildLinksArea, ManageGuild } from './GuildManage.jsx';
 import { GuildBadgeArea, GuildBadgeToasts, VerifiedMark } from '../guildBadges/GuildBadges.jsx';
 import { ShareButton } from '../share/ShareButtons.jsx';
+import { PinGuildButton } from './YourGuilds.jsx';
 import { SignInNudge } from '../chrome/SignInNudge.jsx';
 import { GuildFetch } from './GuildFetch.jsx';
 
@@ -161,6 +162,8 @@ function GuildSheet({ data, onReload }) {
             {g.createdAt && <span className="t2">Created in game {formatDate(g.createdAt)}</span>}
             <Fresh at={g.rosterFetchedAt} prefix="Roster as of " never="Roster never fetched" />
             <ShareButton to={`/g/${encodeURIComponent(g.slug)}/share`} label="Share guild card" />
+            {/* 0.9.1: follow this guild on your dashboard ("Your guilds"). */}
+            <PinGuildButton guildId={g.id} />
           </div>
         </div>
       </section>

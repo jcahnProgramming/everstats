@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { YourGold } from '../collections/YourGold.jsx';
+import { YourGuilds } from './YourGuilds.jsx';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { authError } from '../authMessages.js';
@@ -96,6 +97,7 @@ export function DashboardPage() {
             </EmptyState>
           ) : null}
           {data.characters.length > 0 && <CharacterList data={data} onFeature={feature} />}
+          <YourGuilds />
           <YourGold />
           {picking && <PinPicker current={data.pinIds} onClose={() => setPicking(false)} onSaved={() => { setPicking(false); load(); }} />}
         </>
