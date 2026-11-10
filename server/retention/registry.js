@@ -34,7 +34,9 @@ export const BLIZZARD = [
   },
   {
     table: 'pin_rank_history', holds: 'Daily ranks of pinned statistics (derived from values)', fetched: 'day',
-    sweep: async (q, cutoff) => n(await q.query('DELETE FROM pin_rank_history WHERE day < $1::date RETURNING 1', [cutoff])),
+    // Days are UTC days (stats/periods.js utcDay): compare in UTC, never the database session's time zone (0.9.1: right
+    // after UTC midnight the two disagreed by a day, and a 30-day-old rank survived the sweep).
+    sweep: async (q, cutoff) => n(await q.query("DELETE FROM pin_rank_history WHERE day < ($1::timestamptz AT TIME ZONE 'UTC')::date RETURNING 1", [cutoff])),
   },
   {
     table: 'character_statistics', holds: 'Current statistic values (and name + number texts)', fetched: 'fetched_at',
