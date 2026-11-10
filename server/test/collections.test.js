@@ -182,8 +182,21 @@ test('a collections refresh is 13 requests (14 for a hunter), stores parsed list
   addCharacter('hunt-coll', { id: 7002, cls: 'Hunter' });
   await fetchChar('alpha-coll');
   await fetchChar('hunt-coll');
-  // A full fetch queues collections behind it (daily priority for a lookup's fetch).
+  // 0.9.2: a full fetch never queues a FIRST collections fetch (that sat behind every daily check); the backfill does,
+  // capped per day, at daily priority, and only for characters that have none.
+  assert.equal(await t.db.one("SELECT 1 AS x FROM crawl_queue WHERE kind = 'collections' AND key = 'alpha-coll'"), null);
+  const { runBackfill, backfillStatus } = await import('../collections/backfill.js');
+  const { setSetting } = await import('../admin/settings.js');
+  await setSetting(t.db, 'collections.backfillPerDay', 50);
+  assert.match(await runBackfill(t.db), /^Queued 2 first collections fetches \(2 of 50 today\)/);
   assert.ok(await t.db.one("SELECT 1 AS x FROM crawl_queue WHERE kind = 'collections' AND key = 'alpha-coll' AND priority = $1", [PRIORITY.daily]));
+  assert.match(await runBackfill(t.db), /Every tracked character has collections/); // queued ones aren't queued twice
+  const bs = await backfillStatus(t.db);
+  assert.deepEqual({ tracked: bs.tracked, done: bs.withCollections, today: bs.queuedToday, per: bs.perCharacter }, { tracked: 2, done: 0, today: 2, per: 13 });
+  await setSetting(t.db, 'collections.backfill', false);
+  assert.equal(await runBackfill(t.db), 'Off');
+  await setSetting(t.db, 'collections.backfill', true);
+  await t.db.query("DELETE FROM crawl_queue WHERE kind = 'collections'");
   let mark = calls.length;
   assert.match(await fetchColl('alpha-coll'), /13 of 13 returned/);
   assert.equal(since(mark, COLLECTION_RE), 13);
@@ -503,4 +516,22 @@ test('0.9.2: a catalog row Blizzard keeps failing is skipped after 3 tries, neve
   const asked = calls.slice(before).filter((x) => x.startsWith('/data/wow/item-appearance/'));
   assert.deepEqual(asked.sort(), ['/data/wow/item-appearance/13', '/data/wow/item-appearance/21', '/data/wow/item-appearance/22']);
   assert.equal((await t.db.one("SELECT state FROM collection_catalog_state WHERE kind = 'appearance'")).state, 'ok');
+});
+
+test('0.9.2: slots Blizzard names alike read "Chest" and "Chest (robe)"; a building catalog still names collected tiles', async () => {
+  const { slotLabels, slotGroup } = await import('../collections/registry.js');
+  const l = slotLabels([{ type: 'CHEST', name: 'Chest' }, { type: 'ROBE', name: 'Chest' }, { type: 'HEAD', name: 'Head' }]);
+  assert.deepEqual([...l.values()], ['Chest', 'Chest (robe)', 'Head']);
+  assert.equal(slotGroup('TWOHWEAPON'), 'Weapon');
+  assert.equal(slotGroup('BAG'), null);
+  // The appearance catalog half-built (no finished build): collected-only, but the rows it has already name tiles.
+  await t.db.query("UPDATE collection_catalog_state SET fetched_at = NULL, state = 'building' WHERE kind = 'appearance'");
+  const tm = (await t.client({ ip: '198.51.100.80' }).get('/api/characters/alpha-coll/collections/transmog?slot=HEAD')).json.section;
+  assert.equal(tm.catalog, false);
+  assert.equal(tm.total, null);
+  assert.equal(tm.catalogState, 'building');
+  assert.ok(tm.tiles.every((x) => x.collected));
+  assert.equal(tm.tiles.find((x) => x.id === 11).name, 'Item 11');
+  assert.equal(tm.slots.find((s) => s.type === 'HEAD').group, 'Armor');
+  await t.db.query("UPDATE collection_catalog_state SET fetched_at = now(), state = 'ok' WHERE kind = 'appearance'");
 });
