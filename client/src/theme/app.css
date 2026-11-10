@@ -634,6 +634,45 @@ details.panel > summary { cursor: pointer; font-weight: var(--es-weight-semibold
 .pin-rank-line { display: flex; flex-wrap: nowrap; align-items: baseline; gap: var(--es-space-8); min-width: 0; }
 .pin-rank-line > * { white-space: nowrap; }
 .featured-grid { align-items: center; }
+/* 0.11.1: a name in the display font that never breaks inside a word. Its column is a size container; the font is the
+   display size or, when the longest word wouldn't fit, the size at which it does (Cinzel's capitals run about 0.8em a
+   letter with its tracking). Words stay whole; a name and a surname may wrap between them. */
+.fit-name-box { container-type: inline-size; min-width: 0; }
+.fit-name { overflow-wrap: normal; word-break: keep-all; hyphens: none; font-size: min(var(--es-fs-display), calc(100cqi / (var(--name-len, 8) * 0.8))); }
+@media (max-width: 719px) { .fit-name { font-size: min(var(--es-fs-26), calc(100cqi / (var(--name-len, 8) * 0.8))); } }
+
+/* ---- 0.11.1: the public game-version switcher (components/VersionMenu.jsx, the admin's component, in the site's own
+   tokens so it wears the visitor's theme). The admin styles the same markup from theme/admin.css. ---- */
+.pub-vs { position: relative; display: inline-flex; min-width: 0; }
+.pub-vs .vswitch { display: inline-flex; align-items: center; gap: var(--es-space-8); min-height: var(--es-size-control-md); max-width: 100%; padding: 0 var(--es-space-10) 0 var(--es-space-12); border-radius: var(--es-radius-md); border: var(--es-border-1) solid var(--es-line-strong); background: var(--es-sunken); color: var(--es-text); font: var(--es-weight-medium) var(--es-fs-13) var(--es-font-body); cursor: pointer; }
+.pub-vs .vswitch:hover { border-color: var(--es-accent); }
+.pub-vs .vswitch[aria-expanded="true"] { border-color: var(--es-accent); background: var(--es-raised); }
+.pub-vs .vswitch .vname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pub-vs .vswitch .ico { flex: none; }
+.pub-vs .vmenu { position: absolute; z-index: var(--es-z-dropdown, 40); top: calc(100% + var(--es-space-6)); left: 0; min-width: max(100%, var(--es-size-col-min)); max-width: calc(100vw - var(--es-space-32)); padding: var(--es-space-8); display: flex; flex-direction: column; gap: var(--es-space-2); background: var(--es-raised); color: var(--es-text); }
+.pub-vs .vmenu .grp { font: var(--es-weight-semibold) var(--es-fs-11) var(--es-font-body); letter-spacing: var(--es-tracking-eyebrow); text-transform: uppercase; color: var(--es-muted); padding: var(--es-space-6) var(--es-space-8) var(--es-space-4); }
+.pub-vs .vmenu .vopt { display: flex; align-items: center; justify-content: space-between; gap: var(--es-space-12); width: 100%; min-height: var(--es-size-control); padding: 0 var(--es-space-10); border: 0; border-radius: var(--es-radius-sm); background: none; color: var(--es-text); font: inherit; text-align: left; cursor: pointer; }
+.pub-vs .vmenu .vopt:hover, .pub-vs .vmenu .vopt:focus-visible { background: var(--es-surface); }
+.pub-vs .vmenu .vopt[aria-selected="true"] { color: var(--es-accent-2); font-weight: var(--es-weight-semibold); }
+.pub-vs.block { display: flex; }
+.pub-vs.block .vswitch { width: 100%; justify-content: space-between; }
+.pub-vs.block .vmenu { right: 0; }
+@media (max-width: 719px) { .topbar .in > .pub-vs { display: none; } }
+@media (min-width: 720px) and (max-width: 1099px) { .topbar .pub-vs .vswitch .vname { max-width: var(--es-space-96); } }
+
+/* 0.11.1: the realm field's suggestions (a text box and a list, never a native select). */
+.realm-pick { position: relative; }
+.realm-list { position: absolute; z-index: var(--es-z-dropdown, 40); left: 0; right: 0; top: 100%; margin-top: var(--es-space-4); display: flex; flex-direction: column; padding: var(--es-space-4); border: var(--es-border-1) solid var(--es-line-strong); border-radius: var(--es-radius-md); background: var(--es-raised); color: var(--es-text); max-height: calc(var(--es-size-control) * 7); overflow-y: auto; }
+.realm-list button { display: flex; align-items: center; justify-content: space-between; gap: var(--es-space-10); min-height: var(--es-size-control-md); padding: 0 var(--es-space-10); border: 0; border-radius: var(--es-radius-sm); background: none; color: var(--es-text); font: inherit; text-align: left; cursor: pointer; }
+.realm-list button:hover, .realm-list button:focus-visible { background: var(--es-surface); outline: none; }
+.realm-list button[aria-selected="true"] { color: var(--es-accent-2); }
+
+/* 0.11.1: season cards on a character page, the dashboard's per-version group headers, a member's own faction. */
+.season-card { min-width: 0; }
+.season-kv { align-items: center; }
+.season-val { flex-wrap: wrap; justify-content: flex-end; }
+.list-group-h { background: var(--es-sunken); color: var(--es-text-2); justify-content: space-between; }
+.faction-own { margin-left: var(--es-space-8); font-size: var(--es-fs-11); padding: var(--es-space-2) var(--es-space-6); }
 /* The Transmog section's preview chips (most collected slots). */
 .tm-slot { display: inline-flex; align-items: center; gap: var(--es-space-6); }
 .tm-slot b { margin-left: var(--es-space-2); }

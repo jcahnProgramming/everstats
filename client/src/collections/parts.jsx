@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 import { Icon } from '../chrome/Icon.jsx';
 import { formatDate, formatNumber, timeAgo } from '../format.js';
 import { GLYPHS } from './glyphs.js';

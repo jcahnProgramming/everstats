@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { parseGuildSlug } from '../../../server/stats/slug.js';
+import { Link, useParams } from '../scope.jsx';
+import { parseGuildAddress } from '../../../server/stats/slug.js';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Toggle } from '../components/Controls.jsx';
@@ -43,7 +43,7 @@ function statusOf(b) {
 
 export function ManageBadgesPage() {
   const { slug: raw } = useParams();
-  const slug = parseGuildSlug(raw);
+  const slug = parseGuildAddress(raw);
   const session = useSession();
   const toast = useToasts();
   const [data, setData] = useState(null);

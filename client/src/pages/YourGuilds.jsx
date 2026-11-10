@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Sortable } from '../components/Sortable.jsx';
@@ -76,7 +76,7 @@ function GuildCard({ g, onUnpin, onHide }) {
     <article className="panel yg-card stack gap-12" aria-label={`${g.name}`}>
       <div className="yg-col-id">
         <div className="yg-head">
-          <Link className="h3 yg-name" to={`/g/${encodeURIComponent(g.slug)}`} draggable={false}>&lt;{g.name}&gt;</Link>
+          <Link className="h3 yg-name" scope={g.version} to={`/g/${encodeURIComponent(g.slug)}`} draggable={false}>&lt;{g.name}&gt;</Link>
           {g.badge && <span className="yg-badge" data-no-drag><GuildPill badge={g.badge} small ribbon={false} /></span>}
         </div>
         <span className="t2 small">{tag}{tag ? ' · ' : ''}{formatNumber(g.tracked)} tracked member{g.tracked === 1 ? '' : 's'}{g.roster ? ` of ${formatNumber(g.roster)}` : ''}</span>
@@ -100,7 +100,7 @@ function GuildCard({ g, onUnpin, onHide }) {
       <div className="row gap-12 wrap-row small yg-actions">
         {g.own ? <span className="tag">Your character’s guild</span> : <span className="tag gold">Pinned</span>}
         <span className="spacer" />
-        {g.manage && <Link to={`/g/${encodeURIComponent(g.slug)}/manage/badges`} draggable={false}>Manage</Link>}
+        {g.manage && <Link scope={g.version} to={`/g/${encodeURIComponent(g.slug)}/manage/badges`} draggable={false}>Manage</Link>}
         {g.own ? <button type="button" className="linklike" onClick={onHide}>Hide</button> : <button type="button" className="linklike" onClick={onUnpin}><Icon name="close" size="sm" />Unpin</button>}
       </div>
     </article>

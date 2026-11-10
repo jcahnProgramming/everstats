@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Button, Field } from '../components/Controls.jsx';

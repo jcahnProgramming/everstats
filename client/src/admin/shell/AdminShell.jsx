@@ -10,6 +10,7 @@ import { fullTitle } from '../../../../server/core/pageTitles.js';
 import { NAV, navActive, pageFor } from './nav.js';
 import { RefreshProvider, ago, useRefresh, useRefreshState } from './refresh.jsx';
 import { ShellInfoProvider, useScope, useShellInfo } from './scope.jsx';
+import { VersionMenu } from '../../components/VersionMenu.jsx';
 
 /**
  * The v5 admin shell (design/v5-admin components/shell.md): a left sidebar (collapsible to an icon rail; a slide-in menu
@@ -274,10 +275,6 @@ function useOutside(ref, open, close) {
 function VersionSwitcher({ global }) {
   const info = useShellInfo();
   const { version, region, versionName, setScope } = useScope();
-  const [open, setOpen] = useState(false);
-  const box = useRef(null);
-  const close = useCallback(() => setOpen(false), []);
-  useOutside(box, open, close);
   if (global) {
     return (
       <div className="anchor vs">
@@ -285,26 +282,18 @@ function VersionSwitcher({ global }) {
       </div>
     );
   }
+  // 0.11.1: the menu itself is the shared component the public header uses too (components/VersionMenu.jsx).
   return (
-    <div className="anchor vs" ref={box}>
-      <button type="button" className="vswitch" title={`${versionName} · ${region.toUpperCase()}`} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <Icon name="globe" /><span>{versionName}</span><span className="reg">{region.toUpperCase()}</span><Icon name="chevron-down" />
-      </button>
-      {open && (
-        <div className="vmenu panel">
-          <span className="grp" id="vs-versions">Game version</span>
-          <div role="listbox" aria-labelledby="vs-versions">
-            {info.versions.map((v) => (
-              <button key={v.id} type="button" role="option" aria-selected={v.id === version} className={`vopt${v.enabled ? '' : ' is-off'}`}
-                onClick={() => {
-                  setScope({ version: v.id });
-                  setOpen(false);
-                }}>
-                <span>{v.name}</span>
-                {v.enabled ? <span className="chip ok"><Icon name="check-circle" />On</span> : <span className="chip off"><Icon name="no-coverage" />Off · admin only</span>}
-              </button>
-            ))}
-          </div>
+    <VersionMenu
+      wrapClass="anchor vs"
+      current={{ id: version, name: versionName }}
+      sub={region.toUpperCase()}
+      title={`${versionName} · ${region.toUpperCase()}`}
+      versions={info.versions.map((v) => ({ id: v.id, name: v.name, off: !v.enabled }))}
+      onPick={(id) => setScope({ version: id })}
+      optionState={(v) => (v.off ? <span className="chip off"><Icon name="no-coverage" />Off · admin only</span> : <span className="chip ok"><Icon name="check-circle" />On</span>)}
+      after={(close) => (
+        <>
           <span className="grp" id="vs-regions">Region</span>
           <div className="regs" role="listbox" aria-labelledby="vs-regions">
             {info.regions.map((g) => (
@@ -312,16 +301,16 @@ function VersionSwitcher({ global }) {
                 title={g.enabled ? g.name : `${g.name}: off · admin only`}
                 onClick={() => {
                   setScope({ region: g.id });
-                  setOpen(false);
+                  close();
                 }}>
                 {g.id.toUpperCase()}{g.enabled ? '' : ' · off'}
               </button>
             ))}
           </div>
           <span className="muted xsmall vs-note">This changes what you’re looking at. Whether a version runs is a switch on Features.</span>
-        </div>
+        </>
       )}
-    </div>
+    />
   );
 }
 

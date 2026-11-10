@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Segmented, Toggle } from '../components/Controls.jsx';

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { parseGuildSlug } from '../../../server/stats/slug.js';
+import { useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from '../scope.jsx';
+import { parseGuildAddress } from '../../../server/stats/slug.js';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { EmptyState } from '../components/EmptyState.jsx';
@@ -110,7 +111,7 @@ function GuildSearch() {
   const submit = (e) => {
     e.preventDefault();
     if (res?.guilds?.length) return navigate(`/g/${encodeURIComponent(res.guilds[0].slug)}`, { state: { via: 'search' } });
-    const slug = parseGuildSlug(q.trim().replace(/\s+/g, '-'));
+    const slug = parseGuildAddress(q.trim().replace(/\s+/g, '-'));
     if (slug) navigate(`/g/${encodeURIComponent(slug)}`, { state: { via: 'search' } });
   };
   return (

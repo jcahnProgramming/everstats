@@ -2,8 +2,11 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { config, scopeSql } from '../core/config.js';
+import { versionById } from '../core/gameVersions.js';
+import { liveScope, pathSlug, runInScope } from '../core/scope.js';
+import { joinRealmKeys, parseVersionPrefix } from '../core/versionRoutes.js';
+import { characterKey, findGuild, guildKey } from '../characters/find.js';
 import { ENVIRONMENT } from '../core/environment.js';
-import { parseGuildSlug, parseSlug } from '../stats/slug.js';
 import { loadCatalog } from '../stats/catalog.js';
 import { cardsOn, ogPath } from './routes.js';
 import { LAYOUT_VERSION } from './render.js';
@@ -35,20 +38,24 @@ async function version(db, kind, id) {
 }
 
 async function characterMeta(db, slug, kind) {
-  const p = parseSlug(slug);
+  const p = characterKey(slug);
   if (!p) return null;
-  const row = await db.one(
-    `SELECT c.id, c.slug, c.name, c.surname, c.level, c.race, c.class, c.hidden, c.missing_since, c.profile_state, c.stats_fetched_at, r.name AS ruleset, t.letter
-       FROM characters c LEFT JOIN rulesets r ON r.id = c.ruleset_id LEFT JOIN character_tiers t ON t.character_id = c.id WHERE c.slug = $1 AND ${scopeSql('c')}`,
-    [p.slug],
+  const found = await db.one(
+    `SELECT c.id, c.slug, c.realm_slug, c.name, c.surname, c.level, c.race, c.class, c.hidden, c.missing_since, c.profile_state, c.stats_fetched_at, r.name AS ruleset, t.letter
+       FROM characters c LEFT JOIN rulesets r ON r.id = c.ruleset_id LEFT JOIN character_tiers t ON t.character_id = c.id
+      WHERE c.slug = $1 AND coalesce(c.realm_slug, '') = coalesce($2, '') AND ${scopeSql('c')}`,
+    [p.slug, p.realmSlug],
   );
-  if (!row || row.hidden || row.missing_since || row.profile_state !== 'ok') return null;
+  if (!found || found.hidden || found.missing_since || found.profile_state !== 'ok') return null;
+  // `slug` as URLs write it; a realm version's characters have no surname (the name alone).
+  const row = { ...found, slug: pathSlug(found), surname: found.surname ?? '' };
+  row.full = `${row.name} ${row.surname}`.trim();
   const line = [row.level !== null ? `Level ${row.level}` : null, row.race, row.class].filter(Boolean).join(' ');
   if (kind === 'collections') {
     const has = (await db.one('SELECT collections_fetched_at FROM characters WHERE id = $1', [row.id]))?.collections_fetched_at;
-    return { title: `${row.name} ${row.surname}: collections`, description: 'Mounts, pets, toys, titles, achievements, reputations and the transmog tracker on Everstats.', image: has ? `${ogPath(kind, { c: row.slug })}?v=${await version(db, kind, row.id)}` : null };
+    return { title: `${row.full}: collections`, description: 'Mounts, pets, toys, titles, achievements, reputations and the transmog tracker on Everstats.', image: has ? `${ogPath(kind, { c: row.slug })}?v=${await version(db, kind, row.id)}` : null };
   }
-  const title = kind === 'tier' ? `${row.name} ${row.surname}: ${row.letter ? `tier ${row.letter}` : 'Unranked'}${row.ruleset ? ` on ${row.ruleset}` : ''}` : `${row.name} ${row.surname}`;
+  const title = kind === 'tier' ? `${row.full}: ${row.letter ? `tier ${row.letter}` : 'Unranked'}${row.ruleset ? ` on ${row.ruleset}` : ''}` : row.full;
   const description = kind === 'tier'
     ? `The overall tier and every category letter on Everstats${row.ruleset ? `, graded against ${row.ruleset}` : ''}.`
     : `${line}${row.ruleset ? ` on ${row.ruleset}` : ''}${row.letter ? `, tier ${row.letter}` : ''}. Statistics, ranks and gear on Everstats.`;
@@ -57,10 +64,11 @@ async function characterMeta(db, slug, kind) {
 }
 
 async function guildMeta(db, slug) {
-  const s = parseGuildSlug(slug);
+  const s = guildKey(slug);
   if (!s) return null;
-  const g = await db.one(`SELECT g.id, g.slug, g.name, r.name AS ruleset FROM guilds g LEFT JOIN rulesets r ON r.id = g.ruleset_id WHERE g.slug = $1 AND ${scopeSql('g')} ORDER BY g.updated_at DESC LIMIT 1`, [s]);
-  if (!g) return null;
+  const found = await findGuild(db, s, { cols: 'id, slug, realm_slug, name, ruleset_id' });
+  if (!found) return null;
+  const g = { ...found, slug: pathSlug(found), ruleset: found.ruleset_id !== null ? (await db.one('SELECT name FROM rulesets WHERE id = $1', [found.ruleset_id]))?.name ?? null : null };
   return {
     title: `<${g.name}>${g.ruleset ? ` on ${g.ruleset}` : ''}`,
     description: 'Roster, totals, guild badges and guild boards on Everstats.',
@@ -77,15 +85,15 @@ async function boardMeta(db, { rulesetId, statisticId, guilds, query }) {
   const period = ['week', 'rolling'].includes(query.period) ? query.period : 'overall';
   const p = { rulesetId, statisticId, period, mode: query.mode === 'average' ? 'average' : 'total' };
   if (guilds) {
-    const g = parseGuildSlug(String(query.g ?? ''));
+    const g = guildKey(String(query.g ?? ''))?.path ?? null;
     return { title: `${stat.name}: guild board on ${rs.name}`, description: `Every guild on ${rs.name} ranked by ${stat.name}, on Everstats.`, image: g ? `${ogPath('board', { ...p, g })}&v=${await version(db, 'board', null)}` : null };
   }
-  const c = query.c !== undefined ? parseSlug(String(query.c)) : null;
+  const c = query.c !== undefined ? characterKey(String(query.c)) : null;
   if (c) {
-    const row = await db.one(`SELECT hidden FROM characters WHERE slug = $1 AND ${scopeSql()}`, [c.slug]);
+    const row = await db.one(`SELECT hidden FROM characters WHERE slug = $1 AND coalesce(realm_slug, '') = coalesce($2, '') AND ${scopeSql()}`, [c.slug, c.realmSlug]);
     if (!row || row.hidden) return { title: `${stat.name} on ${rs.name}`, description: SITE.description, image: null };
   }
-  const path = ogPath('board', { ...p, c: c?.slug ?? null });
+  const path = ogPath('board', { ...p, c: c?.path ?? null });
   return { title: `${stat.name} on ${rs.name}`, description: `The ${stat.name} leaderboard on ${rs.name}, on Everstats.`, image: `${path}${path.includes('?') ? '&' : '?'}v=${await version(db, 'board', null)}` };
 }
 
@@ -94,7 +102,21 @@ async function boardMeta(db, { rulesetId, statisticId, guilds, query }) {
  * 0.10.3: with "Share cards and link previews" switched off (features/registry.js) a page keeps its title and words
  * but has NO image: the plain Everstats link preview. A collections page also loses its image while Collections is off.
  */
-export async function linkPreviewFor(db, pathname, query) {
+export async function linkPreviewFor(db, fullPath, query) {
+  // 0.11.1: a page under /{version}/{region}/… is previewed in that scope (core/scope.js): the same rules, that
+  // version's character, guild or board, and image addresses under the same prefix. A realm version's two-segment
+  // addresses are joined first (core/versionRoutes.js), so the patterns below match one key segment as always.
+  const at = parseVersionPrefix(fullPath);
+  const scope = at ? liveScope(at.version, at.region) : null;
+  if (at && !scope) return SITE;
+  if (scope) {
+    const rest = versionById(scope.version).realms ? joinRealmKeys(at.rest, ['/c', '/g']) : at.rest;
+    return runInScope(scope, () => previewIn(db, rest, query));
+  }
+  return previewIn(db, fullPath, query);
+}
+
+async function previewIn(db, pathname, query) {
   const p = await previewOf(db, pathname, query);
   if (!p.image) return p;
   try {

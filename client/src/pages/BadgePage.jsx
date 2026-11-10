@@ -1,6 +1,6 @@
 import { usePageTitle } from '../pageTitle.js';
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from '../scope.jsx';
 import { api } from '../api.js';
 import { BadgeIcon, BadgePill } from '../badges/Badges.jsx';
 import { Icon } from '../chrome/Icon.jsx';
@@ -168,7 +168,7 @@ function Status({ data }) {
     return (
       <div className="note ok small" role="status">
         <Icon name="check" />
-        <span><b>You earned this on {formatDate(mine.earnedAt)}</b>{mine.character ? <> · from <Link to={`/c/${encodeURIComponent(mine.character.slug)}`}>{mine.character.name} {mine.character.surname}</Link></> : null}. {why}</span>
+        <span><b>You earned this on {formatDate(mine.earnedAt)}</b>{mine.character ? <> · from <Link scope={mine.character.version} to={`/c/${encodeURIComponent(mine.character.slug)}`}>{mine.character.name} {mine.character.surname}</Link></> : null}. {why}</span>
       </div>
     );
   }

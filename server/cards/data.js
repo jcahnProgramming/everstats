@@ -1,6 +1,7 @@
-import { config, scopeSql } from '../core/config.js';
+import { config } from '../core/config.js';
+import { characterKey, findCharacter, findGuild, guildKey } from '../characters/find.js';
 import { getSetting } from '../admin/settings.js';
-import { parseSlug, parseGuildSlug } from '../stats/slug.js';
+import { pathSlug, scopePrefix } from '../core/scope.js';
 import { BOARD_SOURCES, boardPage, rankOn, characterRanks, boardCounts, ranksFor } from '../stats/boards.js';
 import { guildBoardPage, guildRanksFor, guildPeriodStart } from '../stats/guildBoards.js';
 import { loadCatalog } from '../stats/catalog.js';
@@ -54,9 +55,9 @@ const CREST = (() => {
 export const topPercent = (rank, of) => (rank && of ? Math.max(1, Math.ceil((rank / of) * 100)) : null);
 
 async function characterBySlug(db, slug) {
-  const parsed = parseSlug(slug);
+  const parsed = characterKey(slug);
   if (!parsed) return { status: 'not_found' };
-  const row = await db.one(`SELECT * FROM characters WHERE slug = $1 AND ${scopeSql()}`, [parsed.slug]);
+  const row = await findCharacter(db, parsed);
   if (!row) return { status: 'not_found' };
   if (row.hidden) return { status: 'hidden' };
   if (row.missing_since || row.profile_state !== 'ok') return { status: 'not_found' };
@@ -65,9 +66,9 @@ async function characterBySlug(db, slug) {
 }
 
 async function guildBySlug(db, slug) {
-  const parsed = parseGuildSlug(slug);
+  const parsed = guildKey(slug);
   if (!parsed) return { status: 'not_found' };
-  const g = await db.one(`SELECT * FROM guilds WHERE slug = $1 AND ${scopeSql()} ORDER BY updated_at DESC LIMIT 1`, [parsed.slug ?? parsed]);
+  const g = await findGuild(db, parsed);
   return g ? { status: 'ok', g } : { status: 'not_found' };
 }
 
@@ -145,7 +146,7 @@ export async function characterCard(db, { slug, options }) {
   const data = {
     theme: options.theme,
     accent: options.accent,
-    url: `${host()}/c/${row.slug}`,
+    url: `${host()}${scopePrefix()}/c/${pathSlug(row)}`,
     asof: asOf(row.stats_fetched_at),
     first: row.name,
     last: row.surname,
@@ -169,7 +170,7 @@ export async function characterCard(db, { slug, options }) {
     guildIds: [],
     title: `${row.name} ${row.surname}${data.meta ? ` · ${data.meta}` : ''}`,
     description: `${tier.letter ? `Tier ${tier.letter} (top ${topPercent(tier.rank, tier.of)}%)` : 'Unranked'} on ${data.ruleset}. Statistics, ranks and gear on Everstats, from Blizzard’s data as of ${data.asof}.`,
-    page: `/c/${row.slug}`,
+    page: `${scopePrefix()}/c/${pathSlug(row)}`,
     ownerAccountId: row.owner_account_id === null ? null : Number(row.owner_account_id),
     subjectKey: `c:${row.id}`,
   };
@@ -207,7 +208,7 @@ export async function tierCard(db, { slug, options }) {
   const data = {
     theme: options.theme,
     accent: options.accent,
-    url: `${host()}/c/${row.slug}/tier`,
+    url: `${host()}${scopePrefix()}/c/${pathSlug(row)}/tier`,
     asof: asOf(t.computedAt ?? t.gradedAt ?? row.stats_fetched_at),
     first: row.name,
     last: row.surname,
@@ -231,7 +232,7 @@ export async function tierCard(db, { slug, options }) {
     description: graded
       ? `Overall tier ${t.overall.letter}, top ${topPercent(t.overall.rank, t.overall.of)}% of ${rs} on Everstats, with a letter for every category.`
       : `Not graded yet on ${rs}. ${t.reason?.text ?? t.overall?.reason?.text ?? ''}`.trim(),
-    page: `/c/${row.slug}`,
+    page: `${scopePrefix()}/c/${pathSlug(row)}`,
     ownerAccountId: row.owner_account_id === null ? null : Number(row.owner_account_id),
     subjectKey: `t:${row.id}`,
   };
@@ -277,7 +278,7 @@ export async function guildCard(db, { slug, options }) {
   const data = {
     theme: options.theme,
     accent: options.accent,
-    url: `${host()}/g/${g.slug}`,
+    url: `${host()}${scopePrefix()}/g/${pathSlug(g)}`,
     asof: asOf(g.totals_built_at ?? g.profile_fetched_at ?? g.updated_at),
     name: g.name,
     faction: g.faction ?? '',
@@ -300,7 +301,7 @@ export async function guildCard(db, { slug, options }) {
     guildIds: [Number(g.id)],
     title: `<${g.name}> on ${rs}`,
     description: `${data.members} on Everstats${best ? `, #${best.rank} on the ${best.name} guild board` : ''}. Roster, totals and guild boards from Blizzard’s data.`,
-    page: `/g/${g.slug}`,
+    page: `${scopePrefix()}/g/${pathSlug(g)}`,
     guildId: Number(g.id),
     subjectKey: `g:${g.id}`,
   };
@@ -362,7 +363,7 @@ export async function boardCard(db, { rulesetId, statisticId, period, c: cSlug =
     const data = {
       theme: options.theme,
       accent: options.accent,
-      url: `${host()}/leaderboards/${rulesetId}/${statisticId}`,
+      url: `${host()}${scopePrefix()}/leaderboards/${rulesetId}/${statisticId}`,
       asof: asOf(row.stats_fetched_at),
       rank: fmt(mine.rank),
       rank_cls: rankCls(mine.rank),
@@ -423,7 +424,7 @@ export async function boardCard(db, { rulesetId, statisticId, period, c: cSlug =
     const data = {
       theme: options.theme,
       accent: options.accent,
-      url: `${host()}/leaderboards/guilds/${rulesetId}/${statisticId}`,
+      url: `${host()}${scopePrefix()}/leaderboards/guilds/${rulesetId}/${statisticId}`,
       asof: asOf(own.computed_at),
       rank: fmt(rank),
       rank_cls: rankCls(rank),
@@ -481,7 +482,7 @@ export async function collectionsCard(db, { slug, options }) {
   const data = {
     theme: options.theme,
     accent: options.accent,
-    url: host() + '/c/' + row.slug + '/collections',
+    url: host() + scopePrefix() + '/c/' + pathSlug(row) + '/collections',
     asof: asOf(row.collections_fetched_at),
     first: row.name,
     last: row.surname,
@@ -504,7 +505,7 @@ export async function collectionsCard(db, { slug, options }) {
     guildIds: [],
     title: row.name + ' ' + row.surname + ' · Collections',
     description: counts.slice(0, 3).map((k) => k.value + ' ' + k.label.toLowerCase()).join(', ') + ' on Everstats, from Blizzard’s data as of ' + data.asof + '.',
-    page: '/c/' + row.slug + '/collections',
+    page: scopePrefix() + '/c/' + pathSlug(row) + '/collections',
     ownerAccountId: row.owner_account_id === null ? null : Number(row.owner_account_id),
     subjectKey: 'k:' + row.id,
   };

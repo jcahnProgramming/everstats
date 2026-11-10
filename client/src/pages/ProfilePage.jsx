@@ -1,7 +1,7 @@
 import { usePageTitle } from '../pageTitle.js';
 import { displayName } from '../../../server/stats/names.js';
 import { useEffect, useState } from 'react';
-import { Link, Navigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useParams } from '../scope.jsx';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { EmptyState, Provenance } from '../components/EmptyState.jsx';
@@ -112,7 +112,7 @@ export function ProfilePage() {
               <div className="profile-tags" aria-label="Main ruleset, faction and guilds">
                 {p.main?.ruleset && <span className="tag">Main · {p.main.ruleset}</span>}
                 {p.main?.faction && <span className="tag">{p.main.faction}</span>}
-                {guilds.slice(0, 3).map((g) => <Link key={g.slug} className="tag gold" to={`/g/${encodeURIComponent(g.slug)}`}>{g.name}</Link>)}
+                {guilds.slice(0, 3).map((g) => <Link key={g.slug} className="tag gold" scope={g.version} to={`/g/${encodeURIComponent(g.slug)}`}>{g.name}</Link>)}
               </div>
             )}
             {about?.links?.length > 0 && <SocialLinks links={about.links} />}
@@ -169,7 +169,7 @@ function PinsSection({ section }) {
     <section className="panel pad-20 stack gap-14" aria-labelledby="pins-h">
       <div className="row gap-10 pins-head">
         <h2 className="eyebrow flex-fill" id="pins-h">Pinned statistics</h2>
-        <span className="muted xsmall">for <Link to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} {c.surname}</Link>{c.ruleset ? ` · ${c.ruleset}` : ''}</span>
+        <span className="muted xsmall">for <Link scope={c.version} to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} {c.surname}</Link>{c.ruleset ? ` · ${c.ruleset}` : ''}</span>
       </div>
       <div className="grid-auto col-sm gap-14">
         {section.cards.map((p) => (
@@ -201,11 +201,14 @@ function FeaturedSection({ section }) {
           : c.renderHidden
           ? <RenderFrame><span className="h3">Render hidden by its owner</span></RenderFrame>
           : <RenderFrame src={c.render} alt={`${c.name} ${c.surname}, as Blizzard renders them`} pending={!c.render} />}
-        <div className="stack gap-8">
-          <Link className="h-display char-name" to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link>
-          <span className="t2">{[c.level ? `Level ${c.level}` : null, c.race, c.class, c.ruleset?.name].filter(Boolean).join(' · ')}</span>
-          <TierBrief brief={c.tierBrief} slug={c.slug} />
-          <Link className="btn sm self-start" to={`/c/${encodeURIComponent(c.slug)}`}>Character page</Link>
+        <div className="stack gap-8 fit-name-box">
+          {/* 0.11.1: the name never breaks inside a word. It is sized from its LONGEST word (--name-len, through the
+              CSSOM) against this column's width, so a 12-letter name shrinks to fit one line; a name and surname may
+              still wrap between the two words. (At 1568 px a 12-letter name used to break mid-word.) */}
+          <Link className="h-display char-name fit-name" style={{ '--name-len': Math.max(4, ...`${c.name ?? ''} ${c.surname ?? ''}`.split(/\s+/).map((w) => w.length)) }} scope={c.version} to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link>
+          <span className="t2">{[c.level ? `Level ${c.level}` : null, c.race, c.class, c.realm, c.ruleset?.name].filter(Boolean).join(' · ')}</span>
+          <TierBrief brief={c.tierBrief} slug={c.slug} scope={c.version} />
+          <Link className="btn sm self-start" scope={c.version} to={`/c/${encodeURIComponent(c.slug)}`}>Character page</Link>
           <Provenance source="Blizzard Entertainment’s game data API" fetchedAt={c.fetchedAt} />
         </div>
         <FeaturedExtras c={c} />
@@ -258,7 +261,7 @@ function CharactersSection({ section }) {
           <div key={c.slug} className="panel">
             <TierBadge letter={c.tier ?? null} size="md" />
             <span className="stack grow-col gap-2">
-              <b className="ellipsis"><Link to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link></b>
+              <b className="ellipsis"><Link scope={c.version} to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link></b>
               <span className="muted xsmall">{[c.level ? `Level ${c.level}` : null, c.race, c.class, c.ruleset?.name].filter(Boolean).join(' · ')}</span>
             </span>
           </div>
@@ -276,7 +279,7 @@ function GuildsSection({ section }) {
         {section.guilds.map((g) => (
           <div key={g.slug} className="listrow">
             <span className="stack grow-col">
-              <b><Link to={`/g/${encodeURIComponent(g.slug)}`}>{g.name}</Link></b>
+              <b><Link scope={g.version} to={`/g/${encodeURIComponent(g.slug)}`}>{g.name}</Link></b>
               <span className="muted xsmall">{[g.ruleset, g.characters.join(', ')].filter(Boolean).join(' · ')}</span>
             </span>
           </div>

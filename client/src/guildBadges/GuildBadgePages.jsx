@@ -1,6 +1,6 @@
 import { usePageTitle } from '../pageTitle.js';
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from '../scope.jsx';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { EmptyState } from '../components/EmptyState.jsx';

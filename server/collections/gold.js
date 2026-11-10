@@ -158,7 +158,7 @@ export async function goldBoard(db, { rulesetId, field, cursor = null, limit: ra
   }
   const valid = Array.isArray(after) && Number.isFinite(after[0]) && Number.isSafeInteger(after[1]);
   const rows = await db.query(
-    `SELECT c.id, c.slug, c.name, c.surname, c.level, c.class, c.race, c.faction, g.${f.column} AS value, g.fetched_at
+    `SELECT c.id, CASE WHEN c.realm_slug IS NULL THEN c.slug ELSE c.realm_slug || '/' || c.slug END AS slug, c.name, c.surname, c.level, c.class, c.race, c.faction, g.${f.column} AS value, g.fetched_at
        FROM character_gold g JOIN characters c ON c.id = g.character_id JOIN character_gold_public p ON p.character_id = c.id
       WHERE ${BOARD_WHERE} AND g.${f.column} > 0
         AND ($2::float8 IS NULL OR g.${f.column} < $2 OR (g.${f.column} = $2 AND c.id > $3))

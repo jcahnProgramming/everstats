@@ -1,7 +1,8 @@
 import { usePageTitle } from '../pageTitle.js';
 import { displayName } from '../../../server/stats/names.js';
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from '../scope.jsx';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { EmptyState, Provenance } from '../components/EmptyState.jsx';
@@ -36,6 +37,15 @@ export function StatLeaderboardPage() {
   const navigate = useNavigate();
   const askedPeriod = params.get('period') === 'month' ? 'rolling' : params.get('period'); // an old "monthly" link
   const period = KNOWN.includes(askedPeriod) ? askedPeriod : 'overall';
+  // 0.11.1: a one-pool version's realm-type filter (?realmType=RP); the server checks it against Blizzard's realm types.
+  const realmType = params.get('realmType');
+  const rt = realmType ? `&realmType=${encodeURIComponent(realmType)}` : '';
+  const query = (p = period) => {
+    const q = new URLSearchParams();
+    if (p !== 'overall') q.set('period', p);
+    if (realmType) q.set('realmType', realmType);
+    return q.size ? `?${q}` : '';
+  };
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [more, setMore] = useState({ rows: [], next: null, busy: false });
@@ -45,7 +55,7 @@ export function StatLeaderboardPage() {
     let live = true;
     setData(null);
     setError(null);
-    api(`/api/leaderboards/${encodeURIComponent(ruleset)}/${encodeURIComponent(statistic)}?period=${period}`).then((d) => {
+    api(`/api/leaderboards/${encodeURIComponent(ruleset)}/${encodeURIComponent(statistic)}?period=${period}${rt}`).then((d) => {
       if (!live) return;
       setData(d);
       setMore({ rows: [], next: d.next, busy: false });
@@ -53,17 +63,17 @@ export function StatLeaderboardPage() {
     return () => {
       live = false;
     };
-  }, [ruleset, statistic, period]);
+  }, [ruleset, statistic, period, realmType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadMore = useCallback(async () => {
     setMore((m) => ({ ...m, busy: true }));
     try {
-      const d = await api(`/api/leaderboards/${encodeURIComponent(ruleset)}/${encodeURIComponent(statistic)}?period=${period}&cursor=${encodeURIComponent(more.next)}`);
+      const d = await api(`/api/leaderboards/${encodeURIComponent(ruleset)}/${encodeURIComponent(statistic)}?period=${period}${rt}&cursor=${encodeURIComponent(more.next)}`);
       setMore((m) => ({ rows: [...m.rows, ...d.rows], next: d.next, busy: false }));
     } catch {
       setMore((m) => ({ ...m, busy: false }));
     }
-  }, [ruleset, statistic, period, more.next]);
+  }, [ruleset, statistic, period, more.next, rt]);
 
   if (error) {
     if (error.status === 404) {
@@ -95,6 +105,12 @@ export function StatLeaderboardPage() {
   }[s.tierRole] ?? 'Doesn’t count toward a tier yet: not reviewed';
   const p = period === 'overall' ? null : data.periods[period];
   const rollingDays = data.periods.rolling?.days;
+  const sc = data.scope ?? null;
+  const filter = data.filter?.realmType ?? null;
+  const filterName = filter ? data.realmTypes?.find((t) => t.key === filter)?.name ?? filter : null;
+  // Where the board ranks: the pool, or (filtered) one realm type inside it.
+  const where = filterName ? `${filterName} realms` : data.ruleset.name;
+  const setFilter = (id) => setParams(Object.fromEntries(Object.entries({ period: period === 'overall' ? null : period, realmType: id || null }).filter(([, v]) => v)));
 
   return (
     <div className="wrap page-pad stack gap-24">
@@ -106,13 +122,19 @@ export function StatLeaderboardPage() {
           </nav>
           <h1 className="h1">{displayName(s.name) ?? 'Statistic no longer available'}</h1>
           <span className="t2 small">{grading}.{s.named ? ' Ranked by the number; the name beside it is what this character did most.' : ''}</span>
-          <CollectionBoardNote collection={data.collection} />
+          {/* 0.11.1: on a version whose collections belong to the Battle.net account, said plainly on every such board. */}
+          {sc?.accountWide && data.collection && data.collection.how ? (
+            <p className="boardnote small t2"><span>Account-wide on {sc.short}: this collection belongs to the whole Battle.net account there, so a player’s alts share this number. This board ranks characters, and characters with the same number share a rank.</span></p>
+          ) : <CollectionBoardNote collection={data.collection} />}
         </div>
-        <RulesetSwitcher rulesets={data.rulesets} value={data.ruleset.id} onChange={(id) => navigate(`/leaderboards/${id}/${s.id}${period === 'overall' ? '' : `?period=${period}`}`)} />
+        <RulesetSwitcher rulesets={data.rulesets} value={data.ruleset.id} onChange={(id) => navigate(`/leaderboards/${id}/${s.id}${query()}`)} />
       </div>
 
       <div className="row gap-12">
-        <Segmented label="Period" options={periodsFor(data.periods.rolling?.days)} value={period} onChange={(id) => setParams(id === 'overall' ? {} : { period: id })} />
+        <Segmented label="Period" options={periodsFor(data.periods.rolling?.days)} value={period} onChange={(id) => setParams(Object.fromEntries(Object.entries({ period: id === 'overall' ? null : id, realmType }).filter(([, v]) => v)))} />
+        {data.realmTypes?.length > 1 && (
+          <Segmented label="Realm type" options={[{ id: '', label: 'All realms' }, ...data.realmTypes.map((t) => ({ id: t.key, label: `${t.name} realms` }))]} value={filter ?? ''} onChange={setFilter} />
+        )}
         {period === 'week' && <span className="muted xsmall">Resets Tuesday 15:00 UTC (the US weekly reset) · since {formatDateTime(p.start)}</span>}
         {period === 'rolling' && <span className="muted xsmall">Gains over the last {p.days} days: each character’s oldest kept snapshot to now.</span>}
       </div>
@@ -120,8 +142,8 @@ export function StatLeaderboardPage() {
       <div className="split">
         <section className="panel clip stack main" aria-labelledby="board-h">
           <div className="row board-head">
-            <h2 className="h3" id="board-h">{data.collecting ? 'Collecting data' : `${formatNumber(data.nonzero)} with any · ${formatNumber(data.population)} tracked on ${data.ruleset.name}`}</h2>
-            <span className="tag">{data.ruleset.name}</span>
+            <h2 className="h3" id="board-h">{data.collecting ? 'Collecting data' : `${formatNumber(data.nonzero)} with any · ${formatNumber(data.population)} tracked on ${where}`}</h2>
+            <span className="tag">{where}</span>
           </div>
           <div className="pad-16 stack gap-14">
             <p className="muted xsmall">Beta: boards are filling up as players join.{period === 'week' ? ' A character’s gain counts only from its first snapshot this week: someone tracked since Thursday shows what they gained since Thursday.' : ''}{period === 'rolling' ? ` Blizzard’s rules let Everstats keep game data for at most 30 days; it keeps ${rollingDays}, so this is the longest stretch it can rank.` : ''}</p>
@@ -131,11 +153,11 @@ export function StatLeaderboardPage() {
               </EmptyState>
             ) : data.population === 0 ? (
               <EmptyState kind="nodata" title="Nobody tracked on this ruleset yet">
-                <span>The board fills in as characters on {data.ruleset.name} are looked up or sign in.</span>
+                <span>The board fills in as characters on {where} are looked up or sign in.</span>
               </EmptyState>
             ) : data.nonzero === 0 ? (
               <EmptyState kind="nodata" title={period === 'overall' ? 'Nobody tracked has any yet' : period === 'week' ? 'Nobody has gained any this week' : `Nobody has gained any in the last ${rollingDays} days`}>
-                <span>All {formatNumber(data.population)} tracked characters on {data.ruleset.name} are at 0, and a zero isn't ranked. The board fills in as soon as someone {period === 'overall' ? 'has one' : 'gains one'}.</span>
+                <span>All {formatNumber(data.population)} tracked characters on {where} are at 0, and a zero isn't ranked. The board fills in as soon as someone {period === 'overall' ? 'has one' : 'gains one'}.</span>
               </EmptyState>
             ) : data.tied ? (
               <EmptyState kind="tied" title={`All ${formatNumber(data.nonzero)} with any are at ${formatNumber(data.tiedValue)}`}>
@@ -145,7 +167,7 @@ export function StatLeaderboardPage() {
               <>
                 <RankedTable
                   valueLabel={valueLabel}
-                  rows={rows.map((r) => ({ ...r, slug: r.slug ?? `${r.name}-${r.surname}`.toLowerCase(), detail: [r.level ? `Level ${r.level}` : null, r.race, r.class].filter(Boolean).join(' · '), value: r.value, valueText: r.text }))}
+                  rows={rows.map((r) => ({ ...r, slug: r.slug ?? `${r.name}-${r.surname}`.toLowerCase(), detail: [r.level ? `Level ${r.level}` : null, r.race, r.class, r.realm].filter(Boolean).join(' · '), value: r.value, valueText: r.text }))}
                   showTier={false}
                   showMove={false}
                   share={(r) => ({ to: `/leaderboards/${data.ruleset.id}/${s.id}/share?${new URLSearchParams({ c: r.slug, ...(period === 'overall' ? {} : { period }) })}`, label: `Share #${r.rank} ${s.name ?? ''}`.trim() })}
@@ -179,7 +201,7 @@ export function StatLeaderboardPage() {
           <section className="panel pad-20 stack gap-10" aria-labelledby="about-h">
             <h2 className="h3" id="about-h">About this board</h2>
             <div className="kv"><span className="t2">Category</span><span>{s.category}</span></div>
-            <div className="kv"><span className="t2">Ruleset</span><span>{data.ruleset.name}</span></div>
+            <div className="kv"><span className="t2">{sc?.onePool ? 'Ranked among' : 'Ruleset'}</span><span>{where}</span></div>
             <div className="kv"><span className="t2">Ties</span><span>share a rank</span></div>
             {data.collection && <div className="kv"><span className="t2">Scope</span><span>{scopeText(data.collection)}</span></div>}
             {!data.collecting && <div className="kv"><span className="t2">Above zero</span><span>{formatNumber(data.nonzero)}</span></div>}

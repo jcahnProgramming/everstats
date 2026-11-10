@@ -1,8 +1,9 @@
 import { usePageTitle } from '../pageTitle.js';
 import { displayName } from '../../../server/stats/names.js';
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { parseSlug } from '../../../server/stats/slug.js';
+import { Link, useParams, useScope } from '../scope.jsx';
+import { parseSlug, realmCharacter } from '../../../server/stats/slug.js';
+import { fillStyle } from '../components/fillGrid.js';
 import { api } from '../api.js';
 import { viaSearchOnce } from '../activity.js';
 import { Icon } from '../chrome/Icon.jsx';
@@ -38,13 +39,22 @@ import { useFeature } from '../features.js';
  *     has none. No Progress chart yet; the Refresh button is the page reload (a lookup refreshes).
  *   - Gear slots are split in two columns as Blizzard lists them (no fixed slot list: whatever the API returns).
  */
+/** 0.11.1: a character's address on a version with realms is "realm/name" (scope.jsx useParams joins the two segments). */
+function parseRealmAddress(slug) {
+  const i = String(slug ?? '').indexOf('/');
+  const r = i > 0 ? realmCharacter(slug.slice(0, i), slug.slice(i + 1)) : null;
+  return r?.ok ? { slug: `${r.realmSlug}/${r.slug}`, name: r.name, surname: '', realm: r.realmSlug } : null;
+}
+
 export function CharacterPage({ tab = 'stats' }) {
   const { slug, screen = '' } = useParams();
-  const parsed = parseSlug(slug);
+  const scope = useScope();
+  const realms = Boolean(scope.meta?.realms);
+  const parsed = realms ? parseRealmAddress(slug) : parseSlug(slug);
   const [result, setResult] = useState(null); // null = waiting · body · { error }
   // 0.9.2: the tab title once the character is in (server/core/pageTitles.js gives the generic one until then).
   const ch = result?.status === 'ok' ? result.character : null;
-  usePageTitle(ch ? `${ch.name} ${ch.surname}${tab === 'collections' ? ': collections' : ''}` : null);
+  usePageTitle(ch ? `${`${ch.name} ${ch.surname}`.trim()}${tab === 'collections' ? ': collections' : ''}` : null);
 
   const load = useCallback(async () => {
     if (!parsed) return;
@@ -66,9 +76,15 @@ export function CharacterPage({ tab = 'stats' }) {
     return (
       <div className="wrap page-pad stack gap-24">
         <h1 className="h1">That isn't a character address</h1>
-        <EmptyState kind="nocoverage" title="Characters are looked up by name and surname">
-          <span>A character's address is <span className="mono">/c/name-surname</span>, and this one doesn't have that shape. Use the search at the top of the page, or <Link to="/">the one on the home page</Link>.</span>
-        </EmptyState>
+        {realms ? (
+          <EmptyState kind="nocoverage" title="Characters are looked up by name and realm">
+            <span>A {scope.meta.name} character's address is <span className="mono">{scope.prefix}/c/realm/name</span>, and this one doesn't have that shape. Use the search at the top of the page, or <Link to="/">the one on the home page</Link>.</span>
+          </EmptyState>
+        ) : (
+          <EmptyState kind="nocoverage" title="Characters are looked up by name and surname">
+            <span>A character's address is <span className="mono">/c/name-surname</span>, and this one doesn't have that shape. Use the search at the top of the page, or <Link to="/">the one on the home page</Link>.</span>
+          </EmptyState>
+        )}
       </div>
     );
   }
@@ -87,7 +103,7 @@ export function CharacterPage({ tab = 'stats' }) {
     );
   } else if (result.status === 'not_found') {
     body = (
-      <CharacterNotFound name={parsed.name} surname={parsed.surname} known={result.known}>
+      <CharacterNotFound name={parsed.name} surname={parsed.realm ? `(${parsed.realm})` : parsed.surname} known={result.known}>
         <Link className="btn gold self-start" to="/">Search again</Link>
       </CharacterNotFound>
     );
@@ -153,6 +169,8 @@ function CharacterSheet({ data, onReload, tab = 'stats', screen = '' }) {
         <div className="row gap-24 sheet-top">
           <div className="stack gap-10 char-ident">
             <div className="row gap-8">
+              {/* 0.11.1: on a version with realms, the character's realm (and its type, where the pool mixes types). */}
+              {c.realm && <span className="tag">{c.realm.name ?? c.realm.slug}{data.scope?.onePool && c.realm.typeName ? ` · ${c.realm.typeName}` : ''}</span>}
               {c.ruleset && <Link className="tag" to={`/leaderboards?ruleset=${c.ruleset.id}`}>{c.ruleset.name}</Link>}
               {c.faction && <span className="tag">{c.faction}</span>}
               {c.guild && <Link className="tag gold" to={`/g/${encodeURIComponent(c.guild.slug)}`}>{c.guild.name}</Link>}
@@ -191,6 +209,7 @@ function CharacterSheet({ data, onReload, tab = 'stats', screen = '' }) {
 
       {tab === 'collections' && <CollectionsView character={c} screen={screen} />}
       {tab === 'stats' && <>
+      <SeasonCards seasons={stats.seasons} character={c} ranked={stats.ranked} />
       <WhyThisTier tiers={data.tiers} name={c.name} shareTo={c.hidden ? null : `/c/${encodeURIComponent(c.slug)}/tier/share`} />
 
       <Statistics stats={stats} character={c} count={statCount} tiers={data.tiers} />
@@ -204,6 +223,45 @@ function CharacterSheet({ data, onReload, tab = 'stats', screen = '' }) {
       </section>
       </>}
     </>
+  );
+}
+
+/**
+ * 0.11.1 season cards: the character's current Mythic+ season and PvP brackets (server stats/seasons.js), each number
+ * with its rank on that season's board. Only what Blizzard returned a value for: a character with nothing this season
+ * has no card, and a version without seasons has no section at all. A new season starts new boards by itself.
+ */
+const SEASON_FIELDS = {
+  rating: 'Rating', best_level: 'Highest key level', played: 'Games played', won: 'Games won',
+};
+function SeasonCards({ seasons, character: c, ranked }) {
+  if (!seasons?.length) return null;
+  return (
+    <section className="stack gap-12" aria-labelledby="seasons-h">
+      <div className="row gap-16">
+        <h2 className="h2" id="seasons-h">This season</h2>
+        <span className="muted small">Mythic+ and rated PvP, from Blizzard’s current season. Each number has its own leaderboard.</span>
+      </div>
+      <div className="fillgrid season-cards">
+        {seasons.map((s) => (
+          <div key={`${s.kind}-${s.seasonId}-${s.bracket ?? ''}`} className="panel pad-16 stack gap-8 season-card" style={fillStyle(seasons.length, { lg: 4, md: 2, sm: 1 })}>
+            <div className="row gap-8">
+              <h3 className="h3">{s.kind === 'mplus' ? 'Mythic+' : `PvP ${s.bracketLabel ?? s.bracket}`}</h3>
+              <span className="tag">Season {s.seasonId}</span>
+            </div>
+            {Object.entries(SEASON_FIELDS).filter(([k]) => s.fields[k]).map(([k, label]) => (
+              <div key={k} className="kv season-kv">
+                <span className="t2">{label}</span>
+                <span className="row gap-8 season-val">
+                  <b className="num strong">{formatNumber(Math.round(s.fields[k].value))}</b>
+                  {ranked && c.ruleset ? <RankPill rank={s.fields[k].rank} of={s.fields[k].withAny} to={`/leaderboards/${c.ruleset.id}/${s.fields[k].id}`} /> : null}
+                </span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -302,16 +360,18 @@ function categorySummary(cat, tier) {
 function Statistics({ stats, character: c, count, tiers }) {
   const session = useSession();
   const toast = useToasts();
+  const scope = useScope();
   const [open, setOpen] = useState(() => new Set());
   const [pins, setPins] = useState(null);
   useEffect(() => {
-    if (!session.signedIn) return undefined;
+    // Pins are statistics of the primary game version (the dashboard's pinned cards): offered there only.
+    if (!session.signedIn || !scope.primary) return undefined;
     let live = true;
     api('/api/account/pins').then((r) => { if (live) setPins(r.pinIds); }, () => {});
     return () => {
       live = false;
     };
-  }, [session.signedIn]);
+  }, [session.signedIn, scope.primary]);
   const togglePin = async (id, name) => {
     const next = pins.includes(id) ? pins.filter((x) => x !== id) : [...pins, id];
     try {

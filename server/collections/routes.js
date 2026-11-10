@@ -137,14 +137,14 @@ export function createCollectionsRouter({ db, limits, networkOf }) {
       return res.json({ off: Boolean(has), message: GOLD_OFF, characters: [] });
     }
     const rows = await db.query(
-      `SELECT c.id, c.slug, c.name, c.surname, g.money, g.gold_gained, g.gold_lost, g.item_value_gained, g.fetched_at,
+      `SELECT c.id, c.slug, c.realm_slug, c.game_version, c.name, c.surname, g.money, g.gold_gained, g.gold_lost, g.item_value_gained, g.fetched_at,
               EXISTS (SELECT 1 FROM character_gold_public p WHERE p.character_id = c.id AND p.account_id = $1) AS public
          FROM characters c JOIN character_gold g ON g.character_id = c.id AND g.account_id = $1
         WHERE c.owner_account_id = $1 ORDER BY g.money DESC NULLS LAST, c.id LIMIT 50`,
       [viewer],
     );
     const n = (v) => (v === null ? null : Number(v));
-    res.json({ characters: rows.map((r) => ({ id: Number(r.id), slug: r.slug, name: r.name, surname: r.surname, public: r.public, fetchedAt: r.fetched_at, fields: { money: n(r.money), gained: n(r.gold_gained), lost: n(r.gold_lost), items: n(r.item_value_gained) } })) });
+    res.json({ characters: rows.map((r) => ({ id: Number(r.id), slug: pathSlug(r), version: r.game_version, name: r.name, surname: r.surname, public: r.public, fetchedAt: r.fetched_at, fields: { money: n(r.money), gained: n(r.gold_gained), lost: n(r.gold_lost), items: n(r.item_value_gained) } })) });
   }));
 
   r.get('/gold-boards', route(async (req, res) => {

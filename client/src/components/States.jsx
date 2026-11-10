@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 import { Icon } from '../chrome/Icon.jsx';
 import { RenderFrame, Spinner } from './Stats.jsx';
 import { TierBadge } from './Tier.jsx';

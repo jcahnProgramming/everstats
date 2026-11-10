@@ -1,9 +1,9 @@
-import { scopeSql } from '../core/config.js';
+import { characterKey, findCharacter, findGuild, guildKey, pathSlug } from '../characters/find.js';
+import { encodeSlug, scopePrefix } from '../core/scope.js';
 import express from 'express';
 import { getSetting } from '../admin/settings.js';
 import { logAccountEvent } from '../auth/sessions.js';
 import { HttpError, route } from '../core/errors.js';
-import { parseGuildSlug, parseSlug } from '../stats/slug.js';
 import { boardPage } from '../stats/boards.js';
 import { loadCatalog } from '../stats/catalog.js';
 import { periodsInfo } from '../characters/routes.js';
@@ -66,23 +66,25 @@ const str = (v, max = 200) =>(typeof v === 'string' && v.length <= max ? v : nul
 export function subjectFrom(type, q) {
   if (!CARD_TYPES[type]) throw new HttpError(404, 'No such card.', 'no_card');
   if (type === 'character' || type === 'tier' || type === 'collections') {
-    const c = parseSlug(str(q.c) ?? '');
+    // 0.11.1: `c` / `g` are addresses as URLs write them in the request's game version ("name-surname", or
+    // "realm/name" on a version with realms); the params carry that same form everywhere below.
+    const c = characterKey(str(q.c) ?? '');
     if (!c) throw new HttpError(404, 'No such character.', 'not_found');
-    return { type, params: { c: c.slug } };
+    return { type, params: { c: c.path } };
   }
   if (type === 'guild') {
-    const g = parseGuildSlug(str(q.g) ?? '');
+    const g = guildKey(str(q.g) ?? '');
     if (!g) throw new HttpError(404, 'No such guild.', 'not_found');
-    return { type, params: { g } };
+    return { type, params: { g: g.path } };
   }
   const rulesetId = Number(q.ruleset);
   const statisticId = Number(q.statistic);
   const period = BOARD_PERIODS.includes(q.period) ? q.period : 'overall';
   if (!Number.isSafeInteger(rulesetId) || !Number.isSafeInteger(statisticId)) throw new HttpError(404, 'No such board.', 'not_found');
-  const c = q.c !== undefined ? parseSlug(str(q.c) ?? '') : null;
-  const g = q.g !== undefined ? parseGuildSlug(str(q.g) ?? '') : null;
+  const c = q.c !== undefined ? characterKey(str(q.c) ?? '') : null;
+  const g = q.g !== undefined ? guildKey(str(q.g) ?? '') : null;
   if (!c && !g) throw new HttpError(404, 'Say whose placement to share.', 'not_found');
-  return { type, params: { rulesetId, statisticId, period, c: c?.slug ?? null, g: g ?? null, mode: q.mode === 'average' ? 'average' : 'total' } };
+  return { type, params: { rulesetId, statisticId, period, c: c?.path ?? null, g: g?.path ?? null, mode: q.mode === 'average' ? 'average' : 'total' } };
 }
 
 /** The query string that addresses a subject (the maker builds image URLs from it). */
@@ -182,10 +184,21 @@ function sendError(res, err) {
   res.status(err.status ?? 500).json({ error: err.message, code: err.code ?? 'error' });
 }
 
+/** A visible character / a guild from the address in a card's params, in the request's scope. */
+async function characterRow(db, address, cols = '*', { hidden = false } = {}) {
+  const key = characterKey(address ?? '');
+  const row = key ? await findCharacter(db, key, { cols }) : null;
+  return row && (hidden || !row.hidden) ? row : null;
+}
+async function guildRow(db, address, cols = '*') {
+  const key = guildKey(address ?? '');
+  return key ? findGuild(db, key, { cols }) : null;
+}
+
 /** The id a saved default is stored under, or null. */
 async function subjectId(db, type, params) {
-  if (type === 'character' || type === 'tier' || type === 'collections') return (await db.one(`SELECT id FROM characters WHERE slug = $1 AND ${scopeSql()} AND NOT hidden`, [params.c]))?.id ?? null;
-  if (type === 'guild') return (await db.one(`SELECT id FROM guilds WHERE slug = $1 AND ${scopeSql()} ORDER BY updated_at DESC LIMIT 1`, [params.g]))?.id ?? null;
+  if (type === 'character' || type === 'tier' || type === 'collections') return (await characterRow(db, params.c, 'id, hidden'))?.id ?? null;
+  if (type === 'guild') return (await guildRow(db, params.g, 'id'))?.id ?? null;
   return null;
 }
 
@@ -194,7 +207,7 @@ async function saveRole(db, req, type, params) {
   if (req.session?.stage !== 'full') return null;
   const me = Number(req.session.accountId);
   if (type === 'character' || type === 'tier' || type === 'collections') {
-    const row = await db.one(`SELECT owner_account_id FROM characters WHERE slug = $1 AND ${scopeSql()} AND NOT hidden`, [params.c]);
+    const row = await characterRow(db, params.c, 'owner_account_id, hidden');
     return row && Number(row.owner_account_id) === me ? 'owner' : null;
   }
   if (type === 'guild') {
@@ -207,7 +220,7 @@ async function saveRole(db, req, type, params) {
 /** What the maker offers for this subject. */
 async function makerChoices(db, type, params) {
   if (type === 'character') {
-    const row = await db.one(`SELECT * FROM characters WHERE slug = $1 AND ${scopeSql()}`, [params.c]);
+    const row = await characterRow(db, params.c, '*', { hidden: true });
     const c = await characterView(db, row);
     const stats = await characterStatChoices(db, row);
     return {
@@ -221,7 +234,7 @@ async function makerChoices(db, type, params) {
     };
   }
   if (type === 'guild') {
-    const g = await db.one(`SELECT * FROM guilds WHERE slug = $1 AND ${scopeSql()} ORDER BY updated_at DESC LIMIT 1`, [params.g]);
+    const g = await guildRow(db, params.g);
     const badges = await guildBadgesView(db, g);
     const { statistics } = await loadCatalog(db);
     const totals = await db.query(
@@ -320,10 +333,12 @@ function limitWrites(limits, networkOf) {
 
 /** The link-preview image path of a subject (meta.js adds the version). */
 export function ogPath(type, p) {
-  if (type === 'character') return `/og/c/${encodeURIComponent(p.c)}.png`;
-  if (type === 'tier') return `/og/t/${encodeURIComponent(p.c)}.png`;
-  if (type === 'collections') return `/og/k/${encodeURIComponent(p.c)}.png`;
-  if (type === 'guild') return `/og/g/${encodeURIComponent(p.g)}.png`;
+  // 0.11.1: under the request's version prefix (none for the primary version), the address written as its page's is.
+  const at = scopePrefix();
+  if (type === 'character') return `${at}/og/c/${encodeSlug(p.c)}.png`;
+  if (type === 'tier') return `${at}/og/t/${encodeSlug(p.c)}.png`;
+  if (type === 'collections') return `${at}/og/k/${encodeSlug(p.c)}.png`;
+  if (type === 'guild') return `${at}/og/g/${encodeSlug(p.g)}.png`;
   const q = new URLSearchParams();
   if (p.c) q.set('c', p.c);
   if (p.g) {
@@ -331,7 +346,7 @@ export function ogPath(type, p) {
     if (p.mode === 'average') q.set('mode', 'average');
   }
   if (p.period && p.period !== 'overall') q.set('period', p.period);
-  return `/og/b/${p.rulesetId}/${p.statisticId}.png${q.size ? `?${q}` : ''}`;
+  return `${at}/og/b/${p.rulesetId}/${p.statisticId}.png${q.size ? `?${q}` : ''}`;
 }
 
 export function createCardImageRouter(deps) {
@@ -345,7 +360,7 @@ export function createCardImageRouter(deps) {
       await requireCards(db, type);
       const options = decodeOptions(type, req.query.o);
       const out = await cardImage(deps, req, type, params, options);
-      const name = (params.c ?? params.g ?? `board-${params.statisticId}`).replace(/[^a-z0-9-]/gi, '');
+      const name = (params.c ?? params.g ?? `board-${params.statisticId}`).replace(/[/]/g, '-').replace(/[^a-z0-9-]/gi, '');
       sendPng(res, out, { filename: req.query.download === '1' ? `everstats-${name}-${type}-${options.format}.png` : null });
     } catch (err) {
       sendError(res, err);
@@ -375,7 +390,7 @@ export function createCardImageRouter(deps) {
     if (q.c === undefined && q.g === undefined) {
       // A board page itself: its #1 (the board's own top row), if it has one.
       const top = (await boardPage(db, { statisticId: Number(s), rulesetId: Number(req.params.ruleset), period: BOARD_PERIODS.includes(q.period) ? q.period : 'overall', limit: 1 })).rows[0];
-      const slug = top ? (await db.one('SELECT slug FROM characters WHERE id = $1', [top.characterId]))?.slug : null;
+      const slug = top ? pathSlug(await db.one('SELECT slug, realm_slug FROM characters WHERE id = $1', [top.characterId])) : null;
       if (!slug) throw new HttpError(404, 'This board has nobody on it yet.', 'not_found');
       q.c = slug;
     }

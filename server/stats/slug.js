@@ -84,3 +84,16 @@ export function realmCharacter(realm, name) {
   if (!r) return { ok: false, problem: 'Choose the character’s realm.' };
   return { ok: true, realmSlug: r, slug: n.toLowerCase(), name: n };
 }
+
+/**
+ * A guild's address as URLs write it (0.11.1): "guild-slug" (WoW Forever), or "realm-slug/guild-slug" on a version
+ * with realms. → the normalized address, or null.
+ */
+export function parseGuildAddress(value) {
+  const text = String(value ?? '');
+  const i = text.indexOf('/');
+  if (i < 0) return parseGuildSlug(text);
+  const realm = parseRealmSlug(text.slice(0, i));
+  const slug = parseGuildSlug(text.slice(i + 1));
+  return realm && slug ? `${realm}/${slug}` : null;
+}

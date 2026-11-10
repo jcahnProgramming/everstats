@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 import { TIER_LETTERS, bandRanges, tierBarParts } from '../../../server/stats/tiers.js';
 import { formatNumber } from '../format.js';
 
@@ -127,10 +127,10 @@ export function TierDistribution({ letters, label = 'Members by tier', unrankedW
 }
 
 /** A small letter (or "–") linking to the character's "Why this tier", for lists. */
-export function TierLink({ slug, letter }) {
+export function TierLink({ slug, letter, scope }) {
   if (!slug) return <TierBadge letter={letter} size="sm" />;
   return (
-    <Link className="tier-link" to={`/c/${encodeURIComponent(slug)}#why-tier`} aria-label={letter ? `Tier ${letter}: why` : 'Unranked: why'}>
+    <Link className="tier-link" scope={scope} to={`/c/${encodeURIComponent(slug)}#why-tier`} aria-label={letter ? `Tier ${letter}: why` : 'Unranked: why'}>
       <TierBadge letter={letter} size="sm" label={letter ? `Tier ${letter}` : 'Unranked'} />
     </Link>
   );
@@ -140,10 +140,11 @@ export function TierLink({ slug, letter }) {
  * A featured character's tier (dashboard, profile): the letter, or Unranked with the reason in words, and a link to
  * its "Why this tier". brief: { letter, status, reason } from the API (server/tiers/view.js tierBrief), null = hidden.
  */
-export function TierBrief({ brief, slug }) {
+// `scope`: the character's game version, on pages that list several (0.11.1); a version page's own otherwise.
+export function TierBrief({ brief, slug, scope }) {
   if (!brief) return null;
   return (
-    <Link className="row gap-12 tier-brief" to={`/c/${encodeURIComponent(slug)}#why-tier`}>
+    <Link className="row gap-12 tier-brief" scope={scope} to={`/c/${encodeURIComponent(slug)}#why-tier`}>
       <TierBadge letter={brief.letter} size="md" provisional={brief.provisional ?? null} />
       <span className="stack gap-2">
         <span className="eyebrow">Overall tier</span>

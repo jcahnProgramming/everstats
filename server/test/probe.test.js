@@ -62,7 +62,11 @@ const RC = '/profile/wow/character/fixture-realm/fixturo';
 const RG = '/data/wow/guild/fixture-realm/fixture-guild';
 const RENDER = 'https://render.worldofwarcraft.com/us/character/fixture-realm/1/2-main-raw.png';
 const isRetail = (ns) => ns === R_PROF || ns === R_DYN || ns === R_STATIC;
+// 0.11.1: a test may lay extra answers over the fake Retail (leaderboards).
+let retailOverlay = null;
 function retail(path, ns, auth) {
+  const extra = retailOverlay?.(path, ns);
+  if (extra !== undefined) return extra;
   if (path === '/profile/user/wow' && ns === R_PROF) {
     if (auth !== `Bearer ${USER_TOKEN}`) return [401, {}];
     return { wow_accounts: [{ characters: [
@@ -569,4 +573,121 @@ test('0.10.4: current_season first, a retired 403 falls to listed ids, the house
   } finally {
     overlay = null;
   }
+});
+
+// ---- 0.11.1 (decision 9): a probe character from a public leaderboard. Fixture names and numbers only.
+const boardPick = (version) => t.client().get(`/api/admin/discovery/probe-leaderboard-characters?version=${version}&region=us`, admin);
+const apiPaths = (from) => calls.slice(from).filter((x) => x.url.startsWith(API)).map((x) => new URL(x.url).pathname);
+const rSearch = (path, ns) => (path === '/data/wow/search/connected-realm' && ns === R_DYN ? { page: 1, pageCount: 1, results: [
+  { key: { href: `${API}/data/wow/connected-realm/71?namespace=${R_DYN}` }, data: { id: 71, population: { type: 'LOCKED' }, status: { type: 'UP' }, realms: [{ id: 9, slug: 'fixture-locked' }] } },
+  { key: { href: `${API}/data/wow/connected-realm/72?namespace=${R_DYN}` }, data: { id: 72, population: { type: 'HIGH' }, status: { type: 'UP' }, realms: [{ id: 3, slug: 'fixture-realm' }] } },
+] } : undefined);
+const STORED = ['characters', 'guilds', 'realms', 'statistics', 'blizzard_ids', 'discovery_runs', 'discovery_responses', 'crawl_queue', 'admin_events'];
+const storedCounts = async () => Object.fromEntries(await Promise.all(STORED.map(async (tb) => [tb, (await t.db.one(`SELECT count(*)::int AS n FROM ${tb}`)).n])));
+
+test('0.11.1: a probe character from the Mythic+ leaderboard: only ids and links Blizzard returned, the app token, nothing stored', async () => {
+  const LB = '/data/wow/connected-realm/72/mythic-leaderboard/501/period/990';
+  const member = (name) => ({ profile: { id: 1, name, realm: { id: 3, slug: 'fixture-realm' } } });
+  retailOverlay = (path, ns) => {
+    if (ns !== R_DYN) return undefined;
+    if (path === '/data/wow/connected-realm/72/mythic-leaderboard/index') {
+      return { current_leaderboards: [501, 502].map((id) => ({ id, name: `Fixture dungeon ${id}`, key: { href: `${API}/data/wow/connected-realm/72/mythic-leaderboard/${id}/period/990?namespace=${R_DYN}` } })) };
+    }
+    if (path === LB) return { leading_groups: [{ ranking: 1, members: [member('Ghosty'), member('Fixturo')] }, { ranking: 2, members: [member('Fixturo'), member('Thirdo')] }] };
+    return rSearch(path, ns);
+  };
+  try {
+    const before = await storedCounts();
+    const mark = calls.length;
+    const res = await boardPick('retail');
+    assert.equal(res.status, 200, JSON.stringify(res.json));
+    assert.equal(res.json.source, 'mythic-leaderboard');
+    assert.deepEqual(res.json.characters, ['Ghosty', 'Fixturo', 'Thirdo'].map((name) => ({ name, realmSlug: 'fixture-realm', source: 'mythic-leaderboard' })));
+    // Ghosty's profile 404s, so the next leaderboard character is the pick; its guild comes from its profile.
+    assert.deepEqual(res.json.pick, { name: 'Fixturo', realmSlug: 'fixture-realm', source: 'mythic-leaderboard' });
+    assert.deepEqual(res.json.guild, { name: 'Fixture Guild', slug: 'fixture-guild', realmSlug: 'fixture-realm' });
+    assert.ok(res.json.note.includes('Ghosty (fixture-realm) is on the leaderboard but its profile didn’t answer (HTTP 404)'), res.json.note);
+    // The open connected realm (72) before the locked one (71); the leaderboard by its own link; nothing else.
+    assert.deepEqual(apiPaths(mark), ['/data/wow/search/connected-realm', '/data/wow/connected-realm/72/mythic-leaderboard/index', LB, '/profile/wow/character/fixture-realm/ghosty', RC]);
+    assert.deepEqual(res.json.tried.map((x) => x.status), [200, 200, 200, 404, 200]);
+    assert.ok(calls.slice(mark).filter((x) => x.url.startsWith(API)).every((x) => x.auth === `Bearer ${APP_TOKEN}`));
+    assert.deepEqual(await storedCounts(), before);
+    // The picker is offered where the registry names a leaderboard source, and not on Forever.
+    const versions = (await t.client().get('/api/admin/discovery/probe-versions', admin)).json.versions;
+    assert.equal(versions.find((x) => x.id === 'retail').leaderboardCharacters, true);
+    assert.equal(versions.find((x) => x.primary).leaderboardCharacters, false);
+  } finally {
+    retailOverlay = null;
+  }
+});
+
+test('0.11.1: no Mythic+ leaderboard → the PvP leaderboard of the CURRENT season, by the links Blizzard gave', async () => {
+  const PVP = '/data/wow/pvp-season/40/pvp-leaderboard/fixture-bracket';
+  retailOverlay = (path, ns) => {
+    if (ns !== R_DYN) return undefined;
+    if (path === '/data/wow/pvp-season/index') {
+      const season = (id) => ({ id, key: { href: `${API}/data/wow/pvp-season/${id}?namespace=${R_DYN}` } });
+      return { seasons: [38, 39, 40].map(season), current_season: season(40) };
+    }
+    if (path === '/data/wow/pvp-season/40/pvp-leaderboard/index') return { leaderboards: [{ name: 'fixture-bracket', key: { href: `${API}${PVP}?namespace=${R_DYN}` } }] };
+    if (path === PVP) return { entries: [{ rank: 1, character: { id: 33, name: 'Fixturo', realm: { id: 3, slug: 'fixture-realm' } } }, { rank: 2, character: { id: 34 } }, { rank: 3 }] };
+    return rSearch(path, ns);
+  };
+  try {
+    const before = await storedCounts();
+    const mark = calls.length;
+    const res = await boardPick('retail');
+    assert.equal(res.status, 200, JSON.stringify(res.json));
+    assert.equal(res.json.source, 'pvp-leaderboard');
+    assert.deepEqual(res.json.characters, [{ name: 'Fixturo', realmSlug: 'fixture-realm', source: 'pvp-leaderboard' }]);
+    assert.equal(res.json.pick.name, 'Fixturo');
+    assert.equal(res.json.guild.name, 'Fixture Guild');
+    assert.ok(res.json.note.includes('Blizzard lists no current Mythic+ leaderboard for connected realm 72 (HTTP 404)'), res.json.note);
+    // Both connected realms' indexes were asked (open first), then the current season only: no retired season, no built bracket.
+    assert.deepEqual(apiPaths(mark), [
+      '/data/wow/search/connected-realm', '/data/wow/connected-realm/72/mythic-leaderboard/index', '/data/wow/connected-realm/71/mythic-leaderboard/index',
+      '/data/wow/pvp-season/index', '/data/wow/pvp-season/40/pvp-leaderboard/index', PVP, RC,
+    ]);
+    assert.deepEqual(await storedCounts(), before);
+  } finally {
+    retailOverlay = null;
+  }
+});
+
+test('0.11.1: every leaderboard 404s → no characters and a note in words, never a made-up name; Forever has no picker', async () => {
+  const before = await storedCounts();
+  const mark = calls.length;
+  const res = await boardPick('classic');
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  assert.deepEqual([res.json.characters, res.json.pick, res.json.guild, res.json.source], [[], null, null, null]);
+  assert.ok(res.json.note.includes('connected realm 100 (HTTP 404)'), res.json.note);
+  assert.ok(res.json.note.includes('No leaderboard gave a character. Type one in.'), res.json.note);
+  // The open connected realm before the locked one, then both documented PvP indexes; no character path at all.
+  assert.deepEqual(apiPaths(mark), [
+    '/data/wow/search/connected-realm', '/data/wow/connected-realm/100/mythic-leaderboard/index', '/data/wow/connected-realm/200/mythic-leaderboard/index',
+    '/data/wow/pvp-season/index', '/data/wow/pvp-region/index',
+  ]);
+  assert.ok(res.json.tried.slice(1).every((x) => x.status === 404));
+  // A PvP leaderboard in a shape Everstats doesn't read gives nobody, and says so (the function with a fake get).
+  const { leaderboardCharacters } = await import('../discovery/probe/leaderboardCharacters.js');
+  const { blizzardContext, versionById } = await import('../core/gameVersions.js');
+  const answers = {
+    '/data/wow/search/connected-realm': { results: [{ data: { id: 5, realms: [] } }] },
+    '/data/wow/pvp-season/index': { current_season: { id: 7 } },
+    '/data/wow/pvp-season/7/pvp-leaderboard/index': { leaderboards: [{ key: { href: '/data/wow/pvp-season/7/pvp-leaderboard/fixture' } }] },
+    '/data/wow/pvp-season/7/pvp-leaderboard/fixture': { entries: [{ player: 'Fixture' }] },
+  };
+  const odd = await leaderboardCharacters({
+    get: async (path) => (answers[path] ? { path, status: 200, json: answers[path] } : { path, status: 404, json: null }),
+    ctx: blizzardContext('classic', 'us'), version: versionById('classic'),
+  });
+  assert.deepEqual([odd.characters, odd.source], [[], null]);
+  assert.ok(odd.note.includes('a shape Everstats doesn’t read'), odd.note);
+  // Forever names no leaderboard source in the registry: refused, and Blizzard isn't asked.
+  const at = calls.length;
+  assert.equal((await boardPick('forever')).status, 400);
+  assert.equal(calls.length, at);
+  // And, like every discovery route, a plain 404 without an admin session.
+  assert.equal((await t.client().get('/api/admin/discovery/probe-leaderboard-characters?version=retail&region=us')).status, 404);
+  assert.deepEqual(await storedCounts(), before);
 });

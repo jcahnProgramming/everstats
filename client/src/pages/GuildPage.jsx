@@ -1,8 +1,9 @@
 import { usePageTitle } from '../pageTitle.js';
 import { displayName } from '../../../server/stats/names.js';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { parseGuildSlug } from '../../../server/stats/slug.js';
+import { useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useScope } from '../scope.jsx';
+import { parseGuildAddress } from '../../../server/stats/slug.js';
 import { api } from '../api.js';
 import { useSession } from '../session.jsx';
 import { viaSearchOnce } from '../activity.js';
@@ -53,7 +54,8 @@ const NOTICES = {
 
 export function GuildPage() {
   const { slug: raw } = useParams();
-  const slug = parseGuildSlug(raw);
+  const scope = useScope();
+  const slug = parseGuildAddress(raw);
   const navigate = useNavigate();
   const [result, setResult] = useState(null);
   usePageTitle(result?.guild?.name ? `<${result.guild.name}>` : null); // 0.9.2
@@ -116,7 +118,7 @@ export function GuildPage() {
       <div className="wrap page-pad stack gap-24 narrow-wrap">
         <h1 className="h1">{result.known?.name ?? slug}</h1>
         <EmptyState kind="nocoverage" title="Blizzard has no guild at this address">
-          <span>Blizzard serves no Forever guild called “{slug}” in the US region. It may have been renamed or disbanded, or the address is mistyped.</span>
+          <span>Blizzard serves no {scope.meta && !scope.primary ? scope.meta.name : 'Forever'} guild {scope.meta?.realms ? 'at' : 'called'} “{slug}” in the US region. It may have been renamed or disbanded, or the address is mistyped.</span>
           <span className="row gap-8"><Link className="btn sm ghost" to="/guilds">Search guilds</Link></span>
         </EmptyState>
       </div>
@@ -149,7 +151,9 @@ function GuildSheet({ data, onReload }) {
         <div className="stack gap-8 flex-fill">
           <div className="row gap-8">
             {g.ruleset && <Link className="tag" to={`/leaderboards?view=guilds&ruleset=${g.ruleset.id}`}>{g.ruleset.name}</Link>}
+            {/* 0.11.1: the GUILD's own faction, as Blizzard gives it for the guild. Members keep their own (the roster). */}
             {g.faction && <span className="tag">{g.faction}</span>}
+            {g.realm && <span className="tag">{g.realm}</span>}
             <span className="tag">US</span>
           </div>
           <h1 className="h1 guild-name">{g.name}{data.badges?.verified && <VerifiedMark />}</h1>
@@ -180,6 +184,9 @@ function GuildSheet({ data, onReload }) {
 
       {/* 0.9.0: pull every member in now (reads the roster first and says what it will cost). */}
       <GuildFetch slug={g.slug} onDone={onReload} />
+      {data.seeding === 'opened' && (
+        <p className="muted small">On {data.scope?.name ?? 'this game version'} Everstats reads a guild’s roster when someone opens its page, and adds a limited number of its members a day. Members also join when they are looked up or sign in.</p>
+      )}
 
 
       {/* 0.7.0: the guild's own Links area (only when something is set) and, for its Guild Master and officers only,
@@ -311,6 +318,10 @@ function Roster({ data }) {
     });
   }, [data.roster, sort, cls]);
   const by = (id) => setSort((s) => (s.id === id ? { id, desc: !s.desc } : { id, desc: Boolean(COLUMNS.find((x) => x.id === id).desc) }));
+  // 0.11.1 (rule 11): a guild can hold both factions. Each member's faction is its OWN (from its own profile); it is
+  // shown beside the name only where it differs from the guild's, and never guessed from the guild.
+  const guildFaction = data.guild.faction ?? null;
+  const otherFaction = (m) => (m.faction && guildFaction && m.faction !== guildFaction ? m.faction : null);
   return (
     <section className="main stack gap-12" aria-labelledby="roster-h">
       <div className="row gap-12">
@@ -343,6 +354,8 @@ function Roster({ data }) {
                 <tr key={m.slug}>
                   <td>
                     <Link to={`/c/${encodeURIComponent(m.slug)}`}>{m.name} <span className="surname">{m.surname}</span></Link>
+                    {otherFaction(m) && <span className="tag faction-own" title={`${m.name} is ${m.faction}; the guild is ${guildFaction}`}>{m.faction}</span>}
+                    {data.scope?.realms && m.realm && m.realm !== data.guild.realm && <span className="muted xsmall"> · {m.realm}</span>}
                     {/* 0.10.4: what the folded columns held, when the card is too narrow for them. */}
                     <span className="dm muted xsmall">{[m.race, m.lastLoginAt ? `seen ${timeAgo(m.lastLoginAt)}` : null].filter(Boolean).join(' · ')}</span>
                   </td>

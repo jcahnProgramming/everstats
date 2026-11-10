@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from '../scope.jsx';
 import { WebAuthnAbortService } from '@simplewebauthn/browser';
 import { api } from '../api.js';
 import { authError } from '../authMessages.js';

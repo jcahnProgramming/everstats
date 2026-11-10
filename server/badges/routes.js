@@ -1,3 +1,4 @@
+import { pathSlug } from '../core/scope.js';
 import express from 'express';
 import { requireAccount } from '../auth/sessions.js';
 import { HttpError, route } from '../core/errors.js';
@@ -48,8 +49,8 @@ export function createBadgeRouter({ db, limits, networkOf }) {
     const held = mine.get(def.id);
     let character = null;
     if (held?.character_id) {
-      const c = await db.one("SELECT name, surname, slug FROM characters WHERE id = $1 AND profile_state <> 'purged'", [held.character_id]);
-      if (c?.name) character = { name: c.name, surname: c.surname, slug: c.slug };
+      const c = await db.one("SELECT name, surname, slug, realm_slug, game_version FROM characters WHERE id = $1 AND profile_state <> 'purged'", [held.character_id]);
+      if (c?.name) character = { name: c.name, surname: c.surname, slug: pathSlug(c), version: c.game_version };
     }
     // Who has it: automatic badges list players who chose to show it publicly (with a username). Granted badges show
     // only the count. The count includes everyone, public or not (a number names nobody).
@@ -130,14 +131,14 @@ export async function settingsView(db, accountId) {
   const counts = await holderCounts(db);
   const chars = held.filter((h) => h.character_id).map((h) => h.character_id);
   const names = chars.length
-    ? new Map((await db.query("SELECT id, name, surname, slug FROM characters WHERE id = ANY($1::bigint[]) AND profile_state <> 'purged' AND name IS NOT NULL", [chars])).map((c) => [Number(c.id), c]))
+    ? new Map((await db.query("SELECT id, name, surname, slug, realm_slug, game_version FROM characters WHERE id = ANY($1::bigint[]) AND profile_state <> 'purged' AND name IS NOT NULL", [chars])).map((c) => [Number(c.id), c]))
     : new Map();
   const earned = held.sort(rowOrder).map((h) => {
     const c = h.character_id ? names.get(Number(h.character_id)) : null;
     return {
       ...publicBadge(h, ctx), heldBy: counts.get(h.id) ?? 0, earnedAt: h.earned_at, source: h.source, isNew: !h.seen_at,
       shown: h.shown, featured: h.featured, position: h.position, pinned: h.pinned,
-      character: c ? { name: c.name, surname: c.surname, slug: c.slug } : null,
+      character: c ? { name: c.name, surname: c.surname, slug: pathSlug(c), version: c.game_version } : null,
     };
   });
   const earnable = [];

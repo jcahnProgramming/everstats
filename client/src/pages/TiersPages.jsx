@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 import { api } from '../api.js';
 import { Segmented } from '../components/Controls.jsx';
 import { EmptyState, Provenance, UnrankedNote } from '../components/EmptyState.jsx';

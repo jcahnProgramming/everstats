@@ -21,6 +21,7 @@ import { openSource } from '../sources/registry.js';
 import { grantToken } from './grant.js';
 import { parseAccountCharacters, parseProfile } from '../crawler/parse.js';
 import { connectedRealmsFromSearch, realmMapFromSearch } from '../realms/playerRealms.js';
+import { leaderboardCharacters } from './probe/leaderboardCharacters.js';
 
 const isProbe = (run) => run?.options?.kind === 'probe';
 const MAX_EXPORT_BODY = 20_000; // characters of each raw body in a probe's JSON export (the page has every body in full)
@@ -343,7 +344,47 @@ export function createDiscoveryRouter({ db, limits, networkOf, limitBy, fetch = 
 
   // 0.10.0: the versions a probe can ask about (the client's pickers), whatever is enabled for players.
   r.get('/probe-versions', route(async (req, res) => {
-    res.json({ versions: publicVersions().map((x) => ({ ...x, enabledForPlayers: x.enabled })), primary: PRIMARY_VERSION.id });
+    // leaderboardCharacters (0.11.1): whether "Pick from a leaderboard" is offered for the version (the registry says).
+    res.json({ versions: publicVersions().map((x) => ({ ...x, enabledForPlayers: x.enabled, leaderboardCharacters: Boolean(versionById(x.id)?.leaderboardCharacters) })), primary: PRIMARY_VERSION.id });
+  }));
+
+  /**
+   * 0.11.1 (decision 9): a character for the probe from a public leaderboard of the version, for versions where the
+   * admin's own account has none that can be fetched. App token only (no Battle.net grant). The steps and what is
+   * unverified are in probe/leaderboardCharacters.js. Then, like /probe-characters, the pick's profile is read once
+   * for its guild; a pick whose profile doesn't answer gives way to the next (3 at most). STORES NOTHING.
+   */
+  r.get('/probe-leaderboard-characters', route(async (req, res) => {
+    const { version, region, v } = probeScopeOf(req.query);
+    if (!v.leaderboardCharacters) throw new HttpError(400, `${v.name} has no leaderboard to pick a character from.`, 'no_leaderboard');
+    if (!(await isConfigured(db, source.credential))) throw new HttpError(409, 'Enter the Blizzard API keys in the key manager first.', 'not_configured');
+    const ctx = blizzardContext(version, region);
+    let src;
+    try {
+      src = await openSource(db, 'blizzard', { fetch: deps.fetch, maxAttempts: 1, perSecond: 10, region });
+    } catch (err) {
+      throw new HttpError(409, err instanceof SourceError ? err.message : 'Couldn’t open the Blizzard source.', 'source');
+    }
+    const found = await leaderboardCharacters({ get: src.get, ctx, version: v });
+    let pick = null;
+    let guild = null;
+    const notes = [found.note];
+    for (const c of found.characters.slice(0, 3)) {
+      const path = ctx.characterPath({ realmSlug: c.realmSlug, slug: c.name.toLowerCase() });
+      const prof = await src.get(path, { namespace: ctx.namespaces.profile });
+      found.tried.push({ path, status: prof.status ?? null });
+      if (prof.status !== 200 || !prof.json) {
+        notes.push(`${c.name} (${c.realmSlug}) is on the leaderboard but its profile didn’t answer (${prof.status === null ? 'no answer' : `HTTP ${prof.status}`}).`);
+        continue;
+      }
+      pick = c;
+      const pp = parseProfile(prof.json, { realms: ctx.realms });
+      if (pp?.guild) guild = { name: pp.guild.name, slug: pp.guild.slug, realmSlug: pp.guild.realm?.slug ?? null };
+      else notes.push(`${c.name} is in no guild Blizzard names: type a guild in.`);
+      break;
+    }
+    if (!pick && found.characters.length) notes.push('None of the first leaderboard characters has a profile that answers. Type one in.');
+    res.json({ version, region, characters: found.characters, pick, guild, source: found.source, tried: found.tried, note: notes.filter(Boolean).join(' ') || null });
   }));
 
   /**

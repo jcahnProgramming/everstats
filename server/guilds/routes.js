@@ -1,6 +1,6 @@
 import { scopeSql } from '../core/config.js';
-import { versionById } from '../core/gameVersions.js';
-import { currentScope, inPrimaryScope, pathSlug } from '../core/scope.js';
+import { enabledVersions, versionById } from '../core/gameVersions.js';
+import { currentScope, inPrimaryScope, liveScope, pathSlug, runInScope } from '../core/scope.js';
 import { findGuild, guildKey } from '../characters/find.js';
 import { scopeView } from '../characters/routes.js';
 import express from 'express';
@@ -80,11 +80,42 @@ export function createGuildRouter({ db, limits, networkOf }) {
   const minMembersOf = () => getSetting(db, 'guilds.minMembers');
 
   // ---- Search: guilds and tracked characters by name, from what Everstats already has (no Blizzard request).
+  // One game version's (the request's scope); 0.11.1: /search/all runs it once per version that is switched on, and
+  // every result says which version, and which realm on a version with realms.
+  const cleanQuery = (raw) => String(raw ?? '').normalize('NFC').trim().toLowerCase().slice(0, 60);
+  r.get('/search/all', route(async (req, res) => {
+    const q = cleanQuery(req.query.q);
+    if (req.query.count === '1' && q.length >= 2 && !looksAutomated(limits, networkOf(req))) countActivity(db, 'search.page');
+    const results = [];
+    for (const v of enabledVersions()) {
+      const scope = liveScope(v.id, currentScope().region);
+      if (!scope) continue;
+      results.push(await runInScope(scope, async () => ({ ...(q.length < 2 ? { guilds: [], characters: [] } : await searchIn(q)), scope: scopeView(scope) })));
+    }
+    res.json({ q, results });
+  }));
+
   r.get('/search', route(async (req, res) => {
-    const q = String(req.query.q ?? '').normalize('NFC').trim().toLowerCase().slice(0, 60);
-    if (q.length < 2) return res.json({ q, guilds: [], characters: [] });
+    const q = cleanQuery(req.query.q);
+    if (q.length < 2) return res.json({ q, scope: scopeView(), guilds: [], characters: [] });
     // 0.7.1 Activity: only the search PAGE counts (count=1), never the suggestions fetched while typing.
     if (req.query.count === '1' && !looksAutomated(limits, networkOf(req))) countActivity(db, 'search.page');
+    res.json({ q, scope: scopeView(), ...(await searchIn(q)) });
+  }));
+
+  // ---- 0.11.1: the player realms of a version with realms (the search form's realm picker). Only realms in a LISTED
+  // connected realm are ever written to `realms` without an exclusion (realms/playerRealms.js); a realmless version
+  // answers an empty list.
+  r.get('/realms', route(async (req, res) => {
+    const scope = currentScope();
+    if (!versionById(scope.version)?.realms) return res.json({ scope: scopeView(scope), realms: [] });
+    const rows = await db.query(
+      `SELECT m.slug, m.name, m.type_key, m.type_name FROM realms m WHERE ${scopeSql('m')} AND m.excluded IS NULL AND m.name IS NOT NULL ORDER BY m.name LIMIT 2000`,
+    );
+    res.json({ scope: scopeView(scope), realms: rows.map((m) => ({ slug: m.slug, name: m.name, type: m.type_key ?? null, typeName: m.type_name ?? null })) });
+  }));
+
+  async function searchIn(q) {
     const like = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
     const prefix = `${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
     const guilds = await db.query(
@@ -103,13 +134,11 @@ export function createGuildRouter({ db, limits, networkOf }) {
       [like, prefix],
     );
     const letters = await lettersFor(db, characters.map((c) => c.id));
-    res.json({
-      q,
-      scope: scopeView(),
+    return {
       guilds: guilds.map((g) => ({ slug: pathSlug(g), realm: g.realm_slug ?? null, name: g.name, faction: g.faction, ruleset: g.ruleset, tracked: g.tracked ?? 0 })),
       characters: characters.map((c) => ({ slug: pathSlug(c), realm: c.realm_slug ?? null, name: c.name, surname: c.surname, level: c.level, class: c.class, ruleset: c.ruleset, tier: letters.get(Number(c.id)) ?? null })),
-    });
-  }));
+    };
+  }
 
   // ---- /guilds: the largest guilds by tracked members on a ruleset.
   r.get('/guilds', route(async (req, res) => {

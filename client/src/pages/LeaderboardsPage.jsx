@@ -1,6 +1,7 @@
 import { displayName } from '../../../server/stats/names.js';
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { EmptyState, UnrankedNote } from '../components/EmptyState.jsx';
@@ -41,19 +42,24 @@ export function LeaderboardsPage() {
   const [error, setError] = useState(null);
   const asked = params.get('ruleset');
   const view = params.get('view') === 'guilds' ? 'guilds' : 'characters';
+  // 0.11.1: a one-pool version's realm-type filter (?realmType=RP). Characters only; the server checks the value.
+  const realmType = view === 'characters' ? params.get('realmType') : null;
 
   useEffect(() => {
     let live = true;
     setError(null);
     setData(null);
     const path = view === 'guilds' ? '/api/guild-boards' : '/api/leaderboards';
-    api(`${path}${asked ? `?ruleset=${encodeURIComponent(asked)}` : ''}`).then((d) => { if (live) setData(d); }, (err) => { if (live) setError(err.message); });
+    const q = new URLSearchParams();
+    if (asked) q.set('ruleset', asked);
+    if (realmType) q.set('realmType', realmType);
+    api(`${path}${q.size ? `?${q}` : ''}`).then((d) => { if (live) setData(d); }, (err) => { if (live) setError(err.message); });
     return () => {
       live = false;
     };
-  }, [asked, view]);
+  }, [asked, view, realmType]);
   const go = (next) => {
-    const q = { view, ruleset: rs?.id ? String(rs.id) : asked, ...next };
+    const q = { view, ruleset: rs?.id ? String(rs.id) : asked, realmType, ...next };
     setParams(Object.fromEntries(Object.entries(q).filter(([k, v]) => v && !(k === 'view' && v === 'characters'))));
   };
 
@@ -84,11 +90,18 @@ export function LeaderboardsPage() {
 
   const rs = data?.ruleset ?? null;
   const guilds = view === 'guilds';
+  // 0.11.1: what the server says about the version this page is in (one pool per region, account-wide collections).
+  const sc = data?.scope ?? null;
+  const filter = data?.filter?.realmType ?? null;
+  const filterName = filter ? data.realmTypes?.find((t) => t.key === filter)?.name ?? filter : null;
+  const where = filterName ? `${filterName} realms` : rs?.name;
   return (
     <div className="wrap page-pad stack gap-32">
       <div className="stack gap-18">
         <div className="row gap-12"><h1 className="h1">Leaderboards</h1><span className="tag gold">Beta</span></div>
-        <p className="lead">Every statistic gets its own leaderboard on each ruleset, for characters and for guilds: overall, this week{data?.periods?.rolling?.days ? ` and the last ${data.periods.rolling.days} days` : ' and over recent days'}.</p>
+        <p className="lead">{sc?.onePool
+          ? `Every ${sc.name} statistic gets its own leaderboard across every realm of the region`
+          : 'Every statistic gets its own leaderboard on each ruleset'}, for characters and for guilds: overall, this week{data?.periods?.rolling?.days ? ` and the last ${data.periods.rolling.days} days` : ' and over recent days'}.</p>
         <div className="row gap-12">
           <Segmented label="Rank" large options={[{ id: 'characters', label: 'Characters' }, { id: 'guilds', label: 'Guilds' }]} value={view} onChange={(id) => go({ view: id })} />
           <Link className="btn ghost sm" to={`/tiers${rs?.id ? `?ruleset=${rs.id}` : ''}`}>Tier boards</Link>
@@ -99,8 +112,18 @@ export function LeaderboardsPage() {
             <RulesetSwitcher rulesets={data.rulesets} value={rs?.id} onChange={(id) => go({ ruleset: String(id) })} large />
             {guilds
               ? <span className="t2 small"><b className="strong-text">{formatNumber(data.rankedGuilds ?? 0)}</b> guilds ranked on {rs?.name} ({formatNumber(data.minMembers)}+ tracked members) · totals of current members</span>
-              : <span className="t2 small"><b className="strong-text">{formatNumber(data.population)}</b> tracked characters on {rs?.name} · refreshed daily</span>}
+              : <span className="t2 small"><b className="strong-text">{formatNumber(data.population)}</b> tracked characters on {where} · refreshed daily</span>}
           </div>
+        )}
+        {/* 0.11.1: realm type is a FILTER on a one-pool version (everyone still shares one pool and one set of tiers). */}
+        {!guilds && data?.realmTypes?.length > 1 && (
+          <div className="row gap-12">
+            <Segmented label="Realm type" options={[{ id: '', label: 'All realms' }, ...data.realmTypes.map((t) => ({ id: t.key, label: `${t.name} realms` }))]} value={filter ?? ''} onChange={(id) => go({ realmType: id || null })} />
+            {filter && <span className="muted small">Ranks and counts below are among characters on {filterName} realms only. Tiers are always graded across all realms.</span>}
+          </div>
+        )}
+        {sc && !sc.primary && data && !guilds && (
+          <p className="muted small">{sc.name}: Everstats tracks {formatNumber(data.tracked ?? 0)} character{data.tracked === 1 ? '' : 's'} so far. A character joins when someone looks it up, signs in with it, or opens its guild.</p>
         )}
         <p className="muted small">Beta: boards are filling up as players join. Every search and every sign-in adds characters.</p>
         {data && rs && data.categories.length > 0 && (
@@ -151,10 +174,16 @@ export function LeaderboardsPage() {
                     <Icon name={isOpen ? 'chevron-up' : 'chevron-down'} size="sm" />
                   </button>
                 </h2>
+                {isOpen && sc?.accountWide && cat.extra === 'gold' && (
+                  <p className="note small" role="note"><Icon name="info" /><span>Account-wide on {sc.short}: collections belong to the whole Battle.net account there, so a player’s alts share these numbers, and characters with the same number share a rank.</span></p>
+                )}
                 {isOpen && (
                   <div id={`boards-${cat.key}`} className="grid-auto col-md gap-14">
-                    {cat.boards.map((b) => (guilds ? <MiniGuildBoard key={b.id} board={b} ruleset={rs} minMembers={data.minMembers} /> : <MiniBoard key={b.id} board={b} ruleset={rs} population={data.population} />))}
+                    {cat.boards.map((b) => (guilds ? <MiniGuildBoard key={b.id} board={b} ruleset={rs} minMembers={data.minMembers} /> : <MiniBoard key={b.id} board={b} ruleset={rs} population={data.population} filter={filter} />))}
                   </div>
+                )}
+                {isOpen && !guilds && cat.unlisted > 0 && (
+                  <p className="muted xsmall">{formatNumber(cat.unlisted)} more board{cat.unlisted === 1 ? '' : 's'} for a single faction, instance or slot {cat.unlisted === 1 ? 'isn’t' : 'aren’t'} listed here until {formatNumber(data.minIndexEntries)} characters are ranked on {cat.unlisted === 1 ? 'it' : 'each'}. They exist all the same: a character’s page links to every board it is on.</p>
                 )}
                 {isOpen && cat.extra === 'gold' && !guilds && rs && <GoldBoardsSection ruleset={rs.id} />}
               </section>
@@ -191,8 +220,8 @@ function TiedLine({ n, value, who }) {
   );
 }
 
-function MiniBoard({ board: b, ruleset, population }) {
-  const to = `/leaderboards/${ruleset.id}/${b.id}`;
+function MiniBoard({ board: b, ruleset, population, filter = null }) {
+  const to = `/leaderboards/${ruleset.id}/${b.id}${filter ? `?realmType=${encodeURIComponent(filter)}` : ''}`;
   return (
     <Link className={`panel mini${b.tied ? ' is-tied' : ''}`} to={to}>
       <span className="hd"><b className="mini-title" title={displayName(b.name)}>{displayName(b.name)}</b><span className="muted xsmall nowrap">{formatNumber(b.nonzero)} with any</span></span>

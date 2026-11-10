@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api } from './api.js';
+import { setKnownVersions } from './scope.jsx';
 
 /**
  * Who this browser is signed in as, which sign-in providers are set up, and the theme. Loaded once per page load
@@ -16,6 +17,8 @@ export function SessionProvider({ children }) {
   const refresh = useCallback(async () => {
     try {
       const s = await api('/api/session');
+      // 0.11.1: which game versions this visitor can see (scope.jsx builds addresses and API calls from it).
+      setKnownVersions(s.versions);
       setState({ loading: false, error: null, ...s });
     } catch (err) {
       setState((prev) => ({ ...prev, loading: false, error: err.message }));

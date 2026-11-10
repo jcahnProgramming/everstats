@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { activeSection } from './sectionSpy.js';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from '../scope.jsx';
 import { api } from '../api.js';
 import { authError } from '../authMessages.js';
 import { Icon } from '../chrome/Icon.jsx';
@@ -771,7 +772,7 @@ function CharactersSection({ account, providers, onChange }) {
           {account.characters.map((c) => (
             <div key={c.id} className="listrow">
               <span className="stack grow-col">
-                <b>{c.state === 'tracked' ? <Link to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link> : <>{c.name} <span className="surname">{c.surname}</span></>}</b>
+                <b>{c.state === 'tracked' ? <Link scope={c.version} to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link> : <>{c.name} <span className="surname">{c.surname}</span></>}</b>
                 <span className="muted xsmall">{[c.level ? `Level ${c.level}` : null, c.class, c.ruleset?.name].filter(Boolean).join(' · ')} · {c.state === 'missing' ? `Blizzard hasn’t returned this character since ${formatDate(c.since)}` : CHAR_STATE[c.state]}</span>
               </span>
               <span className="stack gap-6 char-toggles">

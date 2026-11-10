@@ -54,6 +54,10 @@ export const scopeMiddleware = (scope) => (req, res, next) => runInScope(scope, 
  * before the routers see the path), so `/characters/:slug/collections` can't mistake a name for a sub-page.
  */
 export const KEY_JOIN = '~';
+/** The page prefix of a scope: '' for the primary one (its URLs are unprefixed), else "/{version}/{region}". */
+export const scopePrefix = (scope = currentScope()) => (inPrimaryScope(scope) ? '' : `/${scope.version}/${scope.region}`);
+/** A path slug ("name-surname" or "realm/name") as URL path segments: each part encoded, the slash kept. */
+export const encodeSlug = (slug) => String(slug ?? '').split('/').map(encodeURIComponent).join('/');
 export const pathSlug = (row) => (row?.realm_slug ? `${row.realm_slug}/${row.slug}` : row?.slug ?? null);
 export function splitKey(key, scope = currentScope()) {
   const k = String(key ?? '');

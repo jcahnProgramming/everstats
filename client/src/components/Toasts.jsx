@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 import { Icon } from '../chrome/Icon.jsx';
 import { BadgeIcon } from '../badges/Badges.jsx';
 import { GuildBadgeIcon } from '../guildBadges/GuildBadges.jsx';

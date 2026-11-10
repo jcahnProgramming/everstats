@@ -1,7 +1,8 @@
 import { usePageTitle } from '../pageTitle.js';
 import { displayName } from '../../../server/stats/names.js';
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from '../scope.jsx';
 import { api } from '../api.js';
 import { Segmented } from '../components/Controls.jsx';
 import { EmptyState, Provenance } from '../components/EmptyState.jsx';

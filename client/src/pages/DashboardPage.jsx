@@ -2,7 +2,8 @@ import { displayName } from '../../../server/stats/names.js';
 import { useCallback, useEffect, useState } from 'react';
 import { YourGold } from '../collections/YourGold.jsx';
 import { YourGuilds } from './YourGuilds.jsx';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 import { api } from '../api.js';
 import { authError } from '../authMessages.js';
 import { Icon } from '../chrome/Icon.jsx';
@@ -27,7 +28,7 @@ import { startProvider } from './SignInPages.jsx';
 const STATE_TEXT = {
   tracked: null,
   fetching: () => 'Fetching from Blizzard now…',
-  under_10: (c) => `${c.name} ${c.surname} is level ${c.level ?? '?'}: characters appear at level 10.`,
+  under_10: (c) => `${`${c.name} ${c.surname}`.trim()} is level ${c.level ?? '?'}: characters appear at level 10.`,
   not_visible: () => 'Hasn’t logged out since reaching 10, or Blizzard hasn’t caught up yet (it can take 20–40 minutes).',
   missing: (c) => `Blizzard hasn’t returned this character since ${formatDate(c.since)}. Still checking; its old numbers aren’t shown.`,
 };
@@ -159,6 +160,10 @@ function CheckState({ data, providers, linkedReader }) {
 function Featured({ data, onPick, onReordered }) {
   const f = data.featured;
   const toast = useToasts();
+  // 0.11.1: characters of several game versions; pinned statistics are the primary version's.
+  const several = (data.versions?.length ?? 0) > 1;
+  const pinsHere = !data.pinsVersion || f.version === data.pinsVersion;
+  const pinsName = data.versions?.find((v) => v.id === data.pinsVersion)?.name ?? null;
   // 0.8.1: the pins reorder by drag (components/Sortable.jsx); the order is saved at once (PUT /api/account/pins), with Undo.
   const reorder = async (ids) => {
     try {
@@ -174,12 +179,12 @@ function Featured({ data, onPick, onReordered }) {
       <div className="row gap-16">
         <div className="stack gap-6 flex-fill">
           <span className="eyebrow">{data.featuredChosen ? 'Featured character' : 'Featured: your highest level'}</span>
-          <h2 className="h-display char-name" id="featured-h"><Link to={`/c/${encodeURIComponent(f.slug)}`}>{f.name} <span className="surname">{f.surname}</span></Link></h2>
-          <span className="t2">{[f.level ? `Level ${f.level}` : null, f.race, f.class, f.ruleset?.name].filter(Boolean).join(' · ')}</span>
+          <h2 className="h-display char-name" id="featured-h"><Link scope={f.version} to={`/c/${encodeURIComponent(f.slug)}`}>{f.name} <span className="surname">{f.surname}</span></Link></h2>
+          <span className="t2">{[several ? data.versions.find((v) => v.id === f.version)?.name : null, f.level ? `Level ${f.level}` : null, f.race, f.class, f.realm, f.ruleset?.name].filter(Boolean).join(' · ')}</span>
           <Fresh at={f.fetchedAt} prefix="Data as of " />
         </div>
-        <TierBrief brief={f.tier} slug={f.slug} />
-        <button type="button" className="btn sm ghost" onClick={onPick}><Icon name="plus" size="sm" />Choose pins</button>
+        <TierBrief brief={f.tier} slug={f.slug} scope={f.version} />
+        {pinsHere && <button type="button" className="btn sm ghost" onClick={onPick}><Icon name="plus" size="sm" />Choose pins</button>}
       </div>
       {f.hidden && <EmptyState kind="hidden" compact title="Hidden, so it isn't ranked"><span>Show it again in <Link to="/settings#characters">Settings</Link> to see its ranks.</span></EmptyState>}
       {data.pins.length > 0 && (
@@ -188,7 +193,7 @@ function Featured({ data, onPick, onReordered }) {
           renderItem={(p, { grip }) => (
             <>
               <span className="pin-grip">{grip}</span>
-              <Link className="panel statcard" draggable={false} to={`/leaderboards/${f.ruleset.id}/${p.id}`}>
+              <Link className="panel statcard" draggable={false} scope={f.version} to={`/leaderboards/${f.ruleset.id}/${p.id}`}>
               {/* 0.9.0: the label wraps (two lines, a step smaller when long) in a box that leaves room for the grip,
                   so the grip can never sit on it; rank and movement each have their own line, movement at the foot. */}
               <span className={`eyebrow pin-label${(p.name ?? '').length > 22 ? ' is-long' : ''}`} title={displayName(p.name) ?? undefined}>{displayName(p.name) ?? 'Statistic no longer available'}</span>
@@ -203,30 +208,37 @@ function Featured({ data, onPick, onReordered }) {
             </>
           )} />
       )}
-      {data.pins.length === 0 && <EmptyState kind="nodata" compact title="No pinned statistics"><span>Pin statistics from any character page, or with “Choose pins”.</span></EmptyState>}
-      <span className="muted xsmall">{data.pinsAreDefault ? 'These are the default pins. ' : ''}Rank movement compares with a week ago; it shows “—” until a week of history exists.</span>
+      {pinsHere && data.pins.length === 0 && <EmptyState kind="nodata" compact title="No pinned statistics"><span>Pin statistics from any character page, or with “Choose pins”.</span></EmptyState>}
+      {pinsHere && <span className="muted xsmall">{data.pinsAreDefault ? 'These are the default pins. ' : ''}Rank movement compares with a week ago; it shows “—” until a week of history exists.</span>}
+      {!pinsHere && <span className="muted small">Pinned statistics are {pinsName ?? 'another game version'}’s statistics, so they show when one of your {pinsName ?? 'its'} characters is featured. Open {f.name}’s page for its statistics, season cards and collections.</span>}
     </section>
   );
 }
 
 function CharacterList({ data, onFeature }) {
+  // 0.11.1: grouped by game version when the account has characters in more than one (the server sends them in that
+  // order, the primary version first); with one version the list is exactly what it was.
+  const groups = (data.versions?.length ?? 0) > 1 ? data.versions : [null];
   return (
     <section className="panel clip" aria-labelledby="chars-h">
       <div className="row board-head"><h2 className="h3" id="chars-h">All your characters</h2><span className="muted xsmall">{data.characters.length}</span></div>
       <div className="listbox flush">
-        {data.characters.map((c) => (
+        {groups.flatMap((v) => [
+          v ? <div key={`v-${v.id}`} className="listrow list-group-h"><span className="eyebrow">{v.name}</span><span className="muted xsmall">{data.characters.filter((c) => c.version === v.id).length}</span></div> : null,
+          ...data.characters.filter((c) => !v || c.version === v.id).map((c) => (
           <div key={c.id} className="listrow">
             {c.state === 'tracked' && !c.hidden && <TierBadge letter={c.tier ?? null} size="sm" />}
             <span className="stack grow-col">
-              <b>{c.state === 'tracked' ? <Link to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link> : <>{c.name} <span className="surname">{c.surname}</span></>}</b>
-              <span className="muted xsmall">{STATE_TEXT[c.state]?.(c) ?? [c.level ? `Level ${c.level}` : null, c.race, c.class, c.ruleset?.name].filter(Boolean).join(' · ')}</span>
+              <b>{c.state === 'tracked' ? <Link scope={c.version} to={`/c/${encodeURIComponent(c.slug)}`}>{c.name} <span className="surname">{c.surname}</span></Link> : <>{c.name} <span className="surname">{c.surname}</span></>}</b>
+              <span className="muted xsmall">{STATE_TEXT[c.state]?.(c) ?? [c.level ? `Level ${c.level}` : null, c.race, c.class, c.realm, c.ruleset?.name].filter(Boolean).join(' · ')}</span>
             </span>
             {c.hidden && <span className="tag">Hidden</span>}
             {c.state === 'tracked' && data.featured?.id !== c.id && <button type="button" className="btn sm ghost" onClick={() => onFeature(c.id)}>Feature</button>}
             {c.state === 'tracked' && data.featured?.id === c.id && <span className="tag gold">Featured</span>}
             {c.state !== 'tracked' && <span className="tag">{{ fetching: 'Fetching', under_10: 'Under 10', missing: 'Not returned' }[c.state] ?? 'Not visible yet'}</span>}
           </div>
-        ))}
+          )),
+        ])}
       </div>
     </section>
   );

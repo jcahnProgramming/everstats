@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 import { api } from '../api.js';
 import { BadgeIcon, BadgePill, InlineBadge } from '../badges/Badges.jsx';
 import { Icon } from '../chrome/Icon.jsx';
@@ -239,7 +239,7 @@ export function YourGuildsSection({ guilds }) {
       <ul className="plain stack gap-8">
         {guilds.map((g) => (
           <li key={g.slug} className="row gap-10">
-            <Link to={`/g/${encodeURIComponent(g.slug)}#manage`}>{g.name}</Link>
+            <Link scope={g.version} to={`/g/${encodeURIComponent(g.slug)}#manage`}>{g.name}</Link>
             <span className="tag">{g.role === 'gm' ? 'Guild Master' : 'Officer'}</span>
           </li>
         ))}

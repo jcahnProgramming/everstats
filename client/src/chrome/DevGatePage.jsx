@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
+import { Link, useNavigate } from '../scope.jsx';
 import { api } from '../api.js';
 import { SITE_ENVIRONMENT } from '../release.js';
 import { useSession } from '../session.jsx';

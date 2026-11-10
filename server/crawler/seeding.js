@@ -148,7 +148,7 @@ export function leaderboardMembers(json) {
       const k = `${realmSlug}/${slug}`;
       if (seen.has(k)) continue;
       seen.add(k);
-      out.push({ realmSlug, slug });
+      out.push({ realmSlug, slug, name: p.name }); // name: as Blizzard wrote it (the probe's leaderboard pick shows it)
     }
   }
   return out;

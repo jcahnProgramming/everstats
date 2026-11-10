@@ -1,6 +1,6 @@
 import { usePageTitle } from '../pageTitle.js';
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from '../scope.jsx';
 import { api } from '../api.js';
 import { Segmented } from '../components/Controls.jsx';
 import { EmptyState, Provenance } from '../components/EmptyState.jsx';

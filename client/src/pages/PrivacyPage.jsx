@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 
 /**
  * /privacy: plainly, what an account stores, where character data comes from, how hiding works, and how to delete an

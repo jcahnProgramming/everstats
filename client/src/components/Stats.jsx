@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 import { CompassRing } from '../chrome/BrandMark.jsx';
 import { Icon } from '../chrome/Icon.jsx';
 import { formatNumber } from '../format.js';

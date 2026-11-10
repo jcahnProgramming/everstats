@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 
 // Also what /admin shows anyone without an admin session: the admin area doesn't announce itself.
 export function NotFoundPage() {

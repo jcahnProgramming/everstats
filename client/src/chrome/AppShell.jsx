@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
+import { Outlet, useLocation, useNavigationType } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from '../scope.jsx';
 import { api } from '../api.js';
 import { APP_VERSION, SITE_ENVIRONMENT } from '../release.js';
 import { parseCharacterSearch } from '../search.js';
@@ -18,11 +19,15 @@ import { feedbackHref } from '../feedback/FeedbackPages.jsx';
 import { UpdateBar } from './UpdateBar.jsx';
 import { BannedStrip, NoticeGate } from '../moderation/Moderation.jsx';
 import { DevGate } from './DevGatePage.jsx';
+import { GameVersionSwitcher, parseRealmSearch, useRealms } from './GameVersion.jsx';
+import { useScope } from '../scope.jsx';
 
 /**
  * The frame of every page (design v1, navigation option A "Ledger Bar", design/v1/components/nav.md):
  *
- *   top bar     emblem + wordmark · Leaderboards · Guilds · character search · Sign in / Account
+ *   top bar     emblem + wordmark · [game version] · Leaderboards · Guilds · character search · Sign in / Account
+ *               0.11.1: the game-version switcher (chrome/GameVersion.jsx) appears only when more than one version is
+ *               switched on; Leaderboards, Guilds and the search then mean the version shown there.
  *               phone (≤ 719px): two icon buttons, search and menu, each opening a sheet under the bar
  *   beta        while the beta window is open: a "Beta" badge beside the wordmark and a slim banner under the bar,
  *               both linking to /beta (BetaBanner.jsx). Gone the moment the owner closes the beta.
@@ -148,6 +153,7 @@ function TopBar() {
           <span>Everstats</span>
         </Link>
         <BetaBadge />
+        <GameVersionSwitcher />
         <nav className="navlinks" aria-label="Primary">
           <NavLinks />
         </nav>
@@ -183,6 +189,7 @@ function TopBar() {
               <TopSearch full autoFocus />
             ) : (
               <nav className="stack gap-4" aria-label="Primary">
+                <GameVersionSwitcher block />
                 <NavLinks block />
                 <AccountButton block />
                 <FeedbackLinks />
@@ -213,11 +220,13 @@ function FeedbackLinks() {
 
 function NavLinks({ block = false }) {
   const cls = block ? 'btn ghost block left' : undefined;
+  // 0.11.1: the version the header shows (the page's own, or the visitor's choice on a page of no version).
+  const { version } = useScope();
   // NavLink sets aria-current="page", which the design's .navlinks underline keys off.
   return (
     <>
-      <NavLink to="/leaderboards" className={cls}>Leaderboards</NavLink>
-      <NavLink to="/guilds" className={cls}>Guilds</NavLink>
+      <NavLink to="/leaderboards" scope={version} className={cls}>Leaderboards</NavLink>
+      <NavLink to="/guilds" scope={version} className={cls}>Guilds</NavLink>
     </>
   );
 }
@@ -273,6 +282,10 @@ function AccountButton({ className = '', block = false }) {
  */
 function TopSearch({ full = false, autoFocus = false, shortcut = false }) {
   const navigate = useNavigate();
+  // 0.11.1: Enter looks a character up in the version the header shows; suggestions come from every version that is on.
+  const scope = useScope();
+  const realms = useRealms(scope.version, Boolean(scope.meta?.realms));
+  const several = scope.versions.length > 1;
   const [value, setValue] = useState('');
   const [problem, setProblem] = useState(null);
   const [found, setFound] = useState(null);
@@ -304,7 +317,7 @@ function TopSearch({ full = false, autoFocus = false, shortcut = false }) {
     }
     let live = true;
     const t = setTimeout(() => {
-      api(`/api/search?q=${encodeURIComponent(q)}`).then((r) => { if (live) setFound(r); }, () => { if (live) setFound(null); });
+      api(`/api/search/all?q=${encodeURIComponent(q)}`).then((r) => { if (live) setFound(r.results ?? []); }, () => { if (live) setFound(null); });
     }, 200);
     return () => {
       live = false;
@@ -326,18 +339,19 @@ function TopSearch({ full = false, autoFocus = false, shortcut = false }) {
     };
   }, [open]);
 
-  const done = (to) => {
+  const done = (to, version = scope.version) => {
     setProblem(null);
     setValue('');
     setOpen(false);
     input.current?.blur();
     // 0.7.1: marks the visit as a search (the admin's Activity counts searches; a count, nothing else is kept).
-    navigate(to, { state: { via: 'search' } });
+    navigate(to, { state: { via: 'search' }, scope: version });
   };
   const submit = (e) => {
     e.preventDefault();
-    const r = parseCharacterSearch(value);
-    if (r.ok) return done(`/c/${encodeURIComponent(r.slug)}`);
+    // A version with realms: "Name Realm"; WoW Forever: "Name Surname". Anything else is a search of what's tracked.
+    const r = scope.meta?.realms ? parseRealmSearch(value, realms.list) : parseCharacterSearch(value);
+    if (r.ok) return done(r.to ?? `/c/${encodeURIComponent(r.slug)}`);
     if (value.trim().length >= 2) return done(`/search?q=${encodeURIComponent(value.trim())}`);
     setProblem(r.problem);
   };
@@ -368,7 +382,9 @@ function TopSearch({ full = false, autoFocus = false, shortcut = false }) {
 
   const id = full ? 'sheet-search-problem' : 'top-search-problem';
   const listId = full ? 'sheet-search-list' : 'top-search-list';
-  const any = found && (found.guilds.length > 0 || found.characters.length > 0);
+  const any = found && found.some((r) => r.guilds.length > 0 || r.characters.length > 0);
+  // With several versions on, every suggestion says which one it is (and its realm, where there are realms).
+  const where = (r, row) => [several ? r.scope.short : null, row.realm, row.level ? `Level ${row.level}` : null, r.scope.onePool ? null : row.ruleset].filter(Boolean).join(' · ');
   return (
     <div ref={box} className={`top-search-box${full ? ' full' : ''}`} data-edit-guard="off">
       <form role="search" className={`search ${full ? 'full' : ''} top-search`} onSubmit={submit} noValidate>
@@ -384,7 +400,7 @@ function TopSearch({ full = false, autoFocus = false, shortcut = false }) {
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
           placeholder="Character or guild"
-          aria-label="Search characters by name and surname, or guilds by name"
+          aria-label={scope.meta?.realms ? 'Search characters by name and realm, or guilds by name' : 'Search characters by name and surname, or guilds by name'}
           aria-invalid={problem ? 'true' : undefined}
           aria-describedby={problem ? id : undefined}
           aria-controls={open && any ? listId : undefined}
@@ -401,24 +417,24 @@ function TopSearch({ full = false, autoFocus = false, shortcut = false }) {
       </form>
       {open && any && (
         <div id={listId} className="search-suggest" onKeyDown={onListKey}>
-          {found.characters.length > 0 && <span className="eyebrow search-suggest-h">Characters</span>}
-          {found.characters.map((c) => (
-            <Link key={`c-${c.slug}`} to={`/c/${encodeURIComponent(c.slug)}`} state={{ via: 'search' }} onClick={() => done(`/c/${encodeURIComponent(c.slug)}`)}>
+          {found.some((r) => r.characters.length > 0) && <span className="eyebrow search-suggest-h">Characters</span>}
+          {found.flatMap((r) => r.characters.map((c) => (
+            <Link key={`c-${r.scope.version}-${c.slug}`} to={`/c/${encodeURIComponent(c.slug)}`} scope={r.scope.version} state={{ via: 'search' }} onClick={() => done(`/c/${encodeURIComponent(c.slug)}`, r.scope.version)}>
               <span className="tag search-kind">Character</span>
               <TierBadge letter={c.tier ?? null} size="sm" />
               <span className="ellipsis flex-fill">{c.name} <span className="surname">{c.surname}</span></span>
-              <span className="muted xsmall nowrap">{[c.level ? `Level ${c.level}` : null, c.ruleset].filter(Boolean).join(' · ')}</span>
+              <span className="muted xsmall nowrap">{where(r, c)}</span>
             </Link>
-          ))}
-          {found.guilds.length > 0 && <span className="eyebrow search-suggest-h">Guilds</span>}
-          {found.guilds.map((g) => (
-            <Link key={`g-${g.slug}`} to={`/g/${encodeURIComponent(g.slug)}`} state={{ via: 'search' }} onClick={() => done(`/g/${encodeURIComponent(g.slug)}`)}>
+          )))}
+          {found.some((r) => r.guilds.length > 0) && <span className="eyebrow search-suggest-h">Guilds</span>}
+          {found.flatMap((r) => r.guilds.map((g) => (
+            <Link key={`g-${r.scope.version}-${g.slug}`} to={`/g/${encodeURIComponent(g.slug)}`} scope={r.scope.version} state={{ via: 'search' }} onClick={() => done(`/g/${encodeURIComponent(g.slug)}`, r.scope.version)}>
               <span className="tag gold search-kind">Guild</span>
               <span className="ellipsis flex-fill">{g.name}</span>
-              <span className="muted xsmall nowrap">{[g.ruleset, g.faction].filter(Boolean).join(' · ')}</span>
+              <span className="muted xsmall nowrap">{[several ? r.scope.short : null, g.realm, r.scope.onePool ? null : g.ruleset, g.faction].filter(Boolean).join(' · ')}</span>
             </Link>
-          ))}
-          <span className="muted xsmall search-suggest-foot">Enter looks up a character by name and surname at Blizzard.</span>
+          )))}
+          <span className="muted xsmall search-suggest-foot">{scope.meta?.realms ? `Enter looks up a ${scope.meta.name} character by name and realm at Blizzard: “Name Realm”.` : 'Enter looks up a character by name and surname at Blizzard.'}</span>
         </div>
       )}
     </div>

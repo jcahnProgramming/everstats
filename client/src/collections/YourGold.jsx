@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 import { api } from '../api.js';
 import { formatDate } from '../format.js';
 import { formatMoney } from './parts.jsx';
@@ -38,7 +38,7 @@ export function YourGold() {
           <tbody>
             {data.characters.map((c) => (
               <tr key={c.id}>
-                <td><Link to={`/c/${encodeURIComponent(c.slug)}/collections`}>{c.name} <span className="surname">{c.surname}</span></Link><span className="muted xsmall"> · {formatDate(c.fetchedAt)}</span></td>
+                <td><Link scope={c.version} to={`/c/${encodeURIComponent(c.slug)}/collections`}>{c.name} <span className="surname">{c.surname}</span></Link><span className="muted xsmall"> · {formatDate(c.fetchedAt)}</span></td>
                 <td className="r strong">{formatMoney(c.fields.money)}</td>
                 <td className="r">{formatMoney(c.fields.gained)}</td>
                 <td className="r">{formatMoney(c.fields.lost)}</td>

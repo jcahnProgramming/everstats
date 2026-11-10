@@ -1,6 +1,6 @@
 import { displayName } from '../../../server/stats/names.js';
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from '../scope.jsx';
 import { formatNumber, timeAgo } from '../format.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { ProvisionalText, TierBadge, letterRange } from './Tier.jsx';

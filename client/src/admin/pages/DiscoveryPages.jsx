@@ -971,6 +971,9 @@ export function DiscoveryProbePage() {
   );
 }
 
+// The words for the leaderboard a pick came from (the API's `source`).
+const BOARD_SOURCE_LABELS = { 'mythic-leaderboard': 'From the current Mythic+ leaderboard', 'pvp-leaderboard': 'From the current PvP leaderboard' };
+
 function ProbeFormPanel({ list, onQueued }) {
   const { version, region, versionName } = useScope();
   const versions = usePanel('discovery-probe-versions', () => api('/api/admin/discovery/probe-versions'), []);
@@ -978,7 +981,9 @@ function ProbeFormPanel({ list, onQueued }) {
   const regionOk = Boolean(v?.regions?.includes(region));
   const [form, setForm] = useState(null);
   const [mine, setMine] = useState(null); // the prefill answer
+  const [board, setBoard] = useState(null); // the leaderboard pick's answer
   const prefill = useAction();
+  const boardPick = useAction();
   const queue = useAction();
   const d = list.data;
   useEffect(() => {
@@ -1004,6 +1009,18 @@ function ProbeFormPanel({ list, onQueued }) {
     }));
     return r;
   }, { working: 'Reading your character list…', done: (r) => (r.pick ? `Filled in ${[r.pick.name, r.pick.surname].filter(Boolean).join(' ')}` : 'Nothing to fill in (see the note)') });
+  // 0.11.1: a character from a public leaderboard of the version (app token only; stores nothing). The answer names
+  // which leaderboard gave it; the labels below are keyed by that source, never by a version.
+  const runBoardPick = () => boardPick.run(async () => {
+    const r = await api(`/api/admin/discovery/probe-leaderboard-characters?version=${encodeURIComponent(version)}&region=${encodeURIComponent(region)}`);
+    setBoard(r);
+    setForm((x) => ({
+      ...(x ?? f),
+      ...(r.pick ? { name: r.pick.name, surname: '', realm: r.pick.realmSlug ?? '' } : {}),
+      ...(r.pick ? { guild: r.guild?.name ?? '' } : {}),
+    }));
+    return r;
+  }, { working: 'Reading a leaderboard…', done: (r) => (r.pick ? `Filled in ${r.pick.name} (${r.pick.realmSlug})${r.guild ? '' : ' · no guild: type one in'}` : 'Nothing to fill in (see the note)') });
   const start = (e) => {
     e.preventDefault();
     queue.run(async () => {
@@ -1032,6 +1049,19 @@ function ProbeFormPanel({ list, onQueued }) {
             </div>
             {mine?.characters?.length > 0 && (
               <span className="gd-note">Your characters on {v?.name}: {mine.characters.map((c) => `${[c.name, c.surname].filter(Boolean).join(' ')}${c.realmSlug ? ` (${c.realmSlug})` : ''} ${c.level ?? '?'}`).join(', ')}</span>
+            )}
+            {v?.leaderboardCharacters && (
+              <div className="gd-row">
+                <ActionButton action={boardPick} className="btn sm" icon="user" disabled={!regionOk || !data.configured} onRun={runBoardPick}
+                  title={data.configured ? 'Take a character from a current public leaderboard of this version (no Battle.net authorization needed; stores nothing)' : 'Enter the Blizzard API keys first'}>Pick from a leaderboard</ActionButton>
+                <ActionStatus action={boardPick} />
+                {board?.version === version && board.source && <span className="t2 small" role="status">{BOARD_SOURCE_LABELS[board.source] ?? 'From a current leaderboard'}</span>}
+                {board?.version === version && board.pick && !board.guild && <span className="t2 small" role="status">No guild for this character: type one in (the probe needs a guild).</span>}
+                {board?.version === version && board.note && <span className="t2 small" role="status">{board.note}</span>}
+              </div>
+            )}
+            {board?.version === version && board.characters?.length > 0 && (
+              <span className="gd-note">On that leaderboard: {board.characters.map((c) => `${c.name} (${c.realmSlug})`).join(', ')}</span>
             )}
             <div className="gd-row">
               <label className="field gd-fill"><span className="lab">Character: name</span><input className="inp" value={f.name} onChange={set('name')} autoComplete="off" /></label>
