@@ -1,11 +1,10 @@
-import { scopeSql } from '../core/config.js';
+import { findGuild, guildKey } from '../characters/find.js';
 import express from 'express';
 import { requireAccount } from '../auth/sessions.js';
 import { HttpError, route } from '../core/errors.js';
 import { cleanMessage } from '../feedback/routes.js';
 import { getPlatform } from '../accounts/socials.js';
 import { resolveProfileName } from '../accounts/usernames.js';
-import { parseGuildSlug } from '../stats/slug.js';
 import { activeBan, banNotice } from './bans.js';
 import { noticeView } from './notices.js';
 import { featureOn } from '../features/registry.js';
@@ -156,8 +155,8 @@ export function createModerationPlayerRouter({ db, limits, networkOf }) {
     const body = req.body ?? {};
     if (typeof body.website === 'string' && body.website.trim() !== '') return res.json({ ok: true });
     const note = cleanNote(body.note);
-    const slug = parseGuildSlug(req.params.slug);
-    const g = slug ? await db.one(`SELECT id, name FROM guilds WHERE slug = $1 AND ${scopeSql()} ORDER BY updated_at DESC LIMIT 1`, [slug]) : null;
+    const key = guildKey(req.params.slug);
+    const g = key ? await findGuild(db, key, { cols: 'id, name' }) : null;
     if (!g) throw new HttpError(404, 'Everstats doesn’t know this guild.', 'no_guild');
     const page = await db.one('SELECT description FROM guild_pages WHERE guild_id = $1', [g.id]);
     if (!page?.description) throw new HttpError(400, 'This guild page has no description to report.', 'invalid');

@@ -407,10 +407,13 @@ test('0.10.0: a Retail probe (a realm version, disabled for players): realm path
 
   // Boards (rule A7): one per statistic id, the feeds' numbers, the PvP family once; ids and texts skipped with reasons.
   const keys = s.boards.list.map((b) => b.key);
-  for (const k of ['statistic:60', 'statistic:62', 'feed:statistics:health', 'feed:profile:average_item_level', 'collections:pvp:honorable_kills', 'feed:pvp-summary:pvp_map_statistics[world_map-30].match_statistics.won', 'feed:guild-profile:achievement_points']) {
+  for (const k of ['statistic:60', 'statistic:62', 'feed:statistics:health', 'feed:profile:average_item_level', 'collections:pvp:honorable_kills', 'feed:pvp-summary:pvp_map_statistics[world_map-30].match_statistics.won']) {
     assert.ok(keys.includes(k), k);
   }
   assert.ok(!keys.includes('feed:pvp-summary:honorable_kills'), 'the PvP family board is not counted twice');
+  // 0.11.1 (owner's decision 4): guild numbers are never character boards; each skip carries its reason.
+  assert.ok(!keys.some((k) => k.startsWith('feed:guild-')), 'no board from a guild feed');
+  assert.ok(s.boards.skipped.some((x) => x.feed === 'guild-profile' && x.rule === 'guild-number' && /never character boards/.test(x.reason)));
   assert.ok(s.boards.skipped.some((x) => x.feed === 'statistics' && x.path === 'character.id' && x.rule === 'id'));
   assert.ok(s.boards.groups.some((g) => g.group === 'PvP'));
   assert.equal(s.answers.find((a) => a.id === 'boards').verdict, 'yes');

@@ -33,6 +33,7 @@ export async function pinsOf(db, accountId) {
  * window (no character returned it lately) is { name: null }: shown as unavailable, never given an invented name.
  */
 export async function pinCards(db, ids, character) {
+  // Pins are statistics of the primary game version; `character` is one of that version (callers check).
   const { rankOn } = await import('./boards.js');
   const { utcDay } = await import('./periods.js');
   const { statistics } = await loadCatalog(db);

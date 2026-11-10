@@ -25,7 +25,8 @@ import { createModerationPlayerRouter } from './moderation/player.js';
 import { createCardApiRouter, createCardImageRouter } from './cards/routes.js';
 import { createCardRenderer } from './cards/render.js';
 import { spaWithPreviews } from './cards/meta.js';
-import { versionApiGate, versionPageGate } from './core/versionRoutes.js';
+import { versionApi, versionImages, versionPageGate } from './core/versionRoutes.js';
+import { versionSwitchMiddleware } from './core/versionSwitch.js';
 import { createCollectionsRouter } from './collections/routes.js';
 import { createFollowRouter } from './guilds/follow.js';
 import { getSetting } from './admin/settings.js';
@@ -99,8 +100,8 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   // authentication. Every other /api write still needs Origin (server/test/devgate.test.js checks both).
   app.post(DEV_TESTER_PATH, createDevTesterEndpoint({ db, limits, networkOf, environment }));
   app.use('/api', requireSameOrigin(config.publicOrigin));
-  // 0.10.0: /api/v/{version}/{region}/… (core/versionRoutes.js): nothing is served there before 0.11.0.
-  app.use('/api', versionApiGate());
+  // 0.11.1: which switchable game versions are on (Features), fresh before anything is routed (core/versionSwitch.js).
+  app.use(versionSwitchMiddleware(db));
   app.use(loadSession(db));
   // 0.10.3: the dev tester gate (devgate/gate.js): on the dev site with its Features switch on, every page and API but
   // sign-in, static files and /api/health needs a signed-in tester (production says who) or dev's admin. Off: nothing.
@@ -124,26 +125,32 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
 
   // 0.10.3: the maintenance banner players see (release/maintenance.js; set from Admin → Release tools). Public.
   app.use('/api', createMaintenanceRouter({ db }));
+  // The routers that are about ONE game version and region. 0.11.1: each is mounted twice, at /api (the primary scope:
+  // WoW Forever, as always) and at /api/v/{version}/{region} for every other version that is switched on, where the
+  // same handlers run inside that scope (core/scope.js, core/versionRoutes.js).
+  const versioned = express.Router();
   // Character lookups, leaderboards, the statistics catalog, coverage and the beta (characters/routes.js).
-  app.use('/api', createPublicRouter({ db, limits, networkOf }));
+  versioned.use(createPublicRouter({ db, limits, networkOf }));
   // Guild pages, guild boards, the guild index and search (guilds/routes.js, 0.5.0).
-  app.use('/api', createGuildRouter({ db, limits, networkOf }));
+  versioned.use(createGuildRouter({ db, limits, networkOf }));
   // 0.9.0: "Fetch all members" on guild pages (guilds/fetchRoutes.js).
-  app.use('/api', createGuildFetchRouter({ db, limits, networkOf }));
-  app.use('/api', createTierRouter({ db }));
+  versioned.use(createGuildFetchRouter({ db, limits, networkOf }));
+  versioned.use(createTierRouter({ db }));
+  // Guild page management (0.7.0): the Guild Master's and officers' panel, "Report this link", "Your guilds".
+  versioned.use(createGuildManageRouter({ db, limits, networkOf }));
+  // 0.7.1: guild badges (detail pages, emblems, Manage → Badges, GM/officer toasts).
+  versioned.use(createGuildBadgeRouter({ db, limits, networkOf }));
+  // 0.8.2: the ban notice and appeal, moderation notices (warnings), and "Report" on profiles and guild descriptions.
+  versioned.use(createModerationPlayerRouter({ db, limits, networkOf }));
+  // 0.8.0: share cards (the maker's state, "Save as my default").
+  versioned.use(createCardApiRouter({ db, limits, networkOf }));
+  // 0.9.0: collections, the transmog tracker, Legacy Points and opt-in gold (collections/routes.js).
+  versioned.use(createCollectionsRouter({ db, limits, networkOf }));
+  app.use('/api/v', versionApi(versioned));
+  app.use('/api', versioned);
   // Badges (0.7.0): badge pages, partner marks, and the player's badge settings and toasts.
   app.use('/api', createBadgeRouter({ db, limits, networkOf }));
-  // Guild page management (0.7.0): the Guild Master's and officers' panel, "Report this link", "Your guilds".
-  app.use('/api', createGuildManageRouter({ db, limits, networkOf }));
-  // 0.7.1: guild badges (detail pages, emblems, Manage → Badges, GM/officer toasts) and feedback with replies.
-  app.use('/api', createGuildBadgeRouter({ db, limits, networkOf }));
   app.use('/api', createFeedbackRouter({ db, limits, networkOf }));
-  // 0.8.2: the ban notice and appeal, moderation notices (warnings), and "Report" on profiles and guild descriptions.
-  app.use('/api', createModerationPlayerRouter({ db, limits, networkOf }));
-  // 0.8.0: share cards (the maker's state, "Save as my default").
-  app.use('/api', createCardApiRouter({ db, limits, networkOf }));
-  // 0.9.0: collections, the transmog tracker, Legacy Points and opt-in gold (collections/routes.js).
-  app.use('/api', createCollectionsRouter({ db, limits, networkOf }));
   // 0.9.1: "Your guilds" on the home page, and "Pin to dashboard" on guild pages (guilds/follow.js).
   app.use('/api', createFollowRouter({ db, limits, networkOf }));
 
@@ -156,15 +163,18 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   app.use('/api', createAccountRouter({ db, limits, networkOf }));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
-  // 0.10.0: /{version}/{region}/… pages (core/versionRoutes.js): the primary scope redirects to the unprefixed URL;
-  // every other version answers 404 until it is enabled and built.
+  // /{version}/{region}/… pages (core/versionRoutes.js): the primary scope redirects to the unprefixed URL; a version
+  // that isn't switched on answers 404; one that is gets the same client and its own link previews (0.11.1).
   app.use(versionPageGate());
 
   // OAuth callbacks: /auth/battlenet/callback and /auth/discord/callback (registered with both providers).
   app.use('/auth', createCallbackRouter({ db, fetch }));
 
   // 0.8.0: share-card images (/card.png for the maker, /og/… for link previews).
-  app.use(createCardImageRouter({ db, limits, networkOf, fetch, renderer: cards }));
+  const cardImages = createCardImageRouter({ db, limits, networkOf, fetch, renderer: cards });
+  // 0.11.1: /{version}/{region}/card.png and /{version}/{region}/og/… are the same images, in that version's scope.
+  app.use(versionImages(cardImages));
+  app.use(cardImages);
 
   // Serve the built client (production / Docker). In dev, Vite serves it instead.
   if (existsSync(config.clientDist)) {

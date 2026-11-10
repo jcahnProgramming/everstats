@@ -1,4 +1,4 @@
-import { scopeSql } from '../core/config.js';
+import { PRIMARY_SCOPE, scopeSql } from '../core/config.js';
 import { getSetting } from '../admin/settings.js';
 import { PRIORITY, enqueueMany } from '../crawler/queue.js';
 import { KINDS } from './registry.js';
@@ -13,8 +13,10 @@ import { featureOn } from '../features/registry.js';
  * is on. Never-fetched first, oldest tracked first.
  */
 export const BATCH = 200;
-// 0.10.0: the backfill is the primary version's (the only one crawled before 0.11.0).
-const TRACKED = `profile_state = 'ok' AND level >= 10 AND stats_fetched_at IS NOT NULL AND missing_since IS NULL AND slug IS NOT NULL AND ${scopeSql()}`;
+// The backfill is the PRIMARY version's, always (named explicitly: never the request's scope). 0.11.1: a version whose
+// registry entry says collections.backfill false (World of Warcraft: collections on demand, owner's decision 6) gets no
+// backfill at all: its collections are fetched when someone looks a character up, signs in with it or opens its tab.
+const TRACKED = `profile_state = 'ok' AND level >= 10 AND stats_fetched_at IS NOT NULL AND missing_since IS NULL AND slug IS NOT NULL AND ${scopeSql('', PRIMARY_SCOPE)}`;
 
 export async function backfillStatus(db) {
   const on = await getSetting(db, 'collections.backfill');
@@ -42,8 +44,8 @@ export async function runBackfill(db) {
   const rows = await db.query(
     `SELECT c.slug FROM characters c
       WHERE c.profile_state = 'ok' AND c.level >= 10 AND c.stats_fetched_at IS NOT NULL AND c.missing_since IS NULL AND c.slug IS NOT NULL
-        AND ${scopeSql('c')} AND c.collections_fetched_at IS NULL
-        AND NOT EXISTS (SELECT 1 FROM crawl_queue q WHERE q.kind = 'collections' AND q.key = c.slug AND ${scopeSql('q')} AND q.state IN ('queued', 'running'))
+        AND ${scopeSql('c', PRIMARY_SCOPE)} AND c.collections_fetched_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM crawl_queue q WHERE q.kind = 'collections' AND q.key = c.slug AND ${scopeSql('q', PRIMARY_SCOPE)} AND q.state IN ('queued', 'running'))
       ORDER BY c.tracked_since NULLS LAST, c.id LIMIT $1`,
     [room],
   );

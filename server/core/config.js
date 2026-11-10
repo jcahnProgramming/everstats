@@ -1,6 +1,7 @@
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PRIMARY_VERSION, REGIONS, blizzardContext, isRegionEnabled, regionById, versionById } from './gameVersions.js';
+import { currentScope } from './scope.js';
 
 const DEFAULT_REGION = REGIONS.find((r) => r.enabled).id;
 
@@ -67,10 +68,11 @@ export const PRIMARY_SCOPE = Object.freeze({ version: PRIMARY_VERSION.id, region
 
 /**
  * A SQL condition limiting rows to one scope: "c.game_version = 'forever' AND c.region = 'us'" for alias 'c'. Its
- * values come from the registry only (checked here), never from a request, so they are safe to write into SQL. The
- * existing pages pass nothing: the primary scope.
+ * values come from the registry only (checked here), never from a request, so they are safe to write into SQL.
+ * 0.11.1: with no scope given it is the REQUEST's (core/scope.js currentScope): the primary scope everywhere except
+ * inside /api/v/{version}/{region}/…, where the same routers serve another version.
  */
-export function scopeSql(alias = '', scope = PRIMARY_SCOPE) {
+export function scopeSql(alias = '', scope = currentScope()) {
   const v = versionById(scope.version);
   const r = regionById(scope.region);
   if (!v || !r || !/^[a-z0-9-]+$/.test(v.id) || !/^[a-z]+$/.test(r.id)) throw new Error('scopeSql: not a registry scope');

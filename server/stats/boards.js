@@ -33,41 +33,63 @@ export const BOARD_PERIODS = Object.keys(SOURCES);
 /** The table, column and period predicate behind each period (share cards read neighbours with the same predicates). */
 export const BOARD_SOURCES = SOURCES;
 
+/**
+ * 0.11.1 BOARD FILTERS. On a one-pool version (World of Warcraft: every realm of a region ranks together) a board can
+ * be narrowed to one realm TYPE (RP), as Blizzard names it on the realm (characters.realm_type). A filter only narrows
+ * who is listed and counted on the page: ranks, "of N" and the population are all counted inside it, together, like an
+ * unfiltered board. Tiers never use one. The value is checked for shape here (Blizzard's type keys are upper-case
+ * words) and against the realm types that exist by the route; it is written into the SQL as a literal only after that.
+ */
+export const REALM_TYPE = /^[A-Z][A-Z0-9_]{0,39}$/;
+export function filterSql(filter, alias = '') {
+  const t = filter?.realmType;
+  if (!t) return '';
+  if (!REALM_TYPE.test(t)) throw new Error('not a realm type');
+  const col = alias ? `${alias}.character_id` : 'character_id';
+  return ` AND ${col} IN (SELECT id FROM characters WHERE realm_type = '${t}')`;
+}
+const charFilterSql = (filter) => {
+  const t = filter?.realmType;
+  if (!t) return '';
+  if (!REALM_TYPE.test(t)) throw new Error('not a realm type');
+  return ` AND realm_type = '${t}'`;
+};
+
 const startOf = (period, now) => (period === 'overall' ? null : periodStart(period, now()));
 const params = (period, now, ...rest) => (period === 'overall' ? rest : [...rest, startOf(period, now)]);
 
 /** Tracked characters on a ruleset (overall), or with a baseline in the current period. */
-export async function populationOf(db, rulesetId, period = 'overall', { now = Date.now, derived = false, population = null } = {}) {
+export async function populationOf(db, rulesetId, period = 'overall', { now = Date.now, derived = false, population = null, filter = null } = {}) {
   if (period === 'overall') {
     // 0.9.0: a collection count's board counts only characters whose collections Everstats has fetched (the rest aren't
     // "at zero", they're unknown).
     const extra = (derived ? ' AND collections_fetched_at IS NOT NULL' : '') + (POPULATIONS[population] ?? '');
-    return (await db.one(`SELECT count(*)::int AS n FROM characters WHERE ruleset_id = $1 AND stats_fetched_at IS NOT NULL AND NOT hidden${extra}`, [rulesetId])).n;
+    return (await db.one(`SELECT count(*)::int AS n FROM characters WHERE ruleset_id = $1 AND stats_fetched_at IS NOT NULL AND NOT hidden${extra}${charFilterSql(filter)}`, [rulesetId])).n;
   }
-  return (await db.one('SELECT count(*)::int AS n FROM period_baselines WHERE period = $1 AND period_start = $2 AND ruleset_id = $3 AND NOT hidden', [period, startOf(period, now), rulesetId])).n;
+  return (await db.one(`SELECT count(*)::int AS n FROM period_baselines WHERE period = $1 AND period_start = $2 AND ruleset_id = $3 AND NOT hidden${filterSql(filter)}`, [period, startOf(period, now), rulesetId])).n;
 }
 
 /** Every board of one ruleset and period: { population, byStat: Map(statId → { nonzero, max, min }) } above zero. */
-export async function boardCounts(db, rulesetId, period = 'overall', { now = Date.now } = {}) {
+export async function boardCounts(db, rulesetId, period = 'overall', { now = Date.now, filter = null } = {}) {
   const s = SOURCES[period];
   const rows = await db.query(
     `SELECT statistic_id, count(*)::int AS nonzero, max(${s.col}) AS max, min(${s.col}) AS min
-       FROM ${s.table} WHERE ruleset_id = $1 AND NOT hidden AND ${s.col} > 0 ${s.where.replace('$3', '$2')}
+       FROM ${s.table} WHERE ruleset_id = $1 AND NOT hidden AND ${s.col} > 0 ${s.where.replace('$3', '$2')}${filterSql(filter)}
       GROUP BY statistic_id LIMIT 20000`,
     period === 'overall' ? [rulesetId] : [rulesetId, startOf(period, now)],
   );
-  return { population: await populationOf(db, rulesetId, period, { now }), byStat: new Map(rows.map((r) => [r.statistic_id, { nonzero: r.nonzero, max: r.max, min: r.min }])) };
+  return { population: await populationOf(db, rulesetId, period, { now, filter }), byStat: new Map(rows.map((r) => [r.statistic_id, { nonzero: r.nonzero, max: r.max, min: r.min }])) };
 }
 
 /** One board: { population, nonzero, max, min }. An index range, not the whole ruleset. */
-export async function statCounts(db, { statisticId, rulesetId, period = 'overall', now = Date.now }) {
+export async function statCounts(db, { statisticId, rulesetId, period = 'overall', now = Date.now, filter = null }) {
   const s = SOURCES[period];
   const row = await db.one(
     `SELECT count(*)::int AS nonzero, max(${s.col}) AS max, min(${s.col}) AS min FROM ${s.table}
-      WHERE statistic_id = $1 AND ruleset_id = $2 AND NOT hidden AND ${s.col} > 0 ${s.where}`,
+      WHERE statistic_id = $1 AND ruleset_id = $2 AND NOT hidden AND ${s.col} > 0 ${s.where}${filterSql(filter)}`,
     params(period, now, statisticId, rulesetId),
   );
-  return { population: await populationOf(db, rulesetId, period, { now, derived: isDerivedId(statisticId), population: countById.get(Number(statisticId))?.population ?? null }), nonzero: row.nonzero, max: row.max, min: row.min };
+  return { population: await populationOf(db, rulesetId, period, { now, derived: isDerivedId(statisticId), population: countById.get(Number(statisticId))?.population ?? null, filter }), nonzero: row.nonzero, max: row.max, min: row.min };
 }
 
 /** "Everyone's tied": two or more characters have any, and all of them have the same value. Zeros don't count. */
@@ -90,12 +112,12 @@ function decodeCursor(raw) {
  * One page of a board: rows above zero, best first, with shared ranks.
  *   → { rows: [{ rank, characterId, value, text }], next: cursor | null }
  */
-export async function boardPage(db, { statisticId, rulesetId, period = 'overall', cursor = null, limit: rawLimit, now = Date.now }) {
+export async function boardPage(db, { statisticId, rulesetId, period = 'overall', cursor = null, limit: rawLimit, now = Date.now, filter = null }) {
   const s = SOURCES[period];
   const limit = pageLimit(rawLimit, { fallback: 25, max: 100 });
   const c = decodeCursor(cursor);
   const textCol = period === 'overall' ? 'text' : 'NULL::text AS text';
-  const extra = s.where;
+  const extra = `${s.where}${filterSql(filter)}`;
   const base = params(period, now, statisticId, rulesetId);
   const n = base.length;
   const rows = await db.query(
@@ -106,7 +128,7 @@ export async function boardPage(db, { statisticId, rulesetId, period = 'overall'
     [...base, c?.v ?? null, c?.id ?? null, limit + 1],
   );
   const page = rows.slice(0, limit);
-  const ranks = await ranksFor(db, { statisticId, rulesetId, period, values: [...new Set(page.map((r) => r.value))], now });
+  const ranks = await ranksFor(db, { statisticId, rulesetId, period, values: [...new Set(page.map((r) => r.value))], now, filter });
   return {
     rows: page.map((r) => ({ rank: ranks.get(r.value), characterId: r.character_id, value: r.value, text: r.text })),
     next: rows.length > limit ? encodeCursor(page.at(-1).value, page.at(-1).character_id) : null,
@@ -114,14 +136,14 @@ export async function boardPage(db, { statisticId, rulesetId, period = 'overall'
 }
 
 /** Map(value → rank) on one board: 1 + the visible characters strictly above each value. */
-export async function ranksFor(db, { statisticId, rulesetId, period = 'overall', values, now = Date.now }) {
+export async function ranksFor(db, { statisticId, rulesetId, period = 'overall', values, now = Date.now, filter = null }) {
   const out = new Map();
   if (!values.length) return out;
   const s = SOURCES[period];
   const base = params(period, now, statisticId, rulesetId);
   const rows = await db.query(
     `SELECT v.value, (SELECT count(*)::int FROM ${s.table} o
-                       WHERE o.statistic_id = $1 AND o.ruleset_id = $2 AND NOT o.hidden AND o.${s.col} > 0 AND o.${s.col} > v.value ${s.where.replace(/period/g, 'o.period')}) + 1 AS rank
+                       WHERE o.statistic_id = $1 AND o.ruleset_id = $2 AND NOT o.hidden AND o.${s.col} > 0 AND o.${s.col} > v.value ${s.where.replace(/period/g, 'o.period')}${filterSql(filter, 'o')}) + 1 AS rank
        FROM unnest($${base.length + 1}::float8[]) AS v(value)`,
     [...base, values],
   );
@@ -148,12 +170,12 @@ export async function characterRanks(db, characterId, rulesetId) {
  * A character's rank on one board, for pins and "your characters on this board":
  *   { value, rank (null at zero: not ranked), withAny (characters above zero), population (tracked) }
  */
-export async function rankOn(db, { characterId, statisticId, rulesetId, period = 'overall', now = Date.now }) {
+export async function rankOn(db, { characterId, statisticId, rulesetId, period = 'overall', now = Date.now, filter = null }) {
   const s = SOURCES[period];
   const base = params(period, now, statisticId, characterId);
   const row = await db.one(`SELECT ${s.col} AS value FROM ${s.table} WHERE statistic_id = $1 AND character_id = $2 ${s.where}`, base);
   const value = row?.value ?? 0;
-  const counts = await statCounts(db, { statisticId, rulesetId, period, now });
-  const rank = value > 0 ? (await ranksFor(db, { statisticId, rulesetId, period, values: [value], now })).get(value) : null;
+  const counts = await statCounts(db, { statisticId, rulesetId, period, now, filter });
+  const rank = value > 0 ? (await ranksFor(db, { statisticId, rulesetId, period, values: [value], now, filter })).get(value) : null;
   return { value, rank, withAny: counts.nonzero, population: counts.population };
 }

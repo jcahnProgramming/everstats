@@ -110,6 +110,17 @@ async function writeValue(q, ch, characterId, statisticId, value, fetchedAt) {
   }
 }
 
+/**
+ * 0.11.1: the statistic id of each fixed count on one game version: Map(count key → id). The native version's are the
+ * fixed ids (DERIVED_BASE + n); any other version's were allocated the first time a character had a value, so a count
+ * nobody has yet has no id there (and no board).
+ */
+export async function countIds(q, version) {
+  if (versionById(version)?.nativeIds) return new Map(COUNTS.map((c) => [c.key, c.id]));
+  const rows = await q.query('SELECT id, derived FROM statistics WHERE game_version = $1 AND derived = ANY($2::text[]) LIMIT 200', [version, COUNTS.map((c) => c.key)]);
+  return new Map(rows.map((r) => [r.derived, Number(r.id)]));
+}
+
 export async function deriveCounts(q, characterId) {
   const ch = await q.one('SELECT ruleset_id, hidden, game_version FROM characters WHERE id = $1', [characterId]);
   if (!ch || ch.ruleset_id === null) return 0;

@@ -1,6 +1,10 @@
 import { getSetting } from '../admin/settings.js';
 import { PRIMARY_VERSION, enabledVersions } from '../core/gameVersions.js';
 import { loadCatalog, loadCatalogFresh } from '../stats/catalog.js';
+import { currentScope } from '../core/scope.js';
+
+// 0.11.1: with no version named, the REQUEST's game version (core/scope.js): the primary one outside a scoped request.
+const scopeVersion = () => currentScope().version;
 import { isGraded, letterForScore } from '../stats/tiers.js';
 import { gradingPlan, whatCounts } from './counting.js';
 import { distributionOf, gradeRuleset, percentileOf, scoreCharacter } from './engine.js';
@@ -37,7 +41,7 @@ export const ELIGIBLE = `c.ruleset_id = $1 AND c.stats_fetched_at IS NOT NULL AN
  * The tier settings now (admin settings), for one game version (0.10.0: the tier settings are per version; the primary
  * version's are the values it always had).
  */
-export async function tierSettings(db, version = PRIMARY_VERSION.id) {
+export async function tierSettings(db, version = scopeVersion()) {
   const opt = { version };
   return {
     shares: await getSetting(db, 'tiers.shares', opt),
@@ -52,7 +56,7 @@ export async function tierSettings(db, version = PRIMARY_VERSION.id) {
 }
 
 /** What counts, from the catalog and the owner's decisions. fresh: bypass this process's 60-second catalog cache. */
-export async function countingNow(db, { fresh = false, version = PRIMARY_VERSION.id } = {}) {
+export async function countingNow(db, { fresh = false, version = scopeVersion() } = {}) {
   const catalog = fresh ? await loadCatalogFresh(db, { version }) : await loadCatalog(db, { version });
   const counts = whatCounts(catalog);
   return { catalog, counts, plan: gradingPlan(counts) };

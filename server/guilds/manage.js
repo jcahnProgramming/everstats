@@ -1,9 +1,8 @@
-import { scopeSql } from '../core/config.js';
+import { findGuild, guildKey, pathSlug } from '../characters/find.js';
 import express from 'express';
 import { requireAccount } from '../auth/sessions.js';
 import { HttpError, route } from '../core/errors.js';
 import { limitBy } from '../core/rateLimit.js';
-import { parseGuildSlug } from '../stats/slug.js';
 import { MAX_LINKS, checkDescription, checkInvite, checkLabel, checkUrl, inviteUrl } from './links.js';
 import { featureOn } from '../features/registry.js';
 
@@ -115,11 +114,12 @@ async function blocklist(db) {
 }
 
 const guildOf = async (db, raw) => {
-  const slug = parseGuildSlug(raw);
-  if (!slug) throw new HttpError(404, 'Not found');
-  const g = await db.one(`SELECT id, slug, name FROM guilds WHERE slug = $1 AND ${scopeSql()} ORDER BY updated_at DESC LIMIT 1`, [slug]);
+  const key = guildKey(raw);
+  if (!key) throw new HttpError(404, 'Not found');
+  const g = await findGuild(db, key, { cols: 'id, slug, realm_slug, name' });
   if (!g) throw new HttpError(404, 'Everstats doesn’t know this guild yet.', 'no_guild');
-  return g;
+  // `slug` as URLs write it ("guild", or "realm/guild" on a version with realms).
+  return { ...g, slug: pathSlug(g) };
 };
 
 const logGuild = (q, guildId, type, { accountId = null, actorAccountId = null, actor = 'player', detail = {} } = {}) => q.query(
@@ -273,7 +273,7 @@ export function createGuildManageRouter({ db, limits, networkOf }) {
   r.get('/account/guilds', requireAccount, route(async (req, res) => {
     const me = req.session.accountId;
     const candidates = await db.query(
-      `SELECT DISTINCT g.id, g.slug, g.name FROM guilds g
+      `SELECT DISTINCT g.id, g.slug, g.realm_slug, g.game_version, g.region, g.name FROM guilds g
         WHERE g.id IN (SELECT gr.guild_id FROM guild_roster gr JOIN characters c ON c.id = gr.character_id WHERE gr.rank = 0 AND c.owner_account_id = $1)
            OR g.id IN (SELECT guild_id FROM guild_editors WHERE account_id = $1 AND removed_at IS NULL)
         ORDER BY g.name LIMIT 50`,
@@ -282,7 +282,7 @@ export function createGuildManageRouter({ db, limits, networkOf }) {
     const guilds = [];
     for (const g of candidates) {
       const role = await guildRole(db, g.id, me);
-      if (role) guilds.push({ slug: g.slug, name: g.name, role });
+      if (role) guilds.push({ slug: pathSlug(g), version: g.game_version, region: g.region, name: g.name, role });
     }
     res.json({ guilds });
   }));

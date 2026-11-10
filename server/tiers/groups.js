@@ -1,7 +1,8 @@
-import { NATIVE_VERSION, PRIMARY_VERSION, versionById } from '../core/gameVersions.js';
+import { GAME_VERSIONS, NATIVE_VERSION, PRIMARY_VERSION, versionById } from '../core/gameVersions.js';
 import { HttpError } from '../core/errors.js';
-import { clearCatalogCache, currentGroupDecisions, loadCatalogFresh } from '../stats/catalog.js';
-import { GROUP_CHOICES, gradingPlan, whatCounts } from './counting.js';
+import { DERIVED_GROUPS_KEY, clearCatalogCache, currentGroupDecisions, loadCatalogFresh } from '../stats/catalog.js';
+import { DERIVED_GROUPS } from '../discovery/suggest.js';
+import { DERIVED_DEFAULT, GROUP_CHOICES, gradingPlan, whatCounts } from './counting.js';
 
 /**
  * Tier decisions by GROUP (0.10.0, owner's decision). A group is a category label (Combat, Adventure … Collections,
@@ -106,14 +107,117 @@ export async function migrateForever(db, { log = console } = {}) {
   return result;
 }
 
+/**
+ * 0.11.1 (owner's decision 3): boards Everstats makes move under GROUP choices, on every version, ONCE.
+ *
+ * Before: a derived board (a collection count, a feed number) counted only with its own approval, whatever its group
+ * chose (tiers/counting.js, the 0.10.0 rule). After: it sits in a group of its own kind (discovery/suggest.js
+ * derivedGroup) whose choice covers it, starting at "Doesn't count". For every version that has statistics, inside one
+ * transaction: what counts is computed under the old rule and under the new one; a derived board the new rule would
+ * start (or stop) counting gets a 'group_exempt' marker, so it keeps following its own decisions exactly as before;
+ * then the two grading plans must be IDENTICAL (the same statistics, in the same categories, feeding the overall tier
+ * or not) or everything rolls back and the old rule stays. So no tier on any version changes by this.
+ */
+const DERIVED_EXEMPT_REASON = 'Kept exactly as it was before Everstats-made boards followed group choices (0.11.1 migration): it follows its own decisions, not its group’s.';
+const countedOf = (counts) => new Map([...counts.statistics.values()].map((s) => [s.id, s.role === 'counted' ? `${s.grading}|${s.overall}` : '-']));
+
+export async function migrateDerivedGroups(db, { log = console } = {}) {
+  if (await db.one('SELECT at FROM pipeline_facts WHERE key = $1', [DERIVED_GROUPS_KEY])) return { done: false, why: 'already migrated' };
+  const result = await db.tx(async (q) => {
+    // The fact is claimed LAST: until this transaction commits, every reader still applies the old rule.
+    if (await q.one('SELECT at FROM pipeline_facts WHERE key = $1 FOR UPDATE', [DERIVED_GROUPS_KEY])) return { done: false, why: 'already migrated' };
+    const versions = [];
+    for (const v of GAME_VERSIONS) {
+      clearCatalogCache();
+      const catalog = await loadCatalogFresh(q, { version: v.id });
+      if (!catalog.statistics.size) continue;
+      const before = whatCounts({ ...catalog, derivedGroups: false });
+      const planBefore = planFingerprint(gradingPlan(before));
+      const was = countedOf(before);
+      const now = countedOf(whatCounts({ ...catalog, derivedGroups: true }));
+      const exempt = [...was].filter(([id, r]) => now.get(id) !== r).map(([id]) => id);
+      for (const id of exempt) {
+        await q.query(
+          "INSERT INTO discovery_decisions (statistic_id, kind, value, decision, reasoning, game_version) VALUES ($1, 'group_exempt', $2::jsonb, 'approved', $3, $4)",
+          [id, JSON.stringify({ migration: '0.11.1' }), DERIVED_EXEMPT_REASON, v.id],
+        );
+      }
+      clearCatalogCache();
+      const after = whatCounts({ ...(await loadCatalogFresh(q, { version: v.id })), derivedGroups: true });
+      const differs = [...was].filter(([id, r]) => countedOf(after).get(id) !== r).map(([id]) => id);
+      if (planFingerprint(gradingPlan(after)) !== planBefore || differs.length) {
+        const err = new Error(`moving Everstats-made boards under group choices would change what counts on ${v.id} (${differs.length} statistic(s)); rolled back`);
+        err.code = 'DERIVED_GROUPS_CHANGED_PLAN';
+        throw err;
+      }
+      versions.push({ version: v.id, statistics: was.size, exempt: exempt.length });
+    }
+    await q.query('INSERT INTO pipeline_facts (key, at) VALUES ($1, now())', [DERIVED_GROUPS_KEY]);
+    await q.query("INSERT INTO admin_events (type, detail) VALUES ('tiers.derived_groups_migrated', $1::jsonb)", [JSON.stringify({ versions })]);
+    return { done: true, versions };
+  });
+  clearCatalogCache();
+  if (result.done) log.log?.(`[tiers] Everstats-made boards now follow group choices (${result.versions.map((v) => `${v.version}: ${v.exempt} exception(s)`).join(', ') || 'no statistics yet'}); what counts is unchanged`);
+  return result;
+}
+
+/**
+ * 0.11.1 (owner's decision 2): a version's group choices as the owner decided them (gameVersions.js `tierGroups`),
+ * written ONCE per version as ordinary group decisions (origin 'migration'), only for groups that have no choice yet. The
+ * owner changes any of them afterwards in Discovery, like any choice; this never runs again for that version.
+ */
+const seededKey = (version) => `tier_groups_seeded_at:${version}`;
+const SEED_REASON = 'The owner’s decision for this version (0.11.1), set when the version was built. Change it here at any time.';
+export async function seedVersionGroups(db, { log = console } = {}) {
+  const done = [];
+  for (const v of GAME_VERSIONS) {
+    if (!v.tierGroups || v.nativeIds) continue;
+    if (await db.one('SELECT at FROM pipeline_facts WHERE key = $1', [seededKey(v.id)])) continue;
+    const written = await db.tx(async (q) => {
+      const claimed = await q.query('INSERT INTO pipeline_facts (key, at) VALUES ($1, now()) ON CONFLICT DO NOTHING RETURNING 1', [seededKey(v.id)]);
+      if (!claimed.length) return null;
+      const have = await currentGroupDecisions(q, v.id);
+      const rows = [];
+      for (const [choice, labels] of Object.entries(v.tierGroups)) {
+        if (!GROUP_CHOICES[choice]) throw new Error(`${v.id}: unknown group choice ${choice}`);
+        for (const label of labels) {
+          if (have.has(label)) continue;
+          await q.query("INSERT INTO discovery_group_decisions (game_version, group_label, choice, reasoning, origin) VALUES ($1, $2, $3, $4, 'migration')", [v.id, label, choice, SEED_REASON]);
+          rows.push({ group: label, choice });
+        }
+      }
+      await q.query("INSERT INTO admin_events (type, detail) VALUES ('tiers.groups_seeded', $1::jsonb)", [JSON.stringify({ version: v.id, groups: rows })]);
+      const { requestTierRecompute } = await import('./store.js');
+      await requestTierRecompute(q, `group choices for ${v.id}`);
+      return rows;
+    });
+    if (written) {
+      clearCatalogCache();
+      done.push({ version: v.id, groups: written.length });
+      log.log?.(`[tiers] group choices set for ${v.id}: ${written.length} group(s), as the owner decided`);
+    }
+  }
+  return done;
+}
+
 /** The worker calls this before each tier check: a no-op once done; a failure is logged and tried again later. */
 export async function ensureGroupsMigrated(db, { log = console } = {}) {
+  let first;
   try {
-    return await migrateForever(db, { log });
+    first = await migrateForever(db, { log });
   } catch (err) {
     log.error(`[tiers] group migration refused: ${err.code ?? err.name}`);
     return { done: false, why: err.code ?? err.name };
   }
+  // 0.11.1, in this order: the proof for the derived boards is made against the choices that exist, then the new
+  // version's choices are written (its derived groups are already "Doesn't count", so the order can't change a plan).
+  try {
+    await migrateDerivedGroups(db, { log });
+    await seedVersionGroups(db, { log });
+  } catch (err) {
+    log.error(`[tiers] 0.11.1 group setup refused: ${err.code ?? err.name}`);
+  }
+  return first;
 }
 
 /** The owner's choice for one group of one version (Discovery). choice 'cleared' takes it back. */
@@ -151,11 +255,12 @@ export async function groupsView(db, version) {
   )).map((r) => [Number(r.id), Number(r.blizzard_id)]));
   const list = counts.categories.map((c) => {
     const stats = [...counts.statistics.values()].filter((s) => s.category === c.label);
-    const decided = groups.get(c.label) ?? null;
+    // 0.11.1: a group of Everstats-made boards with no choice shows its default ("Doesn't count"), marked as such.
+    const decided = groups.get(c.label) ?? (catalog.derivedGroups && DERIVED_GROUPS.includes(c.label) ? DERIVED_DEFAULT : null);
     const exceptions = stats.filter((s) => s.exception).map((s) => ({ id: s.id, name: s.name, role: s.role, grading: s.grading, via: s.via, reason: s.reason }));
     const fg = foreverGroups.get(c.label) ?? null;
     return {
-      label: c.label, key: c.key, farmable: c.farmable, statistics: stats.length,
+      label: c.label, key: c.key, farmable: c.farmable, statistics: stats.length, everstatsMade: DERIVED_GROUPS.includes(c.label),
       choice: decided ? { choice: decided.choice, label: GROUP_CHOICES[decided.choice]?.label ?? decided.choice, origin: decided.origin, decidedAt: decided.decidedAt } : null,
       results: { counted: c.counted.length, overall: c.overall.length, bad: c.bad.length + c.named.length, duplicate: c.duplicate.length, undecided: c.undecided.length },
       exceptions,

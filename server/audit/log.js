@@ -1,5 +1,5 @@
 import { HttpError } from '../core/errors.js';
-import { FEATURES } from '../features/registry.js';
+import { FEATURES, switchSetting } from '../features/registry.js';
 import { SETTINGS } from '../admin/settings.js';
 
 /**
@@ -19,7 +19,9 @@ import { SETTINGS } from '../admin/settings.js';
  */
 
 const settingByKey = new Map(SETTINGS.map((s) => [s.key, s]));
-const featureBySetting = new Map(FEATURES.filter((f) => f.store.setting).map((f) => [f.store.setting, f]));
+// 0.11.1: a switchable game version's switch is the setting `versions.{id}` (features/registry.js switchSetting).
+const featureBySetting = new Map(FEATURES.filter((f) => switchSetting(f)).map((f) => [switchSetting(f), f]));
+const FEATURE_SETTING_KEYS = [...featureBySetting.keys()];
 
 const ACCOUNT = (id) => (id ? { kind: 'account', id: String(id), href: `/admin/directory/accounts/${id}` } : null);
 
@@ -47,6 +49,8 @@ const TYPES = {
   'discovery.decided': { area: 'discovery', label: (d) => `Statistic ${d.kind} ${d.decision}`, target: (d) => ({ kind: 'statistic', id: String(d.statisticId), href: `/admin/discovery/approvals?stat=${d.statisticId}` }) },
   'discovery.group_decided': { area: 'tiers', label: (d) => `Tier group “${d.group}”: ${d.choice}`, target: (d) => ({ kind: 'group', id: d.group, href: `/admin/tiers?v=${d.version ?? 'forever'}` }) },
   'tiers.groups_migrated': { area: 'tiers', label: () => 'Tier decisions became group choices (one-time migration)' },
+  'tiers.derived_groups_migrated': { area: 'tiers', label: () => 'Everstats-made boards now follow group choices (one-time migration; what counts is unchanged)' },
+  'tiers.groups_seeded': { area: 'tiers', label: (d) => `Tier group choices set for ${d.version} (the owner’s decisions, ${d.groups?.length ?? 0} groups)`, target: (d) => ({ kind: 'tiers', id: d.version, href: `/admin/tiers?v=${d.version}` }) },
   'tiers.regrade_requested': { area: 'tiers', label: (d) => `Regrade requested${d.version ? ` (${d.version})` : ''}`, target: (d) => ({ kind: 'tiers', id: d.version ?? 'forever', href: `/admin/tiers?v=${d.version ?? 'forever'}` }) },
   'discovery.authorized': { area: 'discovery', label: () => 'Discovery Battle.net authorization' },
   'discovery.forgotten': { area: 'discovery', label: () => 'Discovery Battle.net token forgotten' },
@@ -164,8 +168,8 @@ export async function auditPage(db, { area = null, q = null, target = null, acto
     params.push(v);
     return `$${params.length}`;
   };
-  if (area === 'settings') typeFilter = `AND (type IN (SELECT unnest(${p(typesOf('settings'))}::text[])) OR (type = 'setting.changed' AND NOT (detail->>'key' = ANY(${p(FEATURES.filter((f) => f.store.setting).map((f) => f.store.setting))}::text[]))))`;
-  else if (area === 'features') typeFilter = `AND (type IN (SELECT unnest(${p(typesOf('features'))}::text[])) OR (type = 'setting.changed' AND detail->>'key' = ANY(${p(FEATURES.filter((f) => f.store.setting).map((f) => f.store.setting))}::text[])))`;
+  if (area === 'settings') typeFilter = `AND (type IN (SELECT unnest(${p(typesOf('settings'))}::text[])) OR (type = 'setting.changed' AND NOT (detail->>'key' = ANY(${p(FEATURE_SETTING_KEYS)}::text[]))))`;
+  else if (area === 'features') typeFilter = `AND (type IN (SELECT unnest(${p(typesOf('features'))}::text[])) OR (type = 'setting.changed' AND detail->>'key' = ANY(${p(FEATURE_SETTING_KEYS)}::text[])))`;
   else if (area === 'other') typeFilter = `AND NOT (type = ANY(${p([...Object.keys(TYPES), 'setting.changed'])}::text[]))`;
   else if (area) typeFilter = `AND type = ANY(${p(typesOf(area))}::text[])`;
 

@@ -1,4 +1,8 @@
 import { scopeSql } from '../core/config.js';
+import { versionById } from '../core/gameVersions.js';
+import { currentScope, inPrimaryScope, pathSlug } from '../core/scope.js';
+import { findGuild, guildKey } from '../characters/find.js';
+import { scopeView } from '../characters/routes.js';
 import express from 'express';
 import { getSetting } from '../admin/settings.js';
 import { HttpError, route } from '../core/errors.js';
@@ -13,7 +17,6 @@ import {
 import { OVERALL_START, TRACKED_MEMBER } from '../stats/guildTotals.js';
 import { periodStart, ROLLING_START } from '../stats/periods.js';
 import { defaultPinIds } from '../stats/pins.js';
-import { parseGuildSlug } from '../stats/slug.js';
 import { periodsInfo, rulesetList } from '../characters/routes.js';
 import { lettersFor } from '../tiers/store.js';
 import { guildTierDistribution } from '../tiers/view.js';
@@ -32,6 +35,8 @@ import { countActivity, looksAutomated } from '../activity/count.js';
  * without them). Untracked roster members are counted, never named.
  */
 export const GUILD_WAIT_MS = 20_000;
+const ROSTER_STALE_MS = 24 * 60 * 60 * 1000;
+const versionOf = (g) => versionById(g?.game_version);
 export const TOP_PER_STAT = 5;
 const MAX_ROSTER = 1000;
 
@@ -48,24 +53,25 @@ export const rankName = (rank) => (rank === null || rank === undefined ? null : 
 
 async function guildsById(db, ids) {
   if (!ids.length) return new Map();
-  const rows = await db.query('SELECT id, slug, name, faction FROM guilds WHERE id = ANY($1::bigint[]) LIMIT 500', [ids]);
+  const rows = await db.query('SELECT id, slug, realm_slug, name, faction FROM guilds WHERE id = ANY($1::bigint[]) LIMIT 500', [ids]);
   // 0.7.1: each guild's pinned guild badge and its Verified mark, beside its name on boards and lists.
   const inline = await guildInlineBadges(db, rows.map((r) => r.id));
   return new Map(rows.map((r) => [r.id, {
-    slug: r.slug, name: r.name, faction: r.faction, badge: inline.get(Number(r.id))?.badge ?? null, verified: inline.get(Number(r.id))?.verified ?? false,
+    slug: pathSlug(r), realm: r.realm_slug ?? null, name: r.name, faction: r.faction, badge: inline.get(Number(r.id))?.badge ?? null, verified: inline.get(Number(r.id))?.verified ?? false,
   }]));
 }
 
-/** A guild by its current slug (the most recently seen holder of it). */
-const guildBySlug = (db, slug) => db.one(`SELECT * FROM guilds WHERE slug = $1 AND ${scopeSql()} ORDER BY updated_at DESC LIMIT 1`, [slug]);
+/** A guild by its current address (the most recently seen holder of it), in the request's scope. `key`: characters/find.js guildKey. */
+const guildBySlug = (db, key) => findGuild(db, key);
 
-/** An address a guild used to have → its current slug, or null. */
-async function movedTo(db, slug) {
+/** An address a guild used to have → its current one (as URLs write it), or null. On a realm version: on the same realm. */
+async function movedTo(db, key) {
   const row = await db.one(
-    `SELECT g.slug FROM guild_slugs s JOIN guilds g ON g.id = s.guild_id WHERE s.slug = $1 AND g.slug <> $1 AND ${scopeSql('g')} ORDER BY s.seen_at DESC LIMIT 1`,
-    [slug],
+    `SELECT g.slug, g.realm_slug FROM guild_slugs s JOIN guilds g ON g.id = s.guild_id
+      WHERE s.slug = $1 AND g.slug <> $1 AND coalesce(g.realm_slug, '') = coalesce($2, '') AND ${scopeSql('g')} ORDER BY s.seen_at DESC LIMIT 1`,
+    [key.slug, key.realmSlug],
   );
-  return row?.slug ?? null;
+  return row ? pathSlug(row) : null;
 }
 
 export function createGuildRouter({ db, limits, networkOf }) {
@@ -82,7 +88,7 @@ export function createGuildRouter({ db, limits, networkOf }) {
     const like = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
     const prefix = `${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
     const guilds = await db.query(
-      `SELECT g.slug, g.name, g.faction, rs.name AS ruleset,
+      `SELECT g.slug, g.realm_slug, g.name, g.faction, rs.name AS ruleset,
               (SELECT members FROM guild_populations p WHERE p.guild_id = g.id AND p.period = 'overall' AND p.period_start = $3) AS tracked
          FROM guilds g LEFT JOIN rulesets rs ON rs.id = g.ruleset_id
         WHERE lower(g.name) LIKE $1 AND ${scopeSql('g')}
@@ -90,7 +96,7 @@ export function createGuildRouter({ db, limits, networkOf }) {
       [like, prefix, OVERALL_START],
     );
     const characters = await db.query(
-      `SELECT c.id, c.slug, c.name, c.surname, c.level, c.class, rs.name AS ruleset FROM characters c LEFT JOIN rulesets rs ON rs.id = c.ruleset_id
+      `SELECT c.id, c.slug, c.realm_slug, c.name, c.surname, c.level, c.class, rs.name AS ruleset FROM characters c LEFT JOIN rulesets rs ON rs.id = c.ruleset_id
         WHERE c.slug IS NOT NULL AND NOT c.hidden AND c.profile_state = 'ok' AND c.missing_since IS NULL
           AND lower(c.name || ' ' || c.surname) LIKE $1 AND ${scopeSql('c')}
         ORDER BY (lower(c.name) LIKE $2) DESC, c.level DESC NULLS LAST, c.id LIMIT 8`,
@@ -99,8 +105,9 @@ export function createGuildRouter({ db, limits, networkOf }) {
     const letters = await lettersFor(db, characters.map((c) => c.id));
     res.json({
       q,
-      guilds: guilds.map((g) => ({ slug: g.slug, name: g.name, faction: g.faction, ruleset: g.ruleset, tracked: g.tracked ?? 0 })),
-      characters: characters.map((c) => ({ slug: c.slug, name: c.name, surname: c.surname, level: c.level, class: c.class, ruleset: c.ruleset, tier: letters.get(Number(c.id)) ?? null })),
+      scope: scopeView(),
+      guilds: guilds.map((g) => ({ slug: pathSlug(g), realm: g.realm_slug ?? null, name: g.name, faction: g.faction, ruleset: g.ruleset, tracked: g.tracked ?? 0 })),
+      characters: characters.map((c) => ({ slug: pathSlug(c), realm: c.realm_slug ?? null, name: c.name, surname: c.surname, level: c.level, class: c.class, ruleset: c.ruleset, tier: letters.get(Number(c.id)) ?? null })),
     });
   }));
 
@@ -110,9 +117,9 @@ export function createGuildRouter({ db, limits, networkOf }) {
     const asked = req.query.ruleset !== undefined ? Number(req.query.ruleset) : null;
     const ruleset = rulesets.find((x) => x.id === asked) ?? [...rulesets].sort((a, b) => b.tracked - a.tracked)[0] ?? null;
     const minMembers = await minMembersOf();
-    if (!ruleset) return res.json({ rulesets, ruleset: null, guilds: [], known: 0, minMembers });
+    if (!ruleset) return res.json({ scope: scopeView(), rulesets, ruleset: null, guilds: [], known: 0, minMembers });
     const rows = await db.query(
-      `SELECT g.id, g.slug, g.name, g.faction, g.roster_members, p.members, p.computed_at
+      `SELECT g.id, g.slug, g.realm_slug, g.name, g.faction, g.roster_members, p.members, p.computed_at
          FROM guild_populations p JOIN guilds g ON g.id = p.guild_id
         WHERE p.period = 'overall' AND p.period_start = $2 AND p.ruleset_id = $1
         ORDER BY p.members DESC, g.name LIMIT 50`,
@@ -121,9 +128,9 @@ export function createGuildRouter({ db, limits, networkOf }) {
     const known = (await db.one('SELECT count(*)::int AS n FROM guilds WHERE ruleset_id = $1', [ruleset.id])).n;
     const inline = await guildInlineBadges(db, rows.map((g) => g.id));
     res.json({
-      rulesets, ruleset, minMembers, known,
+      scope: scopeView(), rulesets, ruleset, minMembers, known,
       guilds: rows.map((g) => ({
-        slug: g.slug, name: g.name, faction: g.faction, tracked: g.members, rosterMembers: g.roster_members, ranked: g.members >= minMembers,
+        slug: pathSlug(g), realm: g.realm_slug ?? null, name: g.name, faction: g.faction, tracked: g.members, rosterMembers: g.roster_members, ranked: g.members >= minMembers,
         badge: inline.get(Number(g.id))?.badge ?? null, verified: inline.get(Number(g.id))?.verified ?? false,
       })),
       computedAt: rows.reduce((m, g) => (!m || g.computed_at < m ? g.computed_at : m), null),
@@ -132,11 +139,13 @@ export function createGuildRouter({ db, limits, networkOf }) {
 
   // ---- A guild page. Unknown slug: an old address redirects; otherwise one look-up at Blizzard (rate-limited).
   r.get('/guilds/:slug', route(async (req, res) => {
-    const slug = parseGuildSlug(req.params.slug);
-    if (!slug) throw new HttpError(400, 'That isn’t a guild address.', 'invalid');
-    let g = await guildBySlug(db, slug);
+    const scope = currentScope();
+    const key = guildKey(req.params.slug);
+    if (!key) throw new HttpError(400, 'That isn’t a guild address.', 'invalid');
+    const slug = key.path;
+    let g = await guildBySlug(db, key);
     if (!g) {
-      const moved = await movedTo(db, slug);
+      const moved = await movedTo(db, key);
       if (moved) return res.json({ status: 'moved', slug: moved });
     }
     let notice = null;
@@ -153,15 +162,19 @@ export function createGuildRouter({ db, limits, networkOf }) {
       else if (!limits.lookups.take(net)) notice = 'rate_limited';
       else {
         countActivity(db, 'guild.lookup');
-        const item = await enqueue(db, { kind: 'guild', key: slug, priority: PRIORITY.lookup });
+        const item = await enqueue(db, { kind: 'guild', key: key.crawlKey, priority: PRIORITY.lookup, ...scope });
         const done = await waitFor(db, item.id, { timeoutMs: GUILD_WAIT_MS });
         notice = !done ? 'slow' : done.state === 'failed' ? 'unavailable' : null;
-        g = await guildBySlug(db, slug);
+        g = await guildBySlug(db, key);
         if (!g) {
-          const moved = await movedTo(db, slug);
+          const moved = await movedTo(db, key);
           if (moved) return res.json({ status: 'moved', slug: moved });
         }
       }
+    } else if (g?.profile_fetched_at && !inPrimaryScope(scope) && (!g.roster_checked_at || Date.now() - new Date(g.roster_checked_at).getTime() > ROSTER_STALE_MS)) {
+      // 0.11.1: on a version without the daily roster crawl (capped seeding: only guilds people open), opening a guild
+      // whose roster is older than a day queues it again in the background. Nobody waits; the page shows what it has.
+      if (await blizzardReady()) await enqueue(db, { kind: 'guild', key: key.crawlKey, priority: PRIORITY.roster, ...scope }).catch(() => {});
     }
     if (!g) {
       if (notice === 'rate_limited') {
@@ -315,16 +328,16 @@ export function createGuildRouter({ db, limits, networkOf }) {
 
 /** A known guild for the sub-pages (no Blizzard request: the page itself does the look-up). */
 async function existingGuild(db, raw) {
-  const slug = parseGuildSlug(raw);
-  if (!slug) throw new HttpError(404, 'Not found');
-  const g = await guildBySlug(db, slug);
+  const key = guildKey(raw);
+  if (!key) throw new HttpError(404, 'Not found');
+  const g = await guildBySlug(db, key);
   if (!g) throw new HttpError(404, 'Everstats doesn’t know this guild yet.', 'no_guild');
   return g;
 }
 
 async function headOf(db, g) {
   const rs = g.ruleset_id !== null ? await db.one('SELECT id, name FROM rulesets WHERE id = $1', [g.ruleset_id]) : null;
-  return { id: g.id, slug: g.slug, name: g.name, faction: g.faction, ruleset: rs };
+  return { id: g.id, slug: pathSlug(g), realm: g.realm_slug ?? null, version: g.game_version, name: g.name, faction: g.faction, ruleset: rs };
 }
 
 /** Tracked current members, for a period's member count: all of them (overall) or those with a baseline in it. */
@@ -350,7 +363,7 @@ async function memberValues(db, g, period, { statisticId = null, topN = null }) 
   if (period !== 'overall') args.push(period, period === 'week' ? periodStart('week') : ROLLING_START);
   return db.query(
     `SELECT * FROM (
-       SELECT v.statistic_id, c.id AS character_id, c.slug, c.name, c.surname, c.level, c.class, c.race, ${src.col} AS value, ${src.text} AS text,
+       SELECT v.statistic_id, c.id AS character_id, c.slug, c.realm_slug, c.faction, c.name, c.surname, c.level, c.class, c.race, ${src.col} AS value, ${src.text} AS text,
               rank() OVER (PARTITION BY v.statistic_id ORDER BY ${src.col} DESC) AS rank,
               row_number() OVER (PARTITION BY v.statistic_id ORDER BY ${src.col} DESC, c.id) AS rn,
               count(*) OVER (PARTITION BY v.statistic_id)::int AS with_any
@@ -363,7 +376,8 @@ async function memberValues(db, g, period, { statisticId = null, topN = null }) 
 }
 
 const memberRow = (r) => ({
-  rank: Number(r.rank), value: r.value, text: r.text ?? null, slug: r.slug, name: r.name, surname: r.surname, level: r.level, class: r.class, race: r.race,
+  rank: Number(r.rank), value: r.value, text: r.text ?? null, slug: pathSlug(r), realm: r.realm_slug ?? null, faction: r.faction ?? null,
+  name: r.name, surname: r.surname, level: r.level, class: r.class, race: r.race,
 });
 
 /** Everything the guild page shows, from stored data only. */
@@ -371,7 +385,7 @@ export async function guildView(db, g) {
   const minMembers = await getSetting(db, 'guilds.minMembers');
   const head = await headOf(db, g);
   const members = g.ruleset_id === null ? [] : await db.query(
-    `SELECT c.id, c.slug, c.name, c.surname, c.level, c.class, c.race, c.last_login_at, c.stats_fetched_at, gr.rank,
+    `SELECT c.id, c.slug, c.realm_slug, c.faction, c.name, c.surname, c.level, c.class, c.race, c.last_login_at, c.stats_fetched_at, gr.rank,
             CASE WHEN a.username_claimed AND NOT everstats_banned(a.id) THEN a.username END AS claimed_by,
             CASE WHEN a.username_claimed AND NOT everstats_banned(a.id) THEN a.id END AS claimed_account
        FROM characters c LEFT JOIN guild_roster gr ON gr.guild_id = c.guild_id AND gr.character_id = c.id
@@ -394,7 +408,7 @@ export async function guildView(db, g) {
   const hasRoster = roster.listed > 0;
 
   // Totals of the default pin statistics (matched by name against the live catalog, like the dashboard's pins).
-  const { statistics } = await loadCatalog(db);
+  const { statistics } = await loadCatalog(db, { version: g.game_version });
   const pinIds = await defaultPinIds(db);
   const totals = pinIds.length ? await db.query(
     `SELECT statistic_id, total, average FROM guild_totals WHERE guild_id = $1 AND period = 'overall' AND period_start = $2 AND statistic_id = ANY($3::bigint[])`,
@@ -429,6 +443,9 @@ export async function guildView(db, g) {
     }
   }
   return {
+    scope: scopeView({ version: g.game_version, region: g.region }),
+    // 0.11.1: how members are found on this version (crawler/seeding.js): the roster crawl, or only when people open it.
+    seeding: versionOf(g)?.primary ? 'roster' : 'opened',
     guild: {
       ...head,
       createdAt: g.created_at_blizzard,
@@ -460,7 +477,10 @@ export async function guildView(db, g) {
     tiers: await guildTierDistribution(db, g),
     roster: members.map((m) => ({
       tier: letters.get(Number(m.id)) ?? null,
-      slug: m.slug, name: m.name, surname: m.surname, level: m.level, class: m.class, race: m.race, lastLoginAt: m.last_login_at,
+      slug: pathSlug(m), realm: m.realm_slug ?? null,
+      // 0.11.1 (rule 11): each member's OWN faction, from its own profile. Never the guild's: a guild can hold both.
+      faction: m.faction ?? null,
+      name: m.name, surname: m.surname, level: m.level, class: m.class, race: m.race, lastLoginAt: m.last_login_at,
       rank: m.rank ?? null, rankName: rankName(m.rank), fetchedAt: m.stats_fetched_at,
       claimedBy: m.claimed_by ? { username: m.claimed_by, badge: inline.get(Number(m.claimed_account)) ?? null } : null,
     })),

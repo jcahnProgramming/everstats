@@ -2067,4 +2067,37 @@ export const migrations = [
                       WHERE mark IS NOT NULL OR mark_pending IS NOT NULL`);
     },
   },
+  {
+    // 0.11.1: World of Warcraft (Retail), switched on per environment at Features.
+    //   characters.realm_type   the realm's TYPE as Blizzard names it (NORMAL, RP …; realm/{slug}, probe #7). On a
+    //                           one-pool version it is a board FILTER, never a pool. Blizzard data: cleared when a
+    //                           character is purged (retention/registry.js).
+    //   seeding_days            ours: how many untracked characters each seeding source queued per UTC day and version
+    //                           (the admin's daily caps count against it). A count, nothing about who.
+    //   seeding_state           ours: where a seeding source is in its round (which connected realm and leaderboard
+    //                           comes next) and its last status line.
+    id: '032_retail',
+    async up(q) {
+      await q.query(`
+        ALTER TABLE characters ADD COLUMN realm_type text CHECK (length(realm_type) <= 40);
+        CREATE INDEX characters_realm_type ON characters (ruleset_id, realm_type) WHERE realm_type IS NOT NULL;
+        CREATE TABLE seeding_days (
+          day           date NOT NULL,
+          game_version  text NOT NULL,
+          source        text NOT NULL CHECK (length(source) <= 40),
+          queued        integer NOT NULL DEFAULT 0,
+          PRIMARY KEY (day, game_version, source)
+        );
+        CREATE TABLE seeding_state (
+          game_version  text NOT NULL,
+          region        text NOT NULL,
+          source        text NOT NULL CHECK (length(source) <= 40),
+          position      bigint NOT NULL DEFAULT 0,
+          detail        text CHECK (length(detail) <= 300),
+          updated_at    timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (game_version, region, source)
+        );
+      `);
+    },
+  },
 ];

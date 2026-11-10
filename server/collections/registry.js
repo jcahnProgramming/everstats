@@ -1,6 +1,6 @@
 import { legacyOf } from './legacy.js';
 import {
-  parseAchievements, parseEncounters, parseHeirlooms, parseHunterPets, parseMounts, parsePets, parseProfessions, parsePvp, parseQuestsCompleted,
+  parseAchievements, parseDecor, parseEncounters, parseHeirlooms, parseHunterPets, parseMounts, parsePets, parseProfessions, parsePvp, parseQuestsCompleted,
   parseQuestsInProgress, parseReputations, parseTitles, parseToys, parseTransmogs,
 } from './parse.js';
 
@@ -65,7 +65,12 @@ export const KINDS = Object.freeze([
   { id: 'pets', label: 'Pets', path: '/collections/pets', parse: parsePets, isEmpty: (d) => !has(d), detect: true },
   { id: 'hunter-pets', label: 'Hunter pets', path: '/hunter-pets', parse: parseHunterPets, isEmpty: (d) => !has(d), notFoundIsEmpty: true, when: ({ character }) => character.class === 'Hunter' },
   { id: 'toys', label: 'Toys', path: '/collections/toys', parse: parseToys, isEmpty: (d) => !has(d), detect: true },
-  { id: 'heirlooms', label: 'Heirlooms', path: '/collections/heirlooms', parse: parseHeirlooms, isEmpty: (d) => !has(d), detect: true, when: ({ catalogTotals }) => (catalogTotals.heirloom ?? 0) > 0 },
+  { id: 'heirlooms', label: 'Heirlooms', path: '/collections/heirlooms', parse: parseHeirlooms, isEmpty: (d) => !has(d), detect: true, // 0.11.1: also on a version whose registry entry says its collections are account-wide (World of Warcraft: probe #7
+    // found 134 heirlooms in its catalog); Forever's catalog is empty, so its characters still aren't asked.
+    when: ({ catalogTotals, version }) => (catalogTotals.heirloom ?? 0) > 0 || Boolean(version?.collections?.accountWide) },
+  // 0.11.1 (owner's decision 7): housing decor, only on a version that has it (gameVersions.js collections.decor). Forever
+  // answers 404 for every decor endpoint (0.8.3 probe), so its characters are never asked.
+  { id: 'decor', label: 'Decor', path: '/collections/decor', parse: parseDecor, isEmpty: (d) => !has(d), detect: true, when: ({ version }) => Boolean(version?.collections?.decor) },
   { id: 'titles', label: 'Titles', path: '/titles', parse: parseTitles, isEmpty: (d) => !has(d), detect: true },
   { id: 'achievements', label: 'Achievements', path: '/achievements', parse: parseAchievements, isEmpty: (d) => !has(d) },
   { id: 'reputations', label: 'Reputations', path: '/reputations', parse: parseReputations, isEmpty: (d) => !has(d) },
@@ -99,6 +104,10 @@ export const COUNTS = Object.freeze([
   { key: 'boss-kills', short: 'Boss kills', n: 13, lazy: true, name: 'Dungeon and raid boss kills', kind: 'dungeons', count: (d, ctx) => ['dungeons', 'raids'].reduce((n, k) => n + (ctx.rows?.get(k)?.data?.items ?? []).reduce((m, i) => m + i.modes.reduce((x, md) => x + md.bosses.reduce((y, b) => y + (b.kills ?? 0), 0), 0), 0), 0) },
   // Hunters only, ranked among hunters (board population: characters of Blizzard's class "Hunter").
   { key: 'hunter-pets', short: 'Hunter pets', n: 14, lazy: true, population: 'hunters', name: 'Hunter pets owned', kind: 'hunter-pets', count: (d) => d.items.length },
+  // 0.11.1 housing decor: how many DIFFERENT pieces, and how many pieces in all (the quantities added up). Registered
+  // only once a character has some (lazy): they never appear on a version without decor.
+  { key: 'decor-kinds', short: 'Decor', n: 15, lazy: true, name: 'Decor collected (different pieces)', kind: 'decor', shared: 'detected', count: (d) => new Set(d.items.map((x) => x.id)).size },
+  { key: 'decor-total', short: 'Decor (all)', n: 16, lazy: true, name: 'Decor pieces owned (every copy)', kind: 'decor', shared: 'detected', count: (d) => d.items.reduce((n, x) => n + (x.quantity ?? 1), 0) },
   { key: 'legacy', short: 'Legacy Points', n: 9, name: 'Legacy Points', kind: 'achievements', shared: 'stated', count: (d, ctx) => (ctx.achievementCatalog?.size ? legacyOf(d.items, ctx.achievementCatalog).points : null) },
 ].map((c) => Object.freeze({ ...c, id: derivedId(c.n) })));
 export const countById = new Map(COUNTS.map((c) => [c.id, c]));

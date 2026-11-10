@@ -1,5 +1,6 @@
 import { PRIORITY, enqueue } from '../crawler/queue.js';
 import { RetryableError, MIN_TRACKED_LEVEL, crawlKey, itemScope, parseCrawlKey } from '../crawler/fetch.js';
+import { versionById } from '../core/gameVersions.js';
 import { updateGains } from '../crawler/store.js';
 import { catalogTotals, recordStaticNamespace } from './catalog.js';
 import { staticNamespaceIn } from './parse.js';
@@ -73,7 +74,7 @@ export async function fetchCollections({ db, client }, item) {
   if (!ch || ch.profile_state !== 'ok') return 'not tracked (no profile yet)';
   if ((ch.level ?? 0) < MIN_TRACKED_LEVEL) return `below level ${MIN_TRACKED_LEVEL}`;
   const totals = await catalogTotals(db);
-  const kinds = KINDS.filter((k) => !k.when || k.when({ character: ch, catalogTotals: totals }));
+  const kinds = KINDS.filter((k) => !k.when || k.when({ character: ch, catalogTotals: totals, version: versionById(scope.version) }));
   const base = ctx.characterPath({ realmSlug: ch.realm_slug, slug: ch.slug });
   const answers = await Promise.all(kinds.map((k) => client.request(`collections-${k.id}`, `${base}${k.path}`, { priority: item.priority, namespace: ctx.namespaces.profile, version: scope.version, region: scope.region })));
 

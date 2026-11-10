@@ -1,10 +1,10 @@
 import { scopeSql } from '../core/config.js';
+import { findGuild, guildKey, pathSlug } from '../characters/find.js';
 import express from 'express';
 import { requireAccount } from '../auth/sessions.js';
 import { HttpError, route } from '../core/errors.js';
 import { limitBy } from '../core/rateLimit.js';
 import { guildRole } from '../guilds/manage.js';
-import { parseGuildSlug } from '../stats/slug.js';
 import { FAMILIES } from './catalog.js';
 import { evaluationInputs, guildFacts } from './rules.js';
 import {
@@ -31,11 +31,11 @@ const idOf = (raw) => {
   return id;
 };
 async function guildOf(db, raw) {
-  const slug = parseGuildSlug(raw);
-  if (!slug) throw new HttpError(404, 'Not found');
-  const g = await db.one(`SELECT id, slug, name, ruleset_id, first_seen_at, profile_fetched_at, totals_built_at FROM guilds WHERE slug = $1 AND ${scopeSql()} ORDER BY updated_at DESC LIMIT 1`, [slug]);
+  const key = guildKey(raw);
+  if (!key) throw new HttpError(404, 'Not found');
+  const g = await findGuild(db, key, { cols: 'id, slug, realm_slug, game_version, region, name, ruleset_id, first_seen_at, profile_fetched_at, totals_built_at' });
   if (!g) throw new HttpError(404, 'Everstats doesn’t know this guild yet.', 'no_guild');
-  return g;
+  return { ...g, slug: pathSlug(g) };
 }
 
 /** The guild a signed-in viewer belongs to (their tracked characters' guild with the most tracked members), or null. */

@@ -2,7 +2,8 @@ import { HttpError } from '../core/errors.js';
 import { getSetting, setSetting } from '../admin/settings.js';
 import { betaState, setBetaOpen } from '../beta.js';
 import { ENVIRONMENT } from '../core/environment.js';
-import { GAME_VERSIONS, PRIMARY_VERSION, isVersionEnabled } from '../core/gameVersions.js';
+import { GAME_VERSIONS, PRIMARY_VERSION, isVersionEnabled, versionAllowedHere } from '../core/gameVersions.js';
+import { refreshVersionSwitches, versionSettingKey } from '../core/versionSwitch.js';
 
 /**
  * The feature registry (0.10.3, design/v5-admin "Features"): every on/off switch the admin has, in ONE place. The
@@ -31,9 +32,10 @@ import { GAME_VERSIONS, PRIMARY_VERSION, isVersionEnabled } from '../core/gameVe
  * the beta window. Nothing is reset or hardcoded. The new switches default to on (what the site did before them), the
  * dev tester gate to off.
  *
- * Game versions: which versions run is decided in code (core/gameVersions.js, narrowed by GAME_VERSIONS= in .env) until
- * 0.11.0 builds their pages. Their cards show that state and can't be switched here yet: the primary version can never
- * be turned off (every page needs it), and the others turn on with 0.11.0.
+ * Game versions (0.11.1): the primary version can never be turned off (every page needs it). A version that is BUILT
+ * (core/gameVersions.js `switchable`: World of Warcraft since 0.11.1) is switched here like any feature, stored as the
+ * boolean setting `versions.{id}`, default OFF on every environment (GAME_VERSIONS= in .env can still forbid it on a
+ * host). A version that isn't built yet shows its card and can't be switched.
  */
 export const FEATURES = Object.freeze([
   {
@@ -109,7 +111,11 @@ export const FEATURES = Object.freeze([
   ...GAME_VERSIONS.map((v) => ({
     id: `version-${v.id}`, name: v.name, store: { version: v.id }, playerVisible: true,
     does: v.primary ? 'The primary game version: every page, board and tier.' : `${v.name} characters, guilds, boards and tiers.`,
-    whenOff: v.primary ? 'Can’t be turned off: it is the only version with pages.' : 'Not crawled, read at sign-in or shown. Its pages come in 0.11.0.',
+    whenOff: v.primary ? 'Can’t be turned off: every page needs it.'
+      : v.switchable ? 'Not crawled, read at sign-in or shown: its addresses answer Not found and the header shows no version switcher for it. Nothing stored is deleted (it ages out as usual).'
+        : 'Not built yet: not crawled, read at sign-in or shown.',
+    // Switching a version changes what the crawler, the queue and the pages accept: this process knows at once.
+    afterChange: (db) => refreshVersionSwitches(db, { force: true }),
   })),
   {
     id: 'dev-gate', name: 'Dev tester gate', store: { setting: 'features.devGate' }, playerVisible: true, env: 'dev',
@@ -156,7 +162,13 @@ async function stored(db, f) {
     return f.store.inverted ? !v : Boolean(v);
   }
   if (f.store.beta) return Boolean((await betaState(db)).open);
-  if (f.store.version) return isVersionEnabled(f.store.version);
+  if (f.store.version) {
+    const v = GAME_VERSIONS.find((x) => x.id === f.store.version);
+    // A switchable version: its own setting (so the card shows what the admin chose, even before every process has
+    // caught up); any other: what the registry says.
+    if (v?.switchable) return versionAllowedHere(v.id) && Boolean(await getSetting(db, versionSettingKey(v.id)));
+    return isVersionEnabled(f.store.version);
+  }
   return true;
 }
 
@@ -200,7 +212,15 @@ export function requireFeature(db, id, message) {
   };
 }
 
-const settingKeys = (f) => [f.store.setting, ...(f.settings ?? [])].filter(Boolean);
+/** The setting behind a feature's switch: its own, or a switchable game version's `versions.{id}`. */
+export const switchSetting = (f) => f.store.setting ?? (f.store.version && GAME_VERSIONS.find((v) => v.id === f.store.version)?.switchable ? versionSettingKey(f.store.version) : null);
+const versionLock = (f) => {
+  if (!f.store.version) return null;
+  if (f.store.version === PRIMARY_VERSION.id) return 'primary';
+  if (!GAME_VERSIONS.find((v) => v.id === f.store.version)?.switchable) return 'code';
+  return versionAllowedHere(f.store.version) ? null : 'env';
+};
+const settingKeys = (f) => [switchSetting(f), ...(f.settings ?? [])].filter(Boolean);
 
 /** The Features page: each feature with its state, what it needs and what needs it, and its last change. */
 export async function listFeatures(db) {
@@ -217,7 +237,7 @@ export async function listFeatures(db) {
   const out = [];
   for (const f of featuresHere()) {
     const on = await switchOn(db, f.id);
-    const change = f.store.beta ? beta : f.store.setting ? changes.find((c) => c.key === f.store.setting) : null;
+    const change = f.store.beta ? beta : switchSetting(f) ? changes.find((c) => c.key === switchSetting(f)) : null;
     const blockedBy = [];
     for (const need of f.needs ?? []) if (!(await featureOn(db, need))) blockedBy.push(need);
     out.push({
@@ -225,8 +245,8 @@ export async function listFeatures(db) {
       group: groupOf(f.id).id, groupLabel: groupOf(f.id).label, groupOrder: FEATURE_GROUPS.indexOf(groupOf(f.id)),
       needs: f.needs ?? [], usedBy: dependentsOf(f.id).map((d) => d.id), settings: f.settings ?? [],
       on, working: on && blockedBy.length === 0, blockedBy,
-      locked: f.store.version ? (f.store.version === PRIMARY_VERSION.id ? 'primary' : 'code') : null,
-      settingKey: f.store.setting ?? null,
+      locked: versionLock(f),
+      settingKey: switchSetting(f),
       changedAt: change?.created_at ?? null, changedReason: change?.reason ?? null,
       // the beta card keeps the window's dates (opened, closed)
       ...(f.store.beta ? { beta: await betaState(db) } : {}),
@@ -245,10 +265,11 @@ export async function setFeature(db, id, on, { reason, confirmDependents = false
   if (typeof on !== 'boolean') throw new HttpError(400, 'On or off?', 'invalid');
   const why = typeof reason === 'string' ? reason.trim() : '';
   if (why.length < 3) throw new HttpError(400, 'Say why: the reason goes in the audit log.', 'reason_required');
-  if (f.store.version) {
-    throw new HttpError(409, f.store.version === PRIMARY_VERSION.id
-      ? `${f.name} is the primary version and can’t be turned off.`
-      : `${f.name} is switched on in code with 0.11.0; it can’t be switched here yet.`, 'locked');
+  const lock = versionLock(f);
+  if (lock) {
+    throw new HttpError(409, lock === 'primary' ? `${f.name} is the primary version and can’t be turned off.`
+      : lock === 'env' ? `${f.name} is left out of GAME_VERSIONS on this server, so it can’t be switched on here.`
+        : `${f.name} isn’t built yet; it can’t be switched on.`, 'locked');
   }
   if (!on && !confirmDependents) {
     const affected = [];
@@ -258,9 +279,9 @@ export async function setFeature(db, id, on, { reason, confirmDependents = false
   if (f.store.beta) {
     await setBetaOpen(db, on, { reason: why });
   } else {
-    await setSetting(db, f.store.setting, f.store.inverted ? !on : on, { reason: why });
+    await setSetting(db, switchSetting(f), f.store.inverted ? !on : on, { reason: why });
   }
-  if (f.afterChange) await f.afterChange(db, { key: f.store.setting ?? f.id });
+  if (f.afterChange) await f.afterChange(db, { key: switchSetting(f) ?? f.id });
   // Logged once, by the store it changed (setting.changed with before, value and reason; beta.changed for the beta). The
   // audit log names the feature from this registry (audit/log.js), so a switch is never logged twice.
   clearFeatureCache();

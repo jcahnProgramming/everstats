@@ -1,10 +1,10 @@
-import { scopeSql } from '../core/config.js';
+import { characterKey, findCharacter, pathSlug } from '../characters/find.js';
+import { versionById } from '../core/gameVersions.js';
 import express from 'express';
 import { HttpError, route } from '../core/errors.js';
 import { isConfigured } from '../credentials/store.js';
 import { PRIORITY } from '../crawler/queue.js';
 import { getSource } from '../sources/registry.js';
-import { parseSlug } from '../stats/slug.js';
 import { rulesetList } from '../characters/routes.js';
 import { COLLECTIONS_STALE_MS, queueCollections } from './fetch.js';
 import { GOLD_FIELDS, goldBoard, goldFor, setGoldPublic } from './gold.js';
@@ -38,9 +38,10 @@ export function createCollectionsRouter({ db, limits, networkOf }) {
   const viewerOf = (req) => (req.session?.stage === 'full' ? req.session.accountId : null);
 
   async function character(req) {
-    const parsed = parseSlug(req.params.slug);
-    if (!parsed) throw new HttpError(400, 'That isn’t a character name and surname.', 'invalid');
-    const row = await db.one(`SELECT * FROM characters WHERE slug = $1 AND ${scopeSql()}`, [parsed.slug]);
+    const key = characterKey(req.params.slug);
+    if (!key) throw new HttpError(400, 'That isn’t a character’s address.', 'invalid');
+    const parsed = { slug: key.path };
+    const row = await findCharacter(db, key);
     const viewer = viewerOf(req);
     const mine = Boolean(viewer && row && Number(row.owner_account_id) === Number(viewer));
     if (!row || row.profile_state !== 'ok') return { status: 'not_found', slug: parsed.slug };
@@ -49,12 +50,16 @@ export function createCollectionsRouter({ db, limits, networkOf }) {
     return { status: 'ok', row, mine, viewer };
   }
 
-  const pending = async (slug) => Boolean(await db.one("SELECT 1 AS x FROM crawl_queue WHERE kind = 'collections' AND key = $1 AND state IN ('queued', 'running')", [slug]));
+  // The crawl queue's key for a character is its address in its version ("name-surname", or "realm/name").
+  const pending = async (row) => Boolean(await db.one(
+    "SELECT 1 AS x FROM crawl_queue WHERE kind = 'collections' AND key = $1 AND game_version = $2 AND region = $3 AND state IN ('queued', 'running')",
+    [pathSlug(row), row.game_version, row.region],
+  ));
 
   /** Queues a lookup-priority refresh if allowed. → 'queued' | 'pending' | 'rate_limited' | 'not_configured' | 'too_low' */
   async function refresh(req, row) {
     if ((row.level ?? 0) < 10) return 'too_low';
-    if (await pending(row.slug)) {
+    if (await pending(row)) {
       await queueCollections(db, { slug: row.slug, realmSlug: row.realm_slug }, PRIORITY.lookup, { version: row.game_version, region: row.region }); // raises a queued background refresh to lookup priority
       return 'pending';
     }
@@ -69,10 +74,16 @@ export function createCollectionsRouter({ db, limits, networkOf }) {
     if (c.status !== 'ok') return res.json(c);
     if (!(await featureOn(db, 'collections'))) return res.json({ status: 'off', message: COLLECTIONS_OFF });
     const stale = !c.row.collections_fetched_at || Date.now() - new Date(c.row.collections_fetched_at).getTime() > COLLECTIONS_STALE_MS;
-    const refreshNote = stale ? await refresh(req, c.row) : (await pending(c.row.slug)) ? 'pending' : null;
+    const refreshNote = stale ? await refresh(req, c.row) : (await pending(c.row)) ? 'pending' : null;
+    const version = versionById(c.row.game_version);
     res.json({
       status: 'ok',
-      character: { id: c.row.id, slug: c.row.slug, name: c.row.name, surname: c.row.surname, class: c.row.class, level: c.row.level, ruleset: c.row.ruleset_id, hidden: c.row.hidden, mine: c.mine },
+      character: { id: c.row.id, slug: pathSlug(c.row), version: c.row.game_version, name: c.row.name, surname: c.row.surname, class: c.row.class, level: c.row.level, ruleset: c.row.ruleset_id, hidden: c.row.hidden, mine: c.mine },
+      // 0.11.1 (owner's decision 6): on a version whose collections are account-wide (Warband), every page says so:
+      // alts share these numbers, and ties share a rank on their boards. Fetched on demand there, weekly after that.
+      accountWide: Boolean(version?.collections?.accountWide),
+      onDemand: version?.collections?.backfill === false,
+      versionName: version?.name ?? null,
       refreshing: refreshNote === 'queued' || refreshNote === 'pending',
       refresh: refreshNote,
       ...(await collectionsOverview(db, c.row)),

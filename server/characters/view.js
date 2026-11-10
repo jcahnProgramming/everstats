@@ -1,4 +1,7 @@
 import { PRIMARY_SCOPE } from '../core/config.js';
+import { versionById } from '../core/gameVersions.js';
+import { pathSlug } from '../core/scope.js';
+import { seasonOfKey } from '../stats/seasons.js';
 import { boardCounts, characterRanks, everyoneTied } from '../stats/boards.js';
 import { categoryKey, loadCatalog } from '../stats/catalog.js';
 import { inlineBadges } from '../badges/store.js';
@@ -42,9 +45,17 @@ export async function hiddenRenders(db, ids) {
   return new Set((await db.query('SELECT character_id FROM character_render_hidden WHERE character_id = ANY($1::bigint[]) LIMIT 1000', [ids])).map((r) => Number(r.character_id)));
 }
 
+/** 0.11.1: a character's realm (versions with realms): its slug, Blizzard's name for it and its type, or null. */
+export async function realmOf(db, row) {
+  if (!row.realm_slug) return null;
+  const r = await db.one('SELECT name, type_key, type_name FROM realms WHERE game_version = $1 AND region = $2 AND slug = $3', [row.game_version, row.region, row.realm_slug]);
+  return { slug: row.realm_slug, name: r?.name ?? null, type: row.realm_type ?? r?.type_key ?? null, typeName: r?.type_name ?? null };
+}
+
 export async function characterView(db, row, { mine = false } = {}) {
   const ruleset = row.ruleset_id !== null ? await db.one('SELECT id, name FROM rulesets WHERE id = $1', [row.ruleset_id]) : null;
-  const guild = row.guild_id !== null ? await db.one('SELECT name, slug FROM guilds WHERE id = $1', [row.guild_id]) : null;
+  const guild = row.guild_id !== null ? await db.one('SELECT name, slug, realm_slug, faction FROM guilds WHERE id = $1', [row.guild_id]) : null;
+  const scope = { version: row.game_version, region: row.region };
   // "Claimed by @username": only for a character that isn't hidden, and only once its owner has a real username.
   const owner = row.owner_account_id !== null && !row.hidden
     ? await db.one('SELECT username FROM accounts WHERE id = $1 AND username_claimed AND NOT everstats_banned(id)', [row.owner_account_id])
@@ -53,16 +64,23 @@ export async function characterView(db, row, { mine = false } = {}) {
   const switched = await renderSwitch(db);
   return {
     id: row.id,
-    slug: row.slug,
+    // 0.11.1: how URLs write it: "name-surname", or "realm/name" on a version with realms (core/scope.js pathSlug).
+    slug: pathSlug(row),
+    version: row.game_version,
+    region: row.region,
+    realm: await realmOf(db, row),
     name: row.name,
     surname: row.surname,
     level: row.level,
     race: row.race,
     class: row.class,
+    // The character's OWN faction, from its own profile. Never the guild's: a guild can hold both (0.11.1, rule 11).
     faction: row.faction,
     gender: row.gender,
     ruleset,
-    guild: guild ? { name: guild.name, slug: guild.slug } : null,
+    guild: guild ? { name: guild.name, slug: pathSlug(guild), faction: guild.faction ?? null } : null,
+    // 0.11.1: collections on this version are shared across the Battle.net account (Warband): pages say so.
+    accountWide: Boolean(versionById(row.game_version)?.collections?.accountWide),
     lastLoginAt: row.last_login_at,
     fetchedAt: row.last_fetched_at,
     checkedAt: row.last_checked_at,
@@ -82,7 +100,7 @@ export async function characterView(db, row, { mine = false } = {}) {
         fetchedAt: row.media_fetched_at,
       },
     renderHidden,
-    equipment: row.equipment ? await equipmentWithIcons(db, row.equipment) : null,
+    equipment: row.equipment ? await equipmentWithIcons(db, row.equipment, scope) : null,
     attributes: row.attributes ?? null,
     hidden: row.hidden,
     mine,
@@ -97,13 +115,15 @@ export async function characterView(db, row, { mine = false } = {}) {
  * zero has no rank. "of N" is how many have any (withAny). Hidden characters (seen by their owner) get no ranks.
  */
 export async function characterStatistics(db, row) {
-  const { statistics, categories } = await loadCatalog(db);
+  // The catalog of the CHARACTER's game version (a profile or dashboard lists characters of several).
+  const { statistics, categories } = await loadCatalog(db, { version: row.game_version });
   const ranked = row.ruleset_id !== null && !row.hidden;
   const mineById = row.ruleset_id !== null ? await characterRanks(db, row.id, row.ruleset_id) : new Map();
   const counts = ranked ? await boardCounts(db, row.ruleset_id) : null;
   return {
     population: counts?.population ?? null,
     ranked,
+    seasons: seasonCards(statistics, mineById, counts, ranked),
     categories: categories.map((c) => ({
       label: c.label,
       key: categoryKey(c.label),
@@ -136,6 +156,26 @@ export async function characterStatistics(db, row) {
 }
 
 /**
+ * 0.11.1 season cards (stats/seasons.js): the character's CURRENT values on its season boards, grouped per season and
+ * bracket, each with its board id and rank. Only what the character has a value for; a version without season boards
+ * (or a character with none) gets an empty list and the page shows no card.
+ *   → [{ kind: 'mplus' | 'pvp', seasonId, bracket, bracketLabel, fields: { rating | best_level | played | won: { id, value, rank, withAny } } }]
+ */
+function seasonCards(statistics, mineById, counts, ranked) {
+  const cards = new Map();
+  for (const [id, mine] of mineById) {
+    const s = statistics.get(id);
+    const k = s?.derived ? seasonOfKey(s.derived) : null;
+    if (!k || !(mine.value > 0)) continue;
+    const key = `${k.kind}:${k.seasonId}:${k.bracket ?? ''}`;
+    if (!cards.has(key)) cards.set(key, { kind: k.kind, seasonId: k.seasonId, bracket: k.bracket, bracketLabel: k.bracketLabel ?? null, fields: {} });
+    cards.get(key).fields[k.field] = { id, value: mine.value, rank: ranked ? mine.rank : null, withAny: counts?.byStat.get(id)?.nonzero ?? 0 };
+  }
+  // The newest season first; Mythic+ before PvP; brackets in a steady order.
+  return [...cards.values()].sort((a, b) => (a.kind === b.kind ? b.seasonId - a.seasonId || String(a.bracket).localeCompare(String(b.bracket)) : a.kind === 'mplus' ? -1 : 1));
+}
+
+/**
  * 0.10.4: the profile's featured character, its third column: the owner's pinned badge (the one inline badge, null when
  * none is public) and the character's best overall placements, from the same ranks the character page shows. A placement
  * needs a rank (value above zero, ranked character) on a board where at least two have any and not everyone is tied
@@ -147,7 +187,7 @@ export const FEATURED_PLACEMENTS = 3;
 export async function featuredExtras(db, row, accountId) {
   const badge = (await inlineBadges(db, [accountId])).get(Number(accountId)) ?? null;
   if (row.ruleset_id === null || row.ruleset_id === undefined || row.hidden) return { badge, placements: [] };
-  const { statistics } = await loadCatalog(db);
+  const { statistics } = await loadCatalog(db, { version: row.game_version });
   const mine = await characterRanks(db, row.id, row.ruleset_id);
   const counts = await boardCounts(db, row.ruleset_id);
   const placements = [];
@@ -157,7 +197,9 @@ export async function featuredExtras(db, row, accountId) {
     const withAny = bc?.nonzero ?? 0;
     // A board where everyone with any is tied makes everyone #1: not a placement worth showing.
     if (everyoneTied(bc)) continue;
-    if (!s || !s.name || !m.rank || m.value <= 0 || withAny < 2 || s.tierRole === 'bad' || s.category === 'Deaths & mishaps') continue;
+    // 0.11.1: "bad" is a statistic nobody should show off (deaths and the like). A board Everstats makes whose group
+    // simply doesn't count toward tiers (collections, reputations) is a fine placement, as it was before 0.11.1.
+    if (!s || !s.name || !m.rank || m.value <= 0 || withAny < 2 || (s.tierRole === 'bad' && !s.derived) || s.category === 'Deaths & mishaps') continue;
     placements.push({ id, name: s.name, rank: m.rank, withAny, value: m.value });
   }
   placements.sort((a, b) => a.rank - b.rank || b.withAny - a.withAny || a.id - b.id);

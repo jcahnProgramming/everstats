@@ -1,4 +1,5 @@
 import { PRIMARY_VERSION, categoryLabel, publicVersions } from '../core/gameVersions.js';
+import { scopeSql } from '../core/config.js';
 import { pageLimit } from '../core/db.js';
 import { TRACKED_MEMBER } from '../stats/guildTotals.js';
 import { TIER_LETTERS, bandRanges, letterForScore } from '../stats/tiers.js';
@@ -49,7 +50,8 @@ async function rankIn(db, table, { rulesetId, key = null, score }) {
 export async function characterTierView(db, row) {
   if (row.ruleset_id === null || row.hidden) return null;
   const ruleset = await db.one('SELECT id, name FROM rulesets WHERE id = $1', [row.ruleset_id]);
-  const settings = await tierSettings(db);
+  // The CHARACTER's game version (0.11.1: its own settings and what counts there), whatever page asks.
+  const settings = await tierSettings(db, row.game_version);
   const population = await eligibleCount(db, row.ruleset_id);
   const tr = await db.one('SELECT * FROM tier_rulesets WHERE ruleset_id = $1', [row.ruleset_id]);
   const base = { ruleset, population, minPopulation: settings.minPopulation, gradedAt: tr?.computed_at ?? null };
@@ -62,7 +64,7 @@ export async function characterTierView(db, row) {
 
   const plan = tr.plan;
   const used = tr.settings;
-  const { catalog } = await countingNow(db);
+  const { catalog } = await countingNow(db, { version: row.game_version });
   const pctBy = new Map(t.stat_ids.map((id, i) => [Number(id), t.stat_pcts[i]]));
   const values = new Map((await db.query(
     'SELECT statistic_id, value, text FROM character_statistics WHERE character_id = $1 AND statistic_id = ANY($2::bigint[]) LIMIT 5000',
@@ -227,7 +229,7 @@ export async function howTiersWork(db) {
   const settings = await tierSettings(db);
   const { catalog, counts, plan } = await countingNow(db);
   const rulesets = await db.query(
-    `SELECT r.id, r.name, t.graded, t.computed_at FROM rulesets r LEFT JOIN tier_rulesets t ON t.ruleset_id = r.id WHERE r.listed ORDER BY r.id LIMIT 50`,
+    `SELECT r.id, r.name, t.graded, t.computed_at FROM rulesets r LEFT JOIN tier_rulesets t ON t.ruleset_id = r.id WHERE r.listed AND ${scopeSql('r')} ORDER BY r.id LIMIT 50`,
   );
   const withCounts = [];
   for (const r of rulesets) withCounts.push({ id: r.id, name: r.name, population: await eligibleCount(db, r.id), gradedAt: r.computed_at ?? null });
@@ -274,7 +276,8 @@ export async function adminTierState(db, { version = PRIMARY_VERSION.id } = {}) 
 /** A character's overall letter and, when Unranked, why: { letter, status, reason } (dashboards, profiles). */
 export async function tierBrief(db, row) {
   if (row.ruleset_id === null || row.hidden) return null;
-  const settings = await tierSettings(db);
+  // The character's own game version when the row says it (profiles and dashboards list several versions).
+  const settings = await tierSettings(db, row.game_version ?? (await db.one('SELECT game_version FROM characters WHERE id = $1', [row.id]))?.game_version);
   const population = await eligibleCount(db, row.ruleset_id);
   if (population < settings.minPopulation) {
     const rs = await db.one('SELECT name FROM rulesets WHERE id = $1', [row.ruleset_id]);

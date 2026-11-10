@@ -183,7 +183,7 @@ export const BLIZZARD = Object.freeze([
         }
         await q.query(
           `UPDATE characters SET slug = NULL, name = NULL, surname = '', ruleset_id = NULL, faction = NULL, race = NULL, class = NULL,
-             gender = NULL, level = NULL, account_level = NULL, guild_id = NULL, last_login_at = NULL, login_at_full = NULL,
+             gender = NULL, level = NULL, account_level = NULL, guild_id = NULL, last_login_at = NULL, login_at_full = NULL, realm_type = NULL,
              media = NULL, media_state = NULL, media_fetched_at = NULL, equipment = NULL, attributes = NULL,
              stats_fetched_at = NULL, last_fetched_at = NULL, last_checked_at = NULL, data_fetched_at = NULL, missing_since = NULL,
              profile_state = 'purged', purged_at = now()
@@ -357,6 +357,8 @@ export const OURS = Object.freeze({
   ban_identities: 'The sign-in identities and passkey ids a banned account had when its ban started (ban evasion) (0.8.2)',
   moderation_actions: 'Moderation log: warnings, forced renames, field resets, bans, unbans, role changes, reveals, report decisions (0.8.2)',
   collection_backfill_days: 'How many first collections fetches the backfill queued each day (counts) (0.9.2)',
+  seeding_days: 'How many untracked characters each seeding source (Mythic+ leaderboards, opened guilds’ rosters) queued per day and version (counts) (0.11.1)',
+  seeding_state: 'Where each seeding source is in its round of connected realms (a position number and a status line) (0.11.1)',
   account_guilds: 'Guilds a player follows on their dashboard, own guilds they hid from it, and the order (Blizzard guild ids only) (0.9.1)',
   character_gold_public: 'The owner’s “Show my gold stats publicly” choice per character (character id, account id, since) (0.9.0)',
   reports: 'Player reports about profiles and guild descriptions: what, an optional note, the reported text as it was; no reporter (0.8.2)',

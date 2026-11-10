@@ -3,7 +3,7 @@ import { HttpError, route } from '../core/errors.js';
 import { ENVIRONMENT } from '../core/environment.js';
 import { GAME_VERSIONS, REGIONS, PRIMARY_VERSION, isRegionEnabled, isVersionEnabled } from '../core/gameVersions.js';
 import { listSettings } from './settings.js';
-import { FEATURES, featuresHere, listFeatures, setFeature } from '../features/registry.js';
+import { FEATURES, featuresHere, listFeatures, setFeature, switchSetting } from '../features/registry.js';
 import { AUDIT_AREAS, auditPage, auditSearch } from '../audit/log.js';
 import { STALE_MS } from './crawler.js';
 import { retentionPolicy } from '../retention/policy.js';
@@ -97,7 +97,7 @@ const settingHref = (s) => {
   if (s.section === 'badges') return '/admin/badges/player';
   if (s.section === 'guildBadges') return '/admin/badges/guild';
   if (s.section === 'release') return '/admin/release#maintenance';
-  const f = FEATURES.find((x) => x.store.setting === s.key || (x.settings ?? []).includes(s.key));
+  const f = FEATURES.find((x) => switchSetting(x) === s.key || (x.settings ?? []).includes(s.key));
   if (f && s.section !== 'crawler' && s.section !== 'cards') return `/admin/features#feat-${f.id}`;
   return `/admin/settings#set-${s.key}`;
 };

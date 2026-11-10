@@ -28,6 +28,8 @@ export function createLoop({ db, jobs, workerId, version, now = Date.now, tickMs
   }
 
   async function tick() {
+    // 0.11.1: which switchable game versions are on (Features), before any job asks.
+    await import('../core/versionSwitch.js').then((m) => m.refreshVersionSwitches(db, { now })).catch(() => {});
     for (const job of jobs) {
       if (stopping) break;
       const run = runs.get(job.id);

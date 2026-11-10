@@ -38,7 +38,23 @@
  *   nativeIds     true for the version whose rows predate 0.10.0: there, Everstats' id IS Blizzard's id (characters,
  *                 guilds, rulesets, statistics), so nothing existing moved. Every other version's ids are allocated
  *                 (core/localIds.js) so two versions' Blizzard ids can never collide.
- *   enabled       visible to players and crawled. Only the default version until 0.11.0.
+ *   enabled       visible to players and crawled, always (the primary version).
+ *   switchable    0.11.1: BUILT (pages, crawl, boards, tiers) and switched on or off by the admin at Features (the boolean
+ *                 admin setting `versions.{id}`, default off; core/versionSwitch.js keeps each process's copy fresh).
+ *                 A version that is neither enabled nor switchable isn't built yet and can't be switched on anywhere.
+ *   realmCategory.source 'region' (0.11.1, owner's decision for Retail): ONE pool per region. Every player realm of the
+ *                 region is graded and ranked together; the realm's type (NORMAL, RP) is kept on the character and is
+ *                 only a board FILTER (`boardFilters`), never a separate pool.
+ *   categoryRenames  Blizzard statistic categories this version files under another name on our side (Retail's "Legacy"
+ *                 is "Past seasons", so it never reads like Forever's Legacy Points).
+ *   tierGroups    the owner's group choices for a version that isn't the native one, applied ONCE by the worker
+ *                 (tiers/groups.js seedVersionGroups); the owner changes any of them later in Discovery.
+ *   seasons       season boards (stats/seasons.js): Mythic+ (current season's rating and best run) and the PvP brackets
+ *                 asked for, each keyed by Blizzard's season id.
+ *   collections   backfill (the daily first-fetch batch; false = on demand only), accountWide (pages say so), decor.
+ *   seeding       how untracked characters are found besides lookups and sign-ins: rosters of guilds people open and
+ *                 the current Mythic+ leaderboards, each capped per day by an admin setting. Never a realm-wide crawl.
+ *   leaderboardCharacters  where the PROBE may pick a character besides the admin's account (discovery/probe).
  *   primary       the version every existing (unprefixed) URL means: /c/{slug}, /g/{slug}, /leaderboards/… .
  *   eraFamily     the Classic Era family (Era and whatever shares classic1x, plus Anniversary): the probe asks how its
  *                 realms are told apart.
@@ -50,20 +66,32 @@ export const GAME_VERSIONS = Object.freeze([
     staticPattern: '^static-\\d[A-Za-z0-9._]*-forever-{region}$', staticPlain: null,
     realms: false, realmCategory: { source: 'ruleset', label: 'ruleset', plural: 'rulesets' },
     nativeIds: true, enabled: true, primary: true,
+    collections: { backfill: true, accountWide: false, decor: false },
   },
   {
     id: 'retail', name: 'World of Warcraft', short: 'Retail', regions: ['us', 'eu', 'kr', 'tw'],
     namespaces: { profile: 'profile-{region}', dynamic: 'dynamic-{region}' },
     staticPattern: '^static-(?:\\d[A-Za-z0-9._]*-)?{region}$', staticPlain: 'static-{region}',
-    realms: true, realmCategory: { source: 'realm-type', label: 'realm type', plural: 'realm types' },
-    nativeIds: false, enabled: false, primary: false,
+    realms: true, realmCategory: { source: 'region', label: 'region', plural: 'regions' },
+    boardFilters: [{ id: 'realm-type', label: 'Realm type' }],
+    nativeIds: false, enabled: false, switchable: true, primary: false,
+    categoryRenames: { Legacy: 'Past seasons' },
+    tierGroups: {
+      counts: ['Dungeons & Raids', 'Combat', 'Adventure', 'Professions', 'PvP', 'Character', 'Delves'],
+      category: ['Social', 'Camping & Hearth', 'Pet Battles'],
+      none: ['Deaths & mishaps', 'Past seasons', 'Legion: Remix', 'Dastardly Duos', 'Reputation', 'Collections', 'Guild'],
+    },
+    seasons: { mythicPlus: true, pvpBrackets: ['2v2', '3v3', 'rbg'] },
+    collections: { backfill: false, accountWide: true, decor: true },
+    seeding: { openedGuildRosters: true, mythicLeaderboards: true },
+    leaderboardCharacters: 'mythic-leaderboard',
   },
   {
     id: 'classic', name: 'WoW Classic (progression)', short: 'Classic', regions: ['us', 'eu', 'kr', 'tw'],
     namespaces: { profile: 'profile-classic-{region}', dynamic: 'dynamic-classic-{region}' },
     staticPattern: '^static-(?:\\d[A-Za-z0-9._]*-)?classic-{region}$', staticPlain: 'static-classic-{region}',
     realms: true, realmCategory: { source: 'realm-type', label: 'realm type', plural: 'realm types' },
-    nativeIds: false, enabled: false, primary: false,
+    nativeIds: false, enabled: false, primary: false, leaderboardCharacters: 'challenge-mode',
   },
   {
     // Era, and whichever of Hardcore / Season of Discovery live in classic1x: the probe records how realms differ.
@@ -71,7 +99,7 @@ export const GAME_VERSIONS = Object.freeze([
     namespaces: { profile: 'profile-classic1x-{region}', dynamic: 'dynamic-classic1x-{region}' },
     staticPattern: '^static-(?:\\d[A-Za-z0-9._]*-)?classic1x-{region}$', staticPlain: 'static-classic1x-{region}',
     realms: true, realmCategory: { source: 'realm-type', label: 'realm type', plural: 'realm types' },
-    nativeIds: false, enabled: false, primary: false, eraFamily: true,
+    nativeIds: false, enabled: false, primary: false, eraFamily: true, leaderboardCharacters: 'challenge-mode',
   },
   {
     // Not in the 0.10.0 brief: Blizzard's Classic namespaces guide gives Anniversary its own namespace.
@@ -79,7 +107,7 @@ export const GAME_VERSIONS = Object.freeze([
     namespaces: { profile: 'profile-classicann-{region}', dynamic: 'dynamic-classicann-{region}' },
     staticPattern: '^static-(?:\\d[A-Za-z0-9._]*-)?classicann-{region}$', staticPlain: 'static-classicann-{region}',
     realms: true, realmCategory: { source: 'realm-type', label: 'realm type', plural: 'realm types' },
-    nativeIds: false, enabled: false, primary: false, eraFamily: true,
+    nativeIds: false, enabled: false, primary: false, eraFamily: true, leaderboardCharacters: 'challenge-mode',
   },
 ].map((v) => Object.freeze(v)));
 
@@ -120,7 +148,22 @@ export function enableVersionForTests(id, on = true) {
   if (on) testEnabled.add(id);
   else testEnabled.delete(id);
 }
-export const isVersionEnabled = (id) => testEnabled.has(id) || (Boolean(versionById(id)?.enabled) && (envList.length === 0 || envList.includes(id)));
+// 0.11.1: the switchable versions the admin has switched on (Features → the version's card). Each server process keeps
+// this set fresh from the `versions.{id}` settings (core/versionSwitch.js); a browser's stays empty (the client reads
+// which versions are on from /api/session).
+let switchedOn = new Set();
+export function setSwitchedOnVersions(ids) {
+  switchedOn = new Set([...ids].filter((id) => versionById(id)?.switchable));
+}
+export const switchableVersions = () => GAME_VERSIONS.filter((v) => v.switchable);
+/** May this version run here at all (GAME_VERSIONS= in the environment narrows; nothing widens)? */
+export const versionAllowedHere = (id) => envList.length === 0 || envList.includes(id);
+export const isVersionEnabled = (id) => {
+  if (testEnabled.has(id)) return true;
+  const v = versionById(id);
+  if (!v || !versionAllowedHere(id)) return false;
+  return Boolean(v.enabled) || (Boolean(v.switchable) && switchedOn.has(id));
+};
 export const enabledVersions = () => GAME_VERSIONS.filter((v) => isVersionEnabled(v.id));
 export const isRegionEnabled = (id) => Boolean(regionById(id)?.enabled);
 
@@ -184,6 +227,10 @@ export function blizzardContext(versionId, regionId) {
     plainStatic: v.staticPlain ? v.staticPlain.replace('{region}', r.suffix) : null,
     paths: Object.freeze({
       rulesets: '/data/wow/ruleset/index',
+      // 0.11.1 (shapes: probe #7, Retail): the season index names `current_season`; a connected realm's Mythic+
+      // leaderboard index lists this period's dungeon leaderboards.
+      mythicSeasons: '/data/wow/mythic-keystone/season/index',
+      mythicLeaderboards: (connectedRealmId) => `/data/wow/connected-realm/${Number(connectedRealmId)}/mythic-leaderboard/index`,
       realms: '/data/wow/realm/index',
       realm: (slug) => `/data/wow/realm/${enc(slug)}`,
       connectedRealms: '/data/wow/connected-realm/index',
@@ -219,4 +266,12 @@ export const categoryLabel = (versionId, { plural = false } = {}) => {
 export const publicVersions = () => GAME_VERSIONS.map((v) => ({
   id: v.id, name: v.name, short: v.short, realms: v.realms, categoryLabel: v.realmCategory.label, enabled: isVersionEnabled(v.id), primary: v.primary,
   regions: v.regions.filter(isRegionEnabled),
+  // 0.11.1: what pages need to know about a version (no hosts, no namespaces).
+  onePool: v.realmCategory.source === 'region', boardFilters: v.boardFilters ?? [], accountWide: Boolean(v.collections?.accountWide),
+  seasons: Boolean(v.seasons), switchable: Boolean(v.switchable),
 }));
+
+/** Does this version grade and rank everyone in a region together (one realm category per region)? */
+export const onePool = (versionId) => versionById(versionId)?.realmCategory.source === 'region';
+/** The one pool's key and name for a region ("US realms"): built from the region id, never typed in per version. */
+export const poolOf = (regionId) => ({ key: `region:${regionId}`, name: `${String(regionId).toUpperCase()} realms` });

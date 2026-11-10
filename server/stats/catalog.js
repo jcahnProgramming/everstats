@@ -1,7 +1,14 @@
 import { CATEGORY_RULES, present } from '../discovery/suggest.js';
 import { guessValueType } from '../discovery/analyze.js';
-import { PRIMARY_VERSION } from '../core/gameVersions.js';
+import { versionById } from '../core/gameVersions.js';
 import { localIds } from '../core/localIds.js';
+import { currentScope, primaryScope } from '../core/scope.js';
+import { feedKeySkipped } from './feeds.js';
+
+/** The catalog a call means when it names no version: the REQUEST's (core/scope.js), the primary one outside a scoped request. */
+const defaultVersion = () => currentScope().version;
+/** 0.11.1: set once tiers/groups.js has moved Everstats' own boards under group choices (proved to change no tier). */
+export const DERIVED_GROUPS_KEY = 'derived_groups_migrated_at';
 
 /**
  * The production statistics catalog: what every page and leaderboard groups and labels statistics by.
@@ -59,7 +66,7 @@ const FARMABLE = new Set(CATEGORY_RULES.filter((r) => r.farmable).map((r) => r.l
 const DEATHS_LABEL = CATEGORY_RULES.find((r) => r.label === 'Deaths & mishaps').label;
 
 /** One statistic's effective classification, from its row (+ the discovery catalog's analysis) and its decisions. */
-export function classify(row, discovery, decisions) {
+export function classify(row, discovery, decisions, { version = null } = {}) {
   const base = {
     statisticId: row.id,
     name: row.name,
@@ -90,7 +97,10 @@ export function classify(row, discovery, decisions) {
     return { value: null, source: null };
   };
   const cat = pick('category');
-  const category = cat.value ?? base.categoryPath[0]?.name ?? 'Other';
+  // 0.11.1: a version may file one of Blizzard's categories under another name (gameVersions.js categoryRenames:
+  // Retail's "Legacy" is "Past seasons"). Always applied, so the two names can never both exist on that version.
+  const filed = cat.value ?? base.categoryPath[0]?.name ?? 'Other';
+  const category = versionById(version)?.categoryRenames?.[filed] ?? filed;
   const grading = pick('grading');
   // The latest decision of each kind ('cleared' = no decision), whatever value the suggestion shows now.
   const latest = (kind) => {
@@ -137,11 +147,11 @@ export function clearCatalogCache() {
 
 /** The catalog as it is right now, bypassing this process's cache (the tier grading reads decisions live). */
 export async function loadCatalogFresh(db, opts) {
-  caches.delete(opts?.version ?? PRIMARY_VERSION.id);
+  caches.delete(opts?.version ?? defaultVersion());
   return loadCatalog(db, opts);
 }
 
-export async function loadCatalog(db, { now = Date.now, version = PRIMARY_VERSION.id } = {}) {
+export async function loadCatalog(db, { now = Date.now, version = defaultVersion() } = {}) {
   const cache = caches.get(version);
   if (cache && cache.db === db && now() - cache.at < CACHE_MS) return cache.value;
   const rows = await db.query('SELECT id, name, category_path, has_text, named_example, derived, source FROM statistics WHERE game_version = $2 ORDER BY id LIMIT $1', [MAX_STATISTICS, version]);
@@ -150,7 +160,13 @@ export async function loadCatalog(db, { now = Date.now, version = PRIMARY_VERSIO
   const discById = new Map(disc.map((d) => [d.statistic_id, d]));
   const decisions = await currentDecisions(db, ids);
   const statistics = new Map();
-  for (const r of rows) statistics.set(r.id, classify(r, discById.get(r.id) ?? null, decisions.get(r.id) ?? new Map()));
+  for (const r of rows) {
+    // 0.11.1: a feed field the skip rules now leave out (stats/feeds.js: equipment numbers, rating_normalized …) is no
+    // board any more. Its statistic row stays until its name ages out (decisions and pins point at ids), but it is in
+    // no catalog, on no page and on no index from this moment.
+    if (r.derived && feedKeySkipped(r.derived)) continue;
+    statistics.set(r.id, classify(r, discById.get(r.id) ?? null, decisions.get(r.id) ?? new Map(), { version }));
+  }
 
   const byCat = new Map();
   for (const s of statistics.values()) {
@@ -179,10 +195,12 @@ export async function loadCatalog(db, { now = Date.now, version = PRIMARY_VERSIO
   //   category.tierCounted (how many of its statistics count) · category.inOverall
   const { whatCounts } = await import('../tiers/counting.js');
   const groups = await currentGroupDecisions(db, version);
-  const counts = whatCounts({ statistics, categories, version, groups });
+  // 0.11.1: Everstats' own boards follow group choices only once the worker has proved that changes no tier.
+  const derivedGroups = Boolean(await db.one('SELECT at FROM pipeline_facts WHERE key = $1', [DERIVED_GROUPS_KEY]));
+  const counts = whatCounts({ statistics, categories, version, groups, derivedGroups });
   for (const [id, c] of counts.statistics) Object.assign(statistics.get(id), { tierRole: c.role, countsOverall: c.overall });
   counts.categories.forEach((k, i) => Object.assign(categories[i], { tierCounted: k.counted.length, inOverall: k.inOverall }));
-  const value = { statistics, categories, version, groups };
+  const value = { statistics, categories, version, groups, derivedGroups };
   caches.set(version, { at: now(), value, db });
   return value;
 }
@@ -198,7 +216,7 @@ export const categoryKey = (label) => String(label).toLowerCase().normalize('NFK
  * same number, on any other it is allocated (core/localIds.js), so the same id on two versions is two statistics and
  * two boards. → Map(Blizzard id → Everstats' id). `source` is the feed ('achievement-statistics').
  */
-export async function recordStatistics(q, parsed, { version = PRIMARY_VERSION.id, source = 'achievement-statistics' } = {}) {
+export async function recordStatistics(q, parsed, { version = primaryScope().version, source = 'achievement-statistics' } = {}) {
   if (!parsed.length) return new Map();
   const map = await localIds(q, { kind: 'statistic', version, region: '', scope: source, blizzardIds: parsed.map((x) => x.id) });
   const ids = parsed.map((x) => map.get(Number(x.id)));

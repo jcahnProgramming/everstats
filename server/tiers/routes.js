@@ -3,6 +3,7 @@ import { TIER_SETTING_KEYS, checkSetting, getSetting, listSettings, setSetting }
 import { HttpError, route } from '../core/errors.js';
 import { PRIMARY_VERSION, versionById } from '../core/gameVersions.js';
 import { rulesetList } from '../characters/routes.js';
+import { pathSlug } from '../core/scope.js';
 import { weightsProblem } from './engine.js';
 import { countingNow, eligibleCount, previewTiers, requestTierRecompute } from './store.js';
 import { adminTierState, howTiersWork, tierBoard } from './view.js';
@@ -96,7 +97,7 @@ export function createTierRouter({ db }) {
     if (board.missingScope) throw new HttpError(404, 'That category has no tier board on this ruleset.', 'no_board');
     const ids = board.rows.map((x) => x.characterId);
     const chars = ids.length ? await db.query(
-      `SELECT c.id, c.slug, c.name, c.surname, c.level, c.race, c.class, g.name AS guild, g.slug AS guild_slug
+      `SELECT c.id, c.slug, c.realm_slug, c.name, c.surname, c.level, c.race, c.class, g.name AS guild, g.slug AS guild_slug, g.realm_slug AS guild_realm
          FROM characters c LEFT JOIN guilds g ON g.id = c.guild_id WHERE c.id = ANY($1::bigint[]) LIMIT 200`,
       [ids],
     ) : [];
@@ -108,8 +109,8 @@ export function createTierRouter({ db }) {
       rows: board.rows.map((x) => {
         const c = byId.get(x.characterId);
         return {
-          rank: x.rank, score: x.score, letter: x.letter, slug: c?.slug ?? null, name: c?.name ?? '', surname: c?.surname ?? '', level: c?.level ?? null,
-          race: c?.race ?? null, class: c?.class ?? null, guild: c?.guild ?? null, guildSlug: c?.guild_slug ?? null, mine: owned.has(x.characterId),
+          rank: x.rank, score: x.score, letter: x.letter, slug: c ? pathSlug(c) : null, realm: c?.realm_slug ?? null, name: c?.name ?? '', surname: c?.surname ?? '', level: c?.level ?? null,
+          race: c?.race ?? null, class: c?.class ?? null, guild: c?.guild ?? null, guildSlug: c?.guild_slug ? pathSlug({ realm_slug: c.guild_realm, slug: c.guild_slug }) : null, mine: owned.has(x.characterId),
         };
       }),
     });

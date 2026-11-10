@@ -1,4 +1,4 @@
-import { CATEGORY_RULES } from '../discovery/suggest.js';
+import { CATEGORY_RULES, DERIVED_GROUPS } from '../discovery/suggest.js';
 import { categoryKey } from '../stats/catalog.js';
 
 /**
@@ -31,7 +31,15 @@ import { categoryKey } from '../stats/catalog.js';
  *   - a name + number statistic: never counted through a group (its number means a different thing per character);
  *   - a possible duplicate pairing still undecided.
  * No choice for the group → undecided, as before. A new version starts with every group undecided: no tiers.
+ *
+ * 0.11.1 EVERSTATS-MADE BOARDS (owner's decision 3): a board Everstats makes (statistics.derived: collection counts,
+ * feed numbers, season boards) sits in a group of its own kind (discovery/suggest.js `derivedGroup`: "Character stats
+ * (gear)", "Reputations", "Season ratings", "Collections" …), and that group's choice covers it like any group. Such a
+ * group with NO choice is "Doesn't count" (not undecided): the boards exist, they feed no tier, and the owner can
+ * change the choice in Discovery. Until the worker has proved the switch changes no tier (`catalog.derivedGroups`, set
+ * by tiers/groups.js migrateDerivedGroups), the 0.10.0 rule holds: a derived board counts only with its own approval.
  */
+export const DERIVED_DEFAULT = Object.freeze({ choice: 'none', origin: 'default' });
 export const FARMABLE = new Set(CATEGORY_RULES.filter((r) => r.farmable).map((r) => r.label));
 // 'Deaths & mishaps': the one category that is never graded. (Found by label: it was CATEGORY_RULES[0] until 0.9.0
 // put Collections first, after which the admin's issues named the wrong category; fixed 0.10.0.)
@@ -52,7 +60,8 @@ export const GROUP_CHOICES = Object.freeze({
 });
 
 /** → { role, reason, via: 'own' | 'group' | 'exempt' | 'none', duplicateOf?, grading? } */
-function roleOf(s, group) {
+function roleOf(s, chosen, { derivedGroups = false } = {}) {
+  let group = chosen;
   const d = s.decided ?? {};
   const own = ownRole(s, d);
   if (own) return { ...own, via: 'own' };
@@ -63,7 +72,9 @@ function roleOf(s, group) {
   // 0.10.0: a board Everstats makes (a collection count, a feed value: statistics.derived) counts only with its OWN
   // approval, as collection counts always have; a group choice covers Blizzard's statistics. (Otherwise the new feed
   // boards would start counting under Forever's migrated choices and change Forever's tiers.)
-  if (s.derived) return { ...legacyUndecided(d), via: 'none', reason: 'A board Everstats makes: it counts only once you approve it on its own.' };
+  if (s.derived && !derivedGroups) return { ...legacyUndecided(d), via: 'none', reason: 'A board Everstats makes: it counts only once you approve it on its own.' };
+  // 0.11.1: a group of Everstats-made boards with no choice starts at "Doesn't count".
+  if (s.derived && !group && DERIVED_GROUPS.includes(s.category)) group = DERIVED_DEFAULT;
   if (!group) return { ...legacyUndecided(d), via: 'none' };
   if (d.duplicatePendingOf !== null && d.duplicatePendingOf !== undefined) return { role: 'undecided', via: 'group', reason: `A possible duplicate of id ${d.duplicatePendingOf} that you haven’t approved or rejected yet.`, duplicateOf: d.duplicatePendingOf };
   if (group.choice === 'none') {
@@ -112,13 +123,13 @@ export function whatCounts(catalog) {
     for (const id of c.statisticIds) {
       const s = catalog.statistics.get(id);
       const group = groups.get(c.label) ?? null;
-      const r = roleOf({ ...s, category: c.label }, group);
+      const r = roleOf({ ...s, category: c.label }, group, { derivedGroups: Boolean(catalog.derivedGroups) });
       const grading = r.role === 'counted' ? r.grading : null;
       const overall = r.role === 'counted' && grading === 'overall' && !farmable;
       // An exception: decided on its own (or exempt) in a group that has a choice, with a different result.
       const groupRole = group ? (group.choice === 'none' ? 'none' : GROUP_CHOICES[group.choice]?.grading) : null;
       const exception = Boolean(group) && r.via !== 'group' && (r.role === 'counted' ? grading : r.role === 'bad' || r.role === 'named' ? 'none' : 'undecided') !== groupRole;
-      statistics.set(id, { id, name: s.name, category: c.label, categoryKey: cat.key, role: r.role, reason: r.reason, grading, overall, duplicateOf: r.duplicateOf ?? null, via: r.via, exception });
+      statistics.set(id, { id, name: s.name, category: c.label, categoryKey: cat.key, role: r.role, reason: r.reason, grading, overall, duplicateOf: r.duplicateOf ?? null, via: r.via, exception, derived: Boolean(s.derived) });
       cat[r.role].push(id);
       if (overall) cat.overall.push(id);
       const issue = (problem) => issues.push({ statisticId: id, name: s.name, category: c.label, problem });

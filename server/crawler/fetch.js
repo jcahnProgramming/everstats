@@ -1,5 +1,6 @@
 import { BLIZZARD_API } from '../core/config.js';
-import { blizzardContext, versionById } from '../core/gameVersions.js';
+import { blizzardContext, onePool, poolOf, versionById } from '../core/gameVersions.js';
+import { fetchSeasons, storeSeasons } from '../stats/seasons.js';
 import { localId } from '../core/localIds.js';
 import { listedConnectedRealms, realmConnectedId, realmExclusion } from '../realms/playerRealms.js';
 import { storeFeedValues } from '../stats/feedStore.js';
@@ -76,13 +77,30 @@ async function listedFor({ db, client }, { scope, ctx }, priority) {
 /**
  * A realm version's realm: its realm category (the realm's TYPE, realm/{slug}, dynamic namespace) and, 0.10.1, whether
  * it is a player realm at all (realms/playerRealms.js rule 1: an internal realm is excluded, never crawled). Read at most
- * once a day per realm and kept in `realms`. → { categoryId, excluded }: categoryId null when Blizzard didn't say (the
- * character then has no category and is on no board until it does: never a guess); an excluded realm gets no category.
+ * once a day per realm and kept in `realms`. → { categoryId, excluded, typeKey }: categoryId null when Blizzard didn't
+ * say (the character then has no category and is on no board until it does: never a guess); an excluded realm gets no
+ * category.
+ *
+ * 0.11.1: on a ONE-POOL version (gameVersions.js realmCategory.source 'region': World of Warcraft) the category is the
+ * region's single pool whatever the realm's type; the type (NORMAL, RP) is still read and kept, on the realm and on the
+ * character (`typeKey`), because it is a board filter there.
  */
+export async function realmCategoryFor(q, scope, type) {
+  if (onePool(scope.version)) {
+    const pool = poolOf(scope.region);
+    return upsertRealmCategory(q, { key: pool.key, name: pool.name }, { scope });
+  }
+  return type?.key ? upsertRealmCategory(q, type, { scope }) : null;
+}
+
 export async function realmInfo({ db, client }, { scope, ctx }, realm, priority) {
-  if (!realm?.slug) return { categoryId: null, excluded: null };
-  const known = await db.one('SELECT category_id, excluded, fetched_at FROM realms WHERE game_version = $1 AND region = $2 AND slug = $3', [scope.version, scope.region, realm.slug]);
-  if (known && Date.now() - new Date(known.fetched_at).getTime() < REALM_EVERY_MS) return { categoryId: known.category_id, excluded: known.excluded };
+  if (!realm?.slug) return { categoryId: null, excluded: null, typeKey: null };
+  const known = await db.one('SELECT category_id, excluded, type_key, fetched_at FROM realms WHERE game_version = $1 AND region = $2 AND slug = $3', [scope.version, scope.region, realm.slug]);
+  if (known && Date.now() - new Date(known.fetched_at).getTime() < REALM_EVERY_MS) {
+    // The realm list (worker job 'realms') may have written this row without a category: a pool version always has one.
+    const categoryId = known.excluded ? null : known.category_id ?? (onePool(scope.version) ? await db.tx((q) => realmCategoryFor(q, scope, null)) : null);
+    return { categoryId, excluded: known.excluded, typeKey: known.type_key };
+  }
   const r = await client.request('realm', ctx.paths.realm(realm.slug), { priority, namespace: ctx.namespaces.dynamic, version: scope.version, region: scope.region });
   const json = okOr(r, 'realm');
   const connectedRealmId = realmConnectedId(json);
@@ -90,7 +108,7 @@ export async function realmInfo({ db, client }, { scope, ctx }, realm, priority)
   const type = json?.type && typeof json.type === 'object' ? json.type : null;
   const key = !excluded && typeof type?.type === 'string' ? type.type : null;
   return db.tx(async (q) => {
-    const categoryId = key ? await upsertRealmCategory(q, { key, name: typeof type.name === 'string' ? type.name : key }, { scope }) : null;
+    const categoryId = excluded ? null : await realmCategoryFor(q, scope, key ? { key, name: typeof type.name === 'string' ? type.name : key } : null);
     await q.query(
       `INSERT INTO realms (game_version, region, slug, blizzard_id, name, type_key, type_name, category_id, connected_realm_id, excluded, fetched_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
@@ -100,10 +118,12 @@ export async function realmInfo({ db, client }, { scope, ctx }, realm, priority)
       [scope.version, scope.region, realm.slug, Number.isSafeInteger(json?.id) ? json.id : realm.id, typeof json?.name === 'string' ? json.name.slice(0, 80) : realm.name,
         excluded ? null : key, excluded ? null : (type?.name ?? null), categoryId, connectedRealmId, excluded],
     );
-    return { categoryId, excluded };
+    return { categoryId, excluded, typeKey: excluded ? null : key };
   });
 }
-const usesRealmTypes = (scope) => versionById(scope.version)?.realmCategory.source === 'realm-type';
+// A version with realms reads the realm first: its category (the realm's type, or the region's one pool) and whether
+// it is a player realm at all.
+const usesRealmTypes = (scope) => Boolean(versionById(scope.version)?.realms);
 /** The outcome of an item on an internal realm: nothing is fetched or stored (realms/playerRealms.js). */
 export const EXCLUDED_OUTCOME = 'excluded: internal realm';
 
@@ -137,7 +157,7 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
   const realmOfP = usesRealmTypes(scope) ? await realmInfo({ db, client }, { scope, ctx }, p.realm, priority) : null;
   if (realmOfP?.excluded) return EXCLUDED_OUTCOME;
   const rulesetId = realmOfP ? realmOfP.categoryId : undefined;
-  const store = { source: sourceOf(item), scope, rulesetId };
+  const store = { source: sourceOf(item), scope, rulesetId, realmType: realmOfP?.typeKey ?? null };
 
   const existing = await db.one('SELECT login_at_full, last_fetched_at, media_state, equipment_version, missing_since FROM characters WHERE id = $1', [id]);
   // Equipment stored before 0.4.1 has no tooltip fields: one full fetch brings them in, logged in or not.
@@ -171,11 +191,13 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
     return 'unchanged';
   }
 
-  const [stats, attrs, equip, media] = await Promise.all([
+  const [stats, attrs, equip, media, seasons] = await Promise.all([
     ask('achievement-statistics', `${base}/achievements/statistics`),
     ask('statistics', `${base}/statistics`),
     ask('equipment', `${base}/equipment`),
     ask('character-media', `${base}/character-media`),
+    // 0.11.1: season boards (Mythic+ and PvP brackets) on a version that has them: stats/seasons.js. Nothing on others.
+    fetchSeasons({ db, client }, { scope, ctx, base, priority }),
   ]);
   const statsJson = okOr(stats, 'achievement statistics');
   const attrsJson = optional(attrs);
@@ -193,6 +215,7 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
     await storeFeedValues(q, id, 'profile', pj);
     await storeFeedValues(q, id, 'statistics', attrsJson);
     await storeFeedValues(q, id, 'equipment', equipJson);
+    await storeSeasons(q, id, seasons);
     await takeSnapshot(q, id, { now });
     await updateGains(q, id, { now });
     // Icons go in their own work item at this priority: the character is ready without waiting for them.
@@ -250,8 +273,8 @@ async function maybeRoster({ db }, p, scope) {
   if (!p.guild?.slug) return;
   const g = await db.one('SELECT roster_checked_at FROM guilds WHERE game_version = $1 AND region = $2 AND blizzard_id = $3', [scope.version, scope.region, p.guild.id]);
   if (g?.roster_checked_at && Date.now() - new Date(g.roster_checked_at).getTime() < ROSTER_EVERY_MS) return;
-  // 0.10.0 capped seeding: on any version but the primary, a roster is read only for a guild someone opens. A
-  // character's own fetch never queues its guild there.
+  // 0.10.0 capped seeding: on any version but the primary, a roster is read only for a guild someone opens (the guild
+  // page queues it, and again when it is opened on a roster older than a day). A character's own fetch never does.
   if (scope.version !== BLIZZARD_API.version) return;
   const realmSlug = p.guild.realm?.slug ?? p.realm?.slug ?? null;
   await enqueueMany(db, [{ kind: 'guild', key: crawlKey({ realmSlug, slug: p.guild.slug }), priority: PRIORITY.roster, ...scope }]);
@@ -314,9 +337,14 @@ export async function fetchGuildRoster({ db, client }, item) {
   } catch (err) {
     console.error(`[guilds] guild master sync failed: ${err.code ?? err.name}`);
   }
-  // 0.10.0 capped seeding: roster expansion (queueing every member) is for the primary version only; elsewhere members
-  // are fetched only when someone asks (a guild page's "Fetch all members", inside that version's budget ceiling).
-  if (scope.version !== BLIZZARD_API.version) return `roster: ${members.length} members (${scope.version}: no expansion)`;
+  // 0.10.0 capped seeding: roster expansion (queueing every member) is for the primary version only. 0.11.1 (owner's
+  // decision 8): elsewhere the roster of a guild SOMEONE OPENED seeds its untracked level 10+ members, up to the admin's
+  // daily cap for the whole version (crawler/seeding.js), at the lowest priority inside that version's budget share.
+  if (scope.version !== BLIZZARD_API.version) {
+    const { seedFromRoster } = await import('./seeding.js');
+    const seeded = await seedFromRoster(db, { scope, members, opened: item.priority === PRIORITY.lookup || item.priority === PRIORITY.roster }).catch(() => 0);
+    return `roster: ${members.length} members (${scope.version}: ${seeded} new queued, capped per day)`;
+  }
   if (!(await getSetting(db, 'crawler.rosterExpansion'))) return `roster: ${members.length} members (expansion off)`;
   const eligible = members.filter((m) => Number.isInteger(m.level) && m.level >= MIN_TRACKED_LEVEL);
   const known = new Set((await db.query('SELECT id FROM characters WHERE id = ANY($1::bigint[])', [eligible.map((m) => m.id)])).map((x) => x.id));

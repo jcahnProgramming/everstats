@@ -419,4 +419,78 @@ export function collectionsBackfillJob() {
   };
 }
 
-export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob(), guildFetchJob(), tiersJob(), badgesJob(), guildBadgesJob(), catalogsJob(), collectionsBackfillJob()]);
+/**
+ * 0.11.1: the player realms of every enabled realm version (crawler/seeding.js refreshRealms): one search request a
+ * version, every 12 hours. The realm picker, the Mythic+ round and the realm check before a fetch read the list.
+ * The request waits its turn in the crawler's budget, so the job starts it and reports the last result.
+ */
+export function realmsJob({ crawler }) {
+  let running = null;
+  let last = 'Not read yet';
+  let lastWorkAt = null;
+  return {
+    id: 'realms',
+    label: 'Player realms from Blizzard (versions with realms)',
+    everyMs: 12 * 60 * 60 * 1000,
+    async run({ db }) {
+      const { realmScopes, refreshRealms } = await import('../crawler/seeding.js');
+      const scopes = await realmScopes();
+      if (!scopes.length) return { summary: 'No version with realms is switched on' };
+      if (!running) {
+        running = (async () => {
+          const parts = [];
+          for (const scope of scopes) {
+            const n = await refreshRealms({ db, client: crawler.client }, scope).catch((err) => `not read (${err.code ?? err.name})`);
+            parts.push(`${scope.version}: ${n === null ? 'not answered' : typeof n === 'number' ? `${n} realms` : n}`);
+            if (typeof n === 'number' && n > 0) lastWorkAt = new Date().toISOString();
+          }
+          last = parts.join(' · ');
+        })().finally(() => {
+          running = null;
+        });
+      }
+      return { summary: running ? `Reading… (last: ${last})` : last, lastWorkAt };
+    },
+    inFlight: () => running,
+  };
+}
+
+/**
+ * 0.11.1 (owner's decision 8): members of the current Mythic+ leaderboards, a few a day (crawler/seeding.js). One
+ * step every 20 minutes (2 requests) until the day's cap is queued. Paused with the crawler.
+ */
+export function mythicSeedJob({ crawler }) {
+  let running = null;
+  let last = 'Not run yet';
+  let lastWorkAt = null;
+  return {
+    id: 'mythic-seed',
+    label: 'New characters from the current Mythic+ leaderboards',
+    everyMs: 20 * 60 * 1000,
+    async run({ db }) {
+      const { getSetting } = await import('../admin/settings.js');
+      if (await getSetting(db, 'crawler.paused')) return { summary: 'Paused' };
+      const { realmScopes, seedFromMythicLeaderboards } = await import('../crawler/seeding.js');
+      const { versionById } = await import('../core/gameVersions.js');
+      const scopes = (await realmScopes()).filter((s) => versionById(s.version)?.seeding?.mythicLeaderboards);
+      if (!scopes.length) return { summary: 'No version with Mythic+ leaderboards is switched on' };
+      if (!running) {
+        running = (async () => {
+          const parts = [];
+          for (const scope of scopes) {
+            const line = await seedFromMythicLeaderboards({ db, client: crawler.client }, scope).catch((err) => `not run (${err.code ?? err.name})`);
+            parts.push(`${scope.version}: ${line}`);
+            if (/ [1-9]\d* new queued/.test(line)) lastWorkAt = new Date().toISOString();
+          }
+          last = parts.join(' · ');
+        })().finally(() => {
+          running = null;
+        });
+      }
+      return { summary: last, lastWorkAt };
+    },
+    inFlight: () => running,
+  };
+}
+
+export const createJobs = ({ crawler }) => Object.freeze([realmsJob({ crawler }), mythicSeedJob({ crawler }), backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob(), guildFetchJob(), tiersJob(), badgesJob(), guildBadgesJob(), catalogsJob(), collectionsBackfillJob()]);

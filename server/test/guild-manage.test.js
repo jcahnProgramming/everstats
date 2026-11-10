@@ -65,7 +65,7 @@ test('the owner of the rank-0 character is Guild Master (even a hidden or under-
   assert.equal((await gm.c.get('/api/guilds/fixture-guild/manage')).json.role, 'gm');
   assert.equal((await stranger.c.get('/api/guilds/fixture-guild/manage')).json.role, null);
   assert.equal((await stranger.c.put('/api/guilds/fixture-guild/manage', { description: 'mine now' })).status, 403);
-  assert.deepEqual((await gm.c.get('/api/account/guilds')).json.guilds, [{ slug: 'fixture-guild', name: 'Fixture Guild', role: 'gm' }]);
+  assert.deepEqual((await gm.c.get('/api/account/guilds')).json.guilds, [{ slug: 'fixture-guild', version: 'forever', region: 'us', name: 'Fixture Guild', role: 'gm' }]);
   const log = await t.db.query("SELECT type, account_id FROM guild_events WHERE guild_id = 77 AND type = 'control.changed'");
   assert.deepEqual(log, [{ type: 'control.changed', account_id: gm.id }]);
   // Guild Master badge for the owner.

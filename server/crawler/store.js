@@ -154,7 +154,7 @@ export async function upsertKnown(q, c, { source, ownerAccountId = null, scope =
  * The profile (200). `p.id` is Blizzard's. `rulesetId` (Everstats') is the realm category when the caller resolved it
  * (a realm version: its realm's type); else the profile's own ruleset. → { id (Everstats'), previous, guildId }
  */
-export async function storeProfile(q, p, { source, scope = null, rulesetId = undefined }) {
+export async function storeProfile(q, p, { source, scope = null, rulesetId = undefined, realmType = null }) {
   const s = scopeOf(scope);
   const id = await localId(q, { kind: 'character', version: s.version, region: s.region, blizzardId: p.id });
   const previous = await q.one('SELECT id, ruleset_id, guild_id, hidden, login_at_full, last_fetched_at, media_state FROM characters WHERE id = $1 FOR UPDATE', [id]);
@@ -175,6 +175,8 @@ export async function storeProfile(q, p, { source, scope = null, rulesetId = und
        data_fetched_at = now(), missing_since = NULL, purged_at = NULL`,
     [id, p.slug, p.name, p.surname, category ?? null, p.faction, p.race, p.class, p.gender, p.level, guildId, p.lastLoginAt, source, s.version, s.region, realmSlug, p.id],
   );
+  // 0.11.1: the realm's type (NORMAL, RP …) on the character: a board filter on a one-pool version, never a pool.
+  if (realmType) await q.query('UPDATE characters SET realm_type = $2 WHERE id = $1 AND realm_type IS DISTINCT FROM $2', [id, String(realmType).slice(0, 40)]);
   // A ruleset change (a transfer, if Forever ever has them): every ranked copy follows the character.
   if (previous && category && previous.ruleset_id !== null && previous.ruleset_id !== category) {
     await q.query('UPDATE character_statistics SET ruleset_id = $2 WHERE character_id = $1', [id, category]);
@@ -325,8 +327,9 @@ export async function updateGains(q, characterId, { now = Date.now } = {}) {
           -- 0.10.0: a feed's board (stats/feeds.js) has a gain only once its baseline already held it, so the fetch that
           -- first brings a feed value in never reads as "gained 12,000 health this week". Other derived counts: as 0.9.0.
           AND (cs.statistic_id < $6
-               OR (b.id IS NOT NULL AND EXISTS (SELECT 1 FROM statistics f WHERE f.id = cs.statistic_id AND f.derived LIKE 'feed:%'))
-               OR ($7::boolean AND NOT EXISTS (SELECT 1 FROM statistics f WHERE f.id = cs.statistic_id AND f.derived LIKE 'feed:%')))`,
+               -- 0.11.1: a season board (stats/seasons.js) the same way: a gain only once its baseline held it.
+               OR (b.id IS NOT NULL AND EXISTS (SELECT 1 FROM statistics f WHERE f.id = cs.statistic_id AND (f.derived LIKE 'feed:%' OR f.derived LIKE 'season:%')))
+               OR ($7::boolean AND NOT EXISTS (SELECT 1 FROM statistics f WHERE f.id = cs.statistic_id AND (f.derived LIKE 'feed:%' OR f.derived LIKE 'season:%'))))`,
       [period, start, characterId, ch.ruleset_id, ch.hidden, DERIVED_BASE, derivedOk],
     );
   }

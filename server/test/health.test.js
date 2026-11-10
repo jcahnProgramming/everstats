@@ -33,7 +33,9 @@ test('logged-out visitors always get the Forever theme', async () => {
 
 test('coverage is honest: no keys means no lookups, no rulesets loaded is null, and zero tracked is a measured zero', async () => {
   const res = await t.client().get('/api/coverage');
-  assert.deepEqual(res.json, { region: 'us', lookups: 'not_configured', rulesets: null, trackedCharacters: 0, minPopulation: 50, tierShares: { S: 5, A: 15, B: 30, C: 30, D: 20 }, keepDays: 29 });
+  // 0.11.1: and which game version the answer is about (the unprefixed API is always the primary one).
+  const scope = { version: 'forever', region: 'us', name: 'WoW Forever', short: 'Forever', primary: true, realms: false, onePool: false, categoryLabel: 'ruleset', accountWide: false };
+  assert.deepEqual(res.json, { region: 'us', scope, lookups: 'not_configured', rulesets: null, trackedCharacters: 0, minPopulation: 50, tierShares: { S: 5, A: 15, B: 30, C: 30, D: 20 }, keepDays: 29 });
 });
 
 test('state-changing requests from another origin, or with none, are refused', async () => {

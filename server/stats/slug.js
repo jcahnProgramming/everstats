@@ -48,3 +48,39 @@ export function parseGuildSlug(slug) {
   value = value.normalize('NFC').trim().toLowerCase();
   return GUILD_SLUG.test(value) ? value : null;
 }
+
+/**
+ * Realm versions (0.11.1: World of Warcraft). A character is addressed by its realm's slug and its name, lower case:
+ * /profile/wow/character/{realmSlug}/{name} (probe #7), so the page is /{version}/{region}/c/{realm}/{name}. A name is
+ * letters only, 2–12 of them; a realm slug is what Blizzard's realm index lists (letters, digits, hyphens, and on some
+ * regions apostrophes and accented letters: never typed in here, only checked for shape).
+ */
+const REALM_SLUG = /^[\p{L}\p{N}][\p{L}\p{M}\p{N}'-]{0,59}$/u;
+const REALM_NAME = /^[\p{L}\p{M}]{2,12}$/u;
+
+export function parseRealmSlug(value) {
+  let v;
+  try {
+    v = decodeURIComponent(String(value ?? ''));
+  } catch {
+    return null;
+  }
+  v = v.normalize('NFC').trim().toLowerCase();
+  return REALM_SLUG.test(v) ? v : null;
+}
+
+/** A realm's NAME as someone types it ("Area 52", "Mal'Ganis") → the slug Blizzard gives it ("area-52", "malganis"). */
+export function realmSlugFromName(name) {
+  const v = String(name ?? '').normalize('NFC').trim().toLowerCase().replace(/['’]/g, '').replace(/[^\p{L}\p{M}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '');
+  return REALM_SLUG.test(v) ? v : null;
+}
+
+/** { ok: true, realmSlug, slug, name } or { ok: false, problem }. */
+export function realmCharacter(realm, name) {
+  const n = normalizePart(name);
+  const r = parseRealmSlug(realm);
+  if (!n) return { ok: false, problem: 'Enter the character’s name.' };
+  if (!REALM_NAME.test(n)) return { ok: false, problem: 'A name is 2 to 12 letters.' };
+  if (!r) return { ok: false, problem: 'Choose the character’s realm.' };
+  return { ok: true, realmSlug: r, slug: n.toLowerCase(), name: n };
+}

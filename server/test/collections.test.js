@@ -229,9 +229,10 @@ test('collection counts are statistics: boards, zero never ranked, and a stats r
   assert.equal(await val('legacy'), 0);
   // Every count is in the statistics table under the Collections category.
   const st = await t.db.query('SELECT id, derived FROM statistics WHERE derived IS NOT NULL ORDER BY id');
-  // Heirlooms aren't registered while Blizzard's heirloom catalog has none; boss kills not until someone has one (0.9.1).
+  // Heirlooms aren't registered while Blizzard's heirloom catalog has none; boss kills not until someone has one (0.9.1);
+  // decor (0.11.1) never on Forever: its characters aren't asked for it.
   const fixed = st.filter((x) => !String(x.derived).includes(':')).map((x) => x.derived);
-  assert.deepEqual(fixed.sort(), COUNTS.filter((c) => c.key !== 'heirlooms' && c.key !== 'boss-kills').map((c) => c.key).sort());
+  assert.deepEqual(fixed.sort(), COUNTS.filter((c) => c.key !== 'heirlooms' && c.key !== 'boss-kills' && c.kind !== 'decor').map((c) => c.key).sort());
   // A board: both characters have one mount → tied at #1; a statistics refresh (storeDetails) leaves the counts alone.
   await fetchChar('alpha-coll');
   assert.equal(await val('mounts'), 1);

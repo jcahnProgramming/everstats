@@ -2,16 +2,16 @@ import { rankOn } from '../stats/boards.js';
 import { catalogMap, catalogTotals } from './catalog.js';
 import { legacyAccountWide, legacyOf, legacyPointsOf } from './legacy.js';
 import { COUNTS, KINDS, SLOT_GROUPS, familyOf, kindById, slotGroup, slotLabels } from './registry.js';
-import { achievementCatalog, collectionsOf, sharedKindsOf, sharingEvidence } from './store.js';
+import { achievementCatalog, collectionsOf, countIds, sharedKindsOf, sharingEvidence } from './store.js';
 import { scopeSql } from '../core/config.js';
 /**
- * 0.10.0: catalogs are per game version and region (a static namespace is one version's build in one region). In this
- * build only the PRIMARY scope's catalogs are built and read (the catalogs job and every collections page are the primary
- * version's); every statement names that scope, so another version's rows can never be read here. Building catalogs
- * per version arrives with the version itself (0.11.0).
+ * 0.10.0: catalogs are per game version and region (a static namespace is one version's build in one region).
+ * 0.11.1: every statement here names the CURRENT scope (core/scope.js: the request's game version, or the crawl item's
+ * when the crawler runs one), so a World of Warcraft page or fetch can never read WoW Forever's catalog rows (the two
+ * games' ids are not the same things). Only the primary version's catalogs are BUILT so far (the worker's catalogs job
+ * runs outside any scope, which is the primary one): another version's collection pages are "collected only" until its
+ * catalogs are built, and say so.
  */
-const CATALOG_SCOPE = scopeSql();
-const CATALOG_SCOPE_S = scopeSql('s');
 
 
 /**
@@ -46,11 +46,18 @@ export async function collectionsOverview(db, ch) {
   const earned = (rows.get('achievements')?.data?.items ?? []).map((a) => ({ ...a, accountWide: achCat.get(a.id)?.accountWide ?? null }));
   const legacyWide = achCat.size ? legacyAccountWide(achCat) : null;
   const ranked = ch.ruleset_id !== null && !ch.hidden;
-  const values = new Map((await db.query('SELECT statistic_id, value FROM character_statistics WHERE character_id = $1 AND statistic_id = ANY($2::bigint[])', [ch.id, COUNTS.map((c) => c.id)])).map((r) => [Number(r.statistic_id), r.value]));
-  const registered = new Set((await db.query('SELECT id FROM statistics WHERE id = ANY($1::bigint[]) AND name IS NOT NULL', [COUNTS.map((c) => c.id)])).map((r) => Number(r.id)));
+  // 0.11.1: each count's statistic id on THIS character's game version (collections/store.js countIds).
+  const idOf = await countIds(db, ch.game_version);
+  const countIdList = [...idOf.values()];
+  const values = new Map((await db.query('SELECT statistic_id, value FROM character_statistics WHERE character_id = $1 AND statistic_id = ANY($2::bigint[])', [ch.id, countIdList])).map((r) => [Number(r.statistic_id), r.value]));
+  const registered = new Set((await db.query('SELECT id FROM statistics WHERE id = ANY($1::bigint[]) AND name IS NOT NULL', [countIdList])).map((r) => Number(r.id)));
   const counts = [];
-  for (const c of COUNTS) {
+  for (const fixed of COUNTS) {
+    // The same count with this version's id (null when the version has no board for it yet).
+    const c = { ...fixed, id: idOf.get(fixed.key) ?? null };
     const row = rows.get(c.kind);
+    if (c.kind === 'decor' && !row) continue; // a version without decor never asked: no count, not "0"
+    if (c.key === 'legacy' && c.id === null) continue; // Legacy Points exist on WoW Forever only
     // 0.9.1: hunter pets only for hunters; a lazy count (boss kills) only once its board exists (someone has one).
     if (c.population === 'hunters' && ch.class !== 'Hunter') continue;
     if (c.lazy && !registered.has(c.id)) continue;
@@ -67,6 +74,7 @@ export async function collectionsOverview(db, ch) {
     });
   }
   const sections = KINDS.filter((k) => k.id !== 'heirlooms' || totals.heirloom > 0 || rows.get('heirlooms')?.data)
+    .filter((k) => k.id !== 'decor' || rows.has('decor'))
     .filter((k) => k.id !== 'hunter-pets' || ch.class === 'Hunter')
     .map((k) => ({ id: k.id, label: k.label, ...sectionState(rows.get(k.id)), summary: summarise(k.id, rows.get(k.id)?.data, totals), shared: kindById.get(k.id).detect ? sharedKinds.has(k.id) : false }));
   const legacy = rows.get('achievements')?.data && achCat.size ? legacyOf(earned, achCat) : null;
@@ -96,6 +104,7 @@ function summarise(kind, d, totals) {
     case 'pets': return { have: new Set(d.items.map((x) => x.speciesId)).size, owned: n(d.items), total: totals.pet ?? null, maxLevel: d.items.reduce((m, p) => Math.max(m, p.level ?? 0), 0) };
     case 'toys': return { have: n(d.items), total: totals.toy ?? null };
     case 'heirlooms': return { have: n(d.items), total: totals.heirloom ?? null };
+    case 'decor': return { have: new Set(d.items.map((x) => x.id)).size, owned: d.items.reduce((m, x) => m + (x.quantity ?? 1), 0) };
     case 'hunter-pets': return { have: n(d.items) };
     case 'titles': return { have: n(d.items), total: totals.title ?? null, active: d.active?.name ?? null };
     case 'transmog': return { have: new Set(d.slots.flatMap((s) => s.ids)).size, total: totals.appearance ?? null };
@@ -140,6 +149,8 @@ export async function collectionSection(db, ch, kind, query = {}) {
     case 'mounts': return { ...base, ...(d ? grid(d.items, await cat('mount')) : {}) };
     case 'toys': return { ...base, ...(d ? grid(d.items, await cat('toy')) : {}) };
     case 'heirlooms': return { ...base, ...(d ? grid(d.items, await cat('heirloom')) : {}) };
+    // 0.11.1: decor has no catalog here (collected only): each piece with how many are owned.
+    case 'decor': return { ...base, ...(d ? { ...grid(d.items, null), owned: d.items.reduce((m, x) => m + (x.quantity ?? 1), 0) } : {}) };
     case 'pets': {
       if (!d) return base;
       const c = await cat('pet');
@@ -317,7 +328,7 @@ async function transmogView(db, ch, d, { slot = null } = {}) {
   return {
     catalog: Boolean(cat), have: collected.size, total: cat ? cat.size : null, slots, slot: current?.type ?? null, tiles, sets,
     resolved,
-    catalogState: (await db.one(`SELECT state FROM collection_catalog_state WHERE ${CATALOG_SCOPE} AND kind = 'appearance'`))?.state ?? null,
+    catalogState: (await db.one(`SELECT state FROM collection_catalog_state WHERE ${scopeSql()} AND kind = 'appearance'`))?.state ?? null,
     qualityKnown: totals.item > 0,
     worn: (Array.isArray(worn?.equipment) ? worn.equipment : []).map((e) => ({ slot: e.slot, slotName: e.slotName, item: e.name, transmog: e.transmog === undefined ? undefined : e.transmog ? e.transmog.name : null })),
   };
@@ -326,7 +337,7 @@ async function transmogView(db, ch, d, { slot = null } = {}) {
 /** Item id → quality, from the item-search catalog. */
 async function qualities(db, ids) {
   if (!ids.length) return new Map();
-  const rows = await db.query(`SELECT id, data->>'quality' AS q FROM collection_catalog WHERE ${CATALOG_SCOPE} AND kind = 'item' AND id = ANY($1::bigint[]) LIMIT 20000`, [ids]);
+  const rows = await db.query(`SELECT id, data->>'quality' AS q FROM collection_catalog WHERE ${scopeSql()} AND kind = 'item' AND id = ANY($1::bigint[]) LIMIT 20000`, [ids]);
   return new Map(rows.filter((r) => r.q).map((r) => [Number(r.id), r.q]));
 }
 
@@ -335,7 +346,8 @@ export async function boardSharing(db, statisticId) {
   // 0.9.1: a fixed count, or a family board (per achievement category, transmog slot, instance, PvP field).
   const key = (await db.one('SELECT derived FROM statistics WHERE id = $1', [Number(statisticId)]))?.derived ?? null;
   const fam = key ? familyOf(key) : null;
-  const c = COUNTS.find((x) => x.id === Number(statisticId)) ?? (fam ? { key, kind: fam.kind, shared: fam.shared, family: fam.family } : null);
+  // By its key, so a count's board on any game version is recognised (its id is the fixed one only on the native version).
+  const c = COUNTS.find((x) => x.key === key) ?? (fam ? { key, kind: fam.kind, shared: fam.shared, family: fam.family } : null);
   if (!c) return null;
   const extra = { population: c.population ?? null, family: c.family ?? null };
   if (c.shared === 'detected') {

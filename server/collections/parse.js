@@ -61,6 +61,17 @@ export const parseHeirlooms = (j) => ({
   items: list(j?.heirlooms, 2000).map((h) => ({ ...idName(h?.heirloom), upgrade: int(h?.upgrade?.level) })).filter((h) => Number.isSafeInteger(h.id)),
 });
 
+/**
+ * 0.11.1 housing decor (World of Warcraft). Shape as probe #7 stored it: { decor_collected: [{ decor: { id, name, key },
+ * quantity }] } (682 entries for the probed character). → each piece once, with how many are owned.
+ */
+export const parseDecor = (j) => ({
+  items: list(j?.decor_collected, 20000).map((d) => {
+    const piece = idName(d?.decor);
+    return piece ? { ...piece, quantity: Number.isSafeInteger(d?.quantity) && d.quantity > 0 ? d.quantity : 1 } : null;
+  }).filter(Boolean),
+});
+
 export const parseTitles = (j) => ({
   active: idName(j?.active_title),
   items: list(j?.titles, 2000).map(idName).filter(Boolean),

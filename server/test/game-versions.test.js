@@ -172,12 +172,16 @@ test('a realm character with the SAME Blizzard ids as a Forever one: two charact
   assert.equal(retail.realm_slug, 'area-52');
   assert.equal(retail.blizzard_id, SAME_ID);
   assert.ok(retail.id >= 1e15 && Number.isSafeInteger(retail.id), `allocated id ${retail.id}`);
-  // Two guilds with one Blizzard id, two realm categories (Forever's ruleset; Retail's realm type).
+  // Two guilds with one Blizzard id, two realm categories. 0.11.1: Retail's is ONE pool for the region (owner's
+  // decision 1); the realm's type is kept on the character and the realm, as a board filter, never as a category.
   assert.notEqual(forever.guild_id, retail.guild_id);
   assert.equal(forever.guild_id, SAME_ID);
   const cats = await t.db.query('SELECT id, game_version, category_key, name FROM rulesets ORDER BY id');
-  assert.deepEqual(cats.map((c) => [c.game_version, c.category_key]), [['forever', null], ['retail', 'NORMAL']]);
+  assert.deepEqual(cats.map((c) => [c.game_version, c.category_key, c.name]), [['forever', null, 'Normal'], ['retail', 'region:us', 'US realms']]);
   assert.notEqual(forever.ruleset_id, retail.ruleset_id);
+  assert.equal((await t.db.one('SELECT realm_type FROM characters WHERE id = $1', [retail.id])).realm_type, 'NORMAL');
+  assert.equal((await t.db.one('SELECT realm_type FROM characters WHERE id = $1', [forever.id])).realm_type, null);
+  assert.equal((await t.db.one("SELECT type_key FROM realms WHERE slug = 'area-52'")).type_key, 'NORMAL');
 
   // The same statistic id is two statistics: Forever's keeps Blizzard's id, Retail's an allocated one.
   const stats = await t.db.query("SELECT id, game_version, blizzard_id FROM statistics WHERE derived IS NULL AND blizzard_id = 60 ORDER BY id");
@@ -239,12 +243,19 @@ test('URLs: every Forever URL as before; /{version}/{region}/… is 404 while a 
   const c = t.client();
   const r1 = await c.get('/classic/us/c/stormrage/someone');
   assert.equal(r1.status, 404);
-  const r2 = await c.get('/retail/us/c/area-52/thrall'); // enabled in this file, but not built until 0.11.0
-  assert.equal(r2.status, 404);
+  assert.equal((await c.get('/retail/eu/c/area-52/thrall')).status, 404, 'a region that isn’t on');
   const r3 = await c.get('/forever/us/c/vexa-fixture?x=1');
   assert.equal(r3.status, 301);
   assert.equal(r3.headers.get('location'), '/c/vexa-fixture?x=1');
   assert.equal((await c.get('/api/v/classic/us/characters/x')).status, 404);
+  // 0.11.1: a version that is ON (Retail, in this file) serves the same API under its prefix, in its own scope.
+  const cov = await c.get('/api/v/retail/us/coverage');
+  assert.equal(cov.status, 200);
+  assert.deepEqual([cov.json.scope.version, cov.json.scope.onePool, cov.json.scope.realms], ['retail', true, true]);
+  assert.equal((await c.get('/api/coverage')).json.scope.version, 'forever');
+  // The primary version has ONE API address (the unprefixed one), and a switched-off version has none.
+  assert.equal((await c.get('/api/v/forever/us/coverage')).status, 404);
+  assert.equal((await c.get('/api/v/classic/us/coverage')).status, 404);
   // No client route's first segment is a version id (the prefix can never shadow a page).
   const app = readFileSync(join(import.meta.dirname, '..', '..', 'client', 'src', 'App.jsx'), 'utf8');
   const roots = new Set([...app.matchAll(/path="([a-z0-9-]+)/g)].map((m) => m[1]));

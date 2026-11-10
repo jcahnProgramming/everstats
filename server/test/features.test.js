@@ -315,15 +315,44 @@ test('every feature in the registry: turned off on its own, the public site keep
   assert.ok((await linkPreviewFor(t.db, `/c/${CHAR.slug}`, {})).image);
 });
 
-test('game versions are read-only on the Features page (decided in code until 0.11.0)', async () => {
-  const { GAME_VERSIONS, PRIMARY_VERSION } = await import('../core/gameVersions.js');
-  for (const v of GAME_VERSIONS) {
+test('game versions: the primary is locked on, a version that isn’t built is locked off, a BUILT one is a real switch (0.11.1), off by default', async () => {
+  const gv = await import('../core/gameVersions.js');
+  const { GAME_VERSIONS, PRIMARY_VERSION } = gv;
+  for (const v of GAME_VERSIONS.filter((x) => !x.switchable)) {
     const r = await put(`version-${v.id}`, { on: v.id !== PRIMARY_VERSION.id, reason: 'test: versions are locked' });
     assert.equal(r.status, 409);
     assert.equal(r.json.code, 'locked');
   }
-  const list = await features();
+  let list = await features();
   assert.equal(list.find((f) => f.id === `version-${PRIMARY_VERSION.id}`).locked, 'primary');
+  const built = GAME_VERSIONS.filter((x) => x.switchable);
+  assert.deepEqual(built.map((v) => v.id), ['retail'], 'World of Warcraft is the one built version besides the primary');
+  for (const v of built) {
+    const card = list.find((f) => f.id === `version-${v.id}`);
+    assert.deepEqual([card.on, card.locked, card.settingKey], [false, null, `versions.${v.id}`], 'off until the admin turns it on');
+    assert.equal(gv.isVersionEnabled(v.id), false);
+    // Off: its pages and its API don't exist, and the session lists only the primary version.
+    assert.equal((await t.client().get(`/api/v/${v.id}/us/coverage`)).status, 404);
+    assert.equal((await t.client().get(`/${v.id}/us/leaderboards`)).status, 404);
+    assert.deepEqual((await t.client().get('/api/session')).json.versions.list.map((x) => x.id), [PRIMARY_VERSION.id]);
+    assert.equal((await put(`version-${v.id}`, { on: true })).json.code, 'reason_required');
+    const on = await put(`version-${v.id}`, { on: true, reason: 'test: switching the version on' });
+    assert.equal(on.status, 200);
+    assert.equal(gv.isVersionEnabled(v.id), true, 'this process knows at once');
+    const cov = await t.client().get(`/api/v/${v.id}/us/coverage`);
+    assert.equal(cov.status, 200);
+    assert.equal(cov.json.scope.version, v.id);
+    assert.deepEqual((await t.client().get('/api/session')).json.versions.list.map((x) => x.id), [PRIMARY_VERSION.id, v.id]);
+    list = await features();
+    assert.equal(list.find((f) => f.id === `version-${v.id}`).on, true);
+    // The change is in the audit log as this feature, with its reason.
+    const logged = await t.db.one("SELECT detail FROM admin_events WHERE type = 'setting.changed' AND detail->>'key' = $1 ORDER BY id DESC LIMIT 1", [`versions.${v.id}`]);
+    assert.deepEqual([logged.detail.before, logged.detail.value, logged.detail.reason], [false, true, 'test: switching the version on']);
+    const off = await put(`version-${v.id}`, { on: false, reason: 'test: and off again' });
+    assert.equal(off.status, 200);
+    assert.equal(gv.isVersionEnabled(v.id), false);
+    assert.equal((await t.client().get(`/api/v/${v.id}/us/coverage`)).status, 404);
+  }
 });
 
 test('a reason is required; turning off a feature others need asks first (409 with the list), then works', async () => {

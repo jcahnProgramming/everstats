@@ -6,6 +6,8 @@ import { guildBadgesView } from '../guildBadges/view.js';
 import { tierBarParts } from '../stats/tiers.js';
 import { guildRole } from './manage.js';
 import { guildView } from './routes.js';
+import { enabledVersions } from '../core/gameVersions.js';
+import { pathSlug } from '../core/scope.js';
 
 /**
  * "Your guilds" on the signed-in home page (0.9.1).
@@ -39,7 +41,11 @@ async function guildCard(db, g, accountId) {
   const role = await guildRole(db, g.id, accountId).catch(() => null);
   return {
     id: Number(g.id),
-    slug: g.slug,
+    // 0.11.1: as URLs write it ("guild", or "realm/guild"), with the game version it belongs to.
+    slug: pathSlug(g),
+    version: g.game_version,
+    region: g.region,
+    realm: g.realm_slug ?? null,
     name: g.name,
     faction: g.faction ?? null,
     ruleset: v.guild.ruleset ?? null,
@@ -57,7 +63,8 @@ export async function yourGuilds(db, accountId) {
   const own = new Set(await ownGuildIds(db, accountId));
   const ch = await choices(db, accountId);
   const ids = [...new Set([...own, ...[...ch.values()].filter((c) => c.pinned).map((c) => Number(c.guild_id))])];
-  const rows = ids.length ? await db.query('SELECT * FROM guilds WHERE id = ANY($1::bigint[]) LIMIT 100', [ids]) : [];
+  // Guilds of game versions that are switched on only (a version switched off shows nothing of itself).
+  const rows = ids.length ? await db.query('SELECT * FROM guilds WHERE id = ANY($1::bigint[]) AND game_version = ANY($2::text[]) LIMIT 100', [ids, enabledVersions().map((v) => v.id)]) : [];
   const byId = new Map(rows.map((g) => [Number(g.id), g]));
   const order = (id) => ch.get(id)?.position ?? 1e6 + ids.indexOf(id);
   const shown = [];
@@ -67,7 +74,7 @@ export async function yourGuilds(db, accountId) {
     if (!g) continue;
     const isOwn = own.has(id);
     if (isOwn && ch.get(id)?.hidden) {
-      hidden.push({ id, slug: g.slug, name: g.name });
+      hidden.push({ id, slug: pathSlug(g), version: g.game_version, region: g.region, name: g.name });
       continue;
     }
     shown.push({ ...(await guildCard(db, g, accountId)), own: isOwn, pinned: Boolean(ch.get(id)?.pinned) });

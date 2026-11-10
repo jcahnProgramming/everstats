@@ -36,10 +36,20 @@ const sub = (s) => s.categoryPath[1]?.name ?? null;
 const categoryLabel = (path) => path.map((c) => c.name).join(' › ');
 
 /** Everstats categories, first match wins. `farmable`: its tier never counts toward the overall tier. */
+const derivedIs = (re) => (s) => typeof s.derived === 'string' && re.test(s.derived);
 export const CATEGORY_RULES = [
-  // 0.9.0: counts Everstats makes from Blizzard's collections (statistics.derived), never one of Blizzard's own.
-  // 0.10.0: a feed's board ("feed:…", stats/feeds.js) is filed under its feed's group (its category path), not here.
-  { label: 'Collections', test: (s) => Boolean(s.derived) && !String(s.derived).startsWith('feed:'), why: () => 'Everstats counts it from Blizzard\'s collections (mounts, pets, toys, appearances …)' },
+  // 0.11.1 (owner's decision 3): every board EVERSTATS makes (statistics.derived: a collection count, a feed's number,
+  // a season board) is filed in a group of its own, never among Blizzard's statistics, so one group choice covers the
+  // whole kind and Blizzard's "Character" statistics don't share a group with 45 gear numbers. `derivedGroup` groups
+  // start at "Doesn't count" (tiers/counting.js) on every version until the owner chooses otherwise in Discovery.
+  { label: 'Season ratings', derivedGroup: true, test: derivedIs(/^season:|^feed:mythic-keystone-profile:/), why: () => 'Everstats makes it from Blizzard’s Mythic+ and PvP season answers; it starts over each season' },
+  { label: 'Character stats (gear)', derivedGroup: true, test: derivedIs(/^feed:(?:profile|statistics|equipment):/), why: () => 'a number from the character’s profile or character-stats feed (level, item level, attributes): it follows gear' },
+  { label: 'Reputations', derivedGroup: true, test: derivedIs(/^feed:reputations:/), why: () => 'one faction’s standing, from Blizzard’s reputations feed' },
+  { label: 'Profession skills', derivedGroup: true, test: derivedIs(/^feed:professions:/), why: () => 'a profession’s skill, from Blizzard’s professions feed' },
+  { label: 'Battleground maps', derivedGroup: true, test: derivedIs(/^feed:pvp-summary:/), why: () => 'one battleground map’s matches, from Blizzard’s PvP summary' },
+  // 0.9.0: counts Everstats makes from Blizzard's collections (statistics.derived), never one of Blizzard's own; and
+  // any other board Everstats makes (achievement totals, pet slots, decor).
+  { label: 'Collections', derivedGroup: true, test: (s) => Boolean(s.derived), why: () => 'Everstats counts it from Blizzard’s collections (mounts, pets, toys, appearances …)' },
   { label: 'Deaths & mishaps', test: (s) => top(s) === 'Deaths' || BAD_RULES.some((r) => r.re.test(s.name)), why: (s) => (top(s) === 'Deaths' ? 'Blizzard files it under "Deaths"' : 'it counts deaths or losses') },
   { label: 'Social', farmable: true, test: (s) => top(s) === 'Social', why: () => 'Blizzard files it under "Social" (emotes)' },
   { label: 'Camping & Hearth', farmable: true, test: (s) => /\bcamped\b|\bhearth(?:ed|stone)?\b/i.test(s.name), why: () => 'it counts camps or hearthstone uses' },
@@ -63,6 +73,9 @@ const BAD_RULES = [
   { re: /\bresurrected\b/i, why: 'being resurrected, which follows deaths' },
   { re: /\b(?:duels?|battles?|matches|arenas?|battlegrounds?) lost\b/i, why: 'losses' },
 ];
+
+/** The groups made of boards Everstats makes (labels): their group choice starts at "Doesn't count". */
+export const DERIVED_GROUPS = Object.freeze(CATEGORY_RULES.filter((r) => r.derivedGroup).map((r) => r.label));
 
 export function categoryFor(s) {
   for (const rule of CATEGORY_RULES) if (rule.test(s)) return { rule, why: rule.why(s) };

@@ -7,10 +7,12 @@ import { FEED_PREFIX, feedById, numericFields } from './feeds.js';
  * (collections/store.js ensureDerivedId, per game version), so a board exists only for what Blizzard really returns.
  * Names are built from Blizzard's own names and age out with the window like Blizzard's.
  *
- * Feeds already boarded elsewhere are not written twice: the PvP summary's fields are collections/registry.js FAMILIES
- * 'pvp' boards ("Honorable kills (PvP summary)") since 0.9.1, the same feed and field, so the same board.
+ * Fields already boarded elsewhere are not written twice: the PvP summary's own top-level fields are
+ * collections/registry.js FAMILIES 'pvp' boards ("Honorable kills (PvP summary)") since 0.9.1, the same feed and field,
+ * so the same board (stats/feeds.js skip rule 'covered-elsewhere'). 0.11.1: the rest of that feed (each battleground
+ * map's matches played, won and lost) is boarded here like any feed; before, the whole feed was left out.
  */
-export const COVERED_ELSEWHERE = Object.freeze({ 'pvp-summary': 'collections family pvp (0.9.1)' });
+export const COVERED_ELSEWHERE = Object.freeze({});
 const MAX_PER_FEED = 400;
 
 /** Writes one feed's values for a character. `json` null (Blizzard didn't answer) leaves its old values. → fields written */

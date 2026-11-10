@@ -10,6 +10,8 @@ import { PRIORITY, PRIORITY_VALUES, claim, finish, retryLater, sweepQueue } from
 import { countRequests } from './stats.js';
 import { PRIMARY_SCOPE } from '../core/config.js';
 import { isVersionEnabled } from '../core/gameVersions.js';
+import { runInScope } from '../core/scope.js';
+import { refreshVersionSwitches } from '../core/versionSwitch.js';
 
 /**
  * The crawler: runs inside the worker, all the time (not on the 30-second job tick). It claims queue items most
@@ -77,6 +79,8 @@ export function createCrawler({ db, fetch = globalThis.fetch, now = Date.now, sl
 
   async function refreshSettings() {
     if (now() - settings.at < SETTINGS_EVERY_MS) return;
+    // 0.11.1: which switchable versions the admin has on (Features): the queue claims only their items.
+    await refreshVersionSwitches(db, { force: true, now }).catch(() => {});
     settings = {
       at: now(), perSecond: await getSetting(db, 'crawler.requestsPerSecond'), paused: await getSetting(db, 'crawler.paused'),
       versionShares: await getSetting(db, 'crawler.versionShares'), budgetScope: await getSetting(db, 'crawler.budgetScope'),
@@ -143,7 +147,9 @@ export function createCrawler({ db, fetch = globalThis.fetch, now = Date.now, sl
     try {
       const ctx = { db, client, now };
       const handler = { guild: fetchGuildRoster, items: fetchItemMedia, character: fetchCharacter, collections: fetchCollections, catalog: fetchCatalogStep }[item.kind] ?? fetchCharacter;
-      const outcome = await handler(ctx, item);
+      // 0.11.1: the item runs in ITS scope (core/scope.js), so everything it calls that names no version (the
+      // statistics catalog, the collection catalogs, scopeSql) means the item's game version, not the primary one.
+      const outcome = await runInScope({ version: item.game_version ?? PRIMARY_SCOPE.version, region: item.region ?? PRIMARY_SCOPE.region }, () => handler(ctx, item));
       await finish(db, item.id, 'done', outcome);
     } catch (err) {
       const why = err instanceof RetryableError ? err.message : `${err?.name ?? 'Error'}${err?.code ? ` (${err.code})` : ''}`;

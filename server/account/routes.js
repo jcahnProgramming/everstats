@@ -22,6 +22,21 @@ import { inlineBadges } from '../badges/store.js';
 import { CREATOR_PLATFORMS, creatorState, handlesChanged, shownHandle } from '../badges/creators.js';
 import { activeBan, banNotice } from '../moderation/bans.js';
 import { publicFeatures } from '../features/registry.js';
+import { PRIMARY_VERSION, enabledVersions, publicVersions } from '../core/gameVersions.js';
+import { pathSlug } from '../core/scope.js';
+import { config } from '../core/config.js';
+
+/**
+ * 0.11.1: the game versions a visitor can see (the primary one, plus every switchable version that is on), for the
+ * header's version switcher and for building addresses: /{version}/{region}/… for every version but the primary.
+ */
+export const visibleVersions = () => ({
+  region: config.region,
+  list: publicVersions().filter((v) => v.enabled).map((v) => ({
+    id: v.id, name: v.name, short: v.short, primary: v.primary, realms: v.realms, onePool: v.onePool, categoryLabel: v.categoryLabel, accountWide: v.accountWide, seasons: v.seasons,
+    boardFilters: v.boardFilters,
+  })),
+});
 
 /** The three themes. Logged-out visitors always get Forever; a signed-in account's choice is stored on it. */
 export const THEMES = ['forever', 'alliance', 'horde'];
@@ -94,13 +109,17 @@ async function accountView(db, accountId) {
 
 /** The characters an account owns (brought in from its Battle.net account list), highest level first. */
 async function ownedCharacters(db, accountId) {
+  // 0.11.1: characters of every game version that is switched on (a version switched off shows nothing of itself),
+  // the primary version's first. The queue's key for a character is its address in its own version.
   return db.query(
     `SELECT c.*, r.name AS ruleset_name,
-            EXISTS (SELECT 1 FROM crawl_queue q WHERE q.kind = 'character' AND q.key = c.slug AND q.state IN ('queued', 'running')) AS queued,
+            EXISTS (SELECT 1 FROM crawl_queue q WHERE q.kind = 'character' AND q.game_version = c.game_version AND q.region = c.region
+                       AND q.key = CASE WHEN c.realm_slug IS NULL THEN c.slug ELSE c.realm_slug || '/' || c.slug END AND q.state IN ('queued', 'running')) AS queued,
             EXISTS (SELECT 1 FROM character_render_hidden h WHERE h.character_id = c.id) AS render_hidden
        FROM characters c LEFT JOIN rulesets r ON r.id = c.ruleset_id
-      WHERE c.owner_account_id = $1 AND c.profile_state <> 'purged' ORDER BY c.level DESC NULLS LAST, c.id LIMIT 50`,
-    [accountId],
+      WHERE c.owner_account_id = $1 AND c.profile_state <> 'purged' AND c.game_version = ANY($2::text[])
+      ORDER BY (c.game_version = $3) DESC, c.game_version, c.level DESC NULLS LAST, c.id LIMIT 100`,
+    [accountId, enabledVersions().map((v) => v.id), PRIMARY_VERSION.id],
   );
 }
 
@@ -123,7 +142,9 @@ function characterState(c) {
   else if (Number.isInteger(level) && level < MIN_TRACKED_LEVEL) state = 'under_10';
   else state = 'not_visible';
   return {
-    id: c.id, slug: c.slug, name: c.name, surname: c.surname, level, class: c.class, race: c.race, faction: c.faction,
+    // 0.11.1: `slug` as URLs write it ("name-surname", or "realm/name"), with the game version and region it belongs to.
+    id: c.id, slug: pathSlug(c), version: c.game_version, region: c.region, realm: c.realm_slug ?? null,
+    name: c.name, surname: c.surname, level, class: c.class, race: c.race, faction: c.faction,
     ruleset: c.ruleset_id !== null ? { id: c.ruleset_id, name: c.ruleset_name } : null,
     hidden: c.hidden, renderHidden: c.render_hidden, state, checkedAt: c.last_checked_at, fetchedAt: c.last_fetched_at, since: state === 'missing' ? c.data_fetched_at : null,
   };
@@ -150,7 +171,8 @@ export function createAccountRouter({ db, limits, networkOf }) {
     const beta = await betaState(db);
     // 0.10.3: every player-visible feature switch (features/registry.js): pages show the declared fallback when one is off.
     const features = await publicFeatures(db);
-    if (!req.session) return res.json({ signedIn: false, stage: null, theme: 'forever', providers, beta, features });
+    const versions = visibleVersions();
+    if (!req.session) return res.json({ signedIn: false, stage: null, theme: 'forever', providers, beta, features, versions });
     // 0.8.2: a banned sign-in sees only its ban notice and the appeal form. A full session whose account was banned
     // since (a sign-in racing the ban) becomes a banned one. A banned session whose ban has ended is signed out.
     const ban = req.session.stage === 'second_factor' ? null : await activeBan(db, req.session.accountId);
@@ -158,12 +180,12 @@ export function createAccountRouter({ db, limits, networkOf }) {
       if (!ban) {
         await db.query('DELETE FROM sessions WHERE id_hash = $1', [req.session.idHash]);
         clearCookie(res, COOKIE.session);
-        return res.json({ signedIn: false, stage: null, theme: 'forever', providers, beta, features, banEnded: true });
+        return res.json({ signedIn: false, stage: null, theme: 'forever', providers, beta, features, versions, banEnded: true });
       }
       if (req.session.stage !== 'banned') await db.query("UPDATE sessions SET stage = 'banned' WHERE id_hash = $1", [req.session.idHash]);
-      return res.json({ signedIn: false, stage: 'banned', theme: 'forever', providers, beta, features, ban: banNotice(ban) });
+      return res.json({ signedIn: false, stage: 'banned', theme: 'forever', providers, beta, features, versions, ban: banNotice(ban) });
     }
-    if (req.session.stage !== 'full') return res.json({ signedIn: false, stage: req.session.stage, theme: 'forever', providers, beta, features });
+    if (req.session.stage !== 'full') return res.json({ signedIn: false, stage: req.session.stage, theme: 'forever', providers, beta, features, versions });
     const account = await db.one('SELECT theme, username, username_claimed, display_name FROM accounts WHERE id = $1', [req.session.accountId]);
     const dismissed = (await db.one('SELECT username_prompt_dismissed AS d FROM sessions WHERE id_hash = $1', [req.session.idHash]))?.d ?? false;
     // 0.7.0: the one inline badge next to the name in the header, and how many badge toasts are waiting.
@@ -177,7 +199,7 @@ export function createAccountRouter({ db, limits, networkOf }) {
       badgeToasts: toasts,
       feedbackUnread,
       notices,
-      signedIn: true, stage: 'full', theme: account?.theme ?? 'forever', providers, beta, features,
+      signedIn: true, stage: 'full', theme: account?.theme ?? 'forever', providers, beta, features, versions,
       user: {
         username: account.username,
         claimed: account.username_claimed,
@@ -288,17 +310,22 @@ export function createAccountRouter({ db, limits, networkOf }) {
     const owned = await ownedCharacters(db, accountId);
     const characters = owned.map(characterState);
     const tracked = owned.filter((c) => c.profile_state === 'ok' && c.stats_fetched_at && c.ruleset_id !== null && !c.missing_since);
+    // The player's chosen character; else their highest-level one, of the primary game version first.
     const featuredRow = tracked.find((c) => c.id === acct.featured_character_id)
-      ?? [...tracked].sort((a, b) => (b.level ?? 0) - (a.level ?? 0) || a.id - b.id)[0] ?? null;
+      ?? [...tracked].sort((a, b) => (b.game_version === PRIMARY_VERSION.id) - (a.game_version === PRIMARY_VERSION.id) || (b.level ?? 0) - (a.level ?? 0) || a.id - b.id)[0] ?? null;
     const identities = await db.query('SELECT provider FROM account_identities WHERE account_id = $1 LIMIT 20', [accountId]);
     const check = await db.one('SELECT provider, checked_at, outcome, characters FROM account_character_checks WHERE account_id = $1 ORDER BY checked_at DESC LIMIT 1', [accountId]);
     const { ids, isDefault } = await pinsOf(db, accountId);
-    const pins = featuredRow ? await pinCards(db, ids, featuredRow) : [];
+    // Pinned statistics are the primary game version's: shown for a featured character of that version.
+    const pins = featuredRow && featuredRow.game_version === PRIMARY_VERSION.id ? await pinCards(db, ids, featuredRow) : [];
     const { lettersFor } = await import('../tiers/store.js');
     const { tierBrief } = await import('../tiers/view.js');
     const letters = await lettersFor(db, owned.filter((c) => !c.hidden).map((c) => c.id));
     res.json({
       characters: characters.map((c) => ({ ...c, tier: c.hidden ? null : letters.get(Number(c.id)) ?? null })),
+      // 0.11.1: the game versions these characters belong to, in the order the list groups them (the primary first).
+      versions: publicVersions().filter((v) => v.enabled && characters.some((c) => c.version === v.id)).map((v) => ({ id: v.id, name: v.name, short: v.short, primary: v.primary })),
+      pinsVersion: PRIMARY_VERSION.id,
       featured: featuredRow ? { ...characters.find((c) => c.id === featuredRow.id), fetchedAt: featuredRow.last_fetched_at, tier: await tierBrief(db, featuredRow) } : null,
       featuredChosen: Boolean(featuredRow && featuredRow.id === acct.featured_character_id),
       pins,

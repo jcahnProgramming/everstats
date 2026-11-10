@@ -372,6 +372,53 @@ export const SETTINGS = [
     type: 'boolean',
     default: false,
   },
+  // 0.11.1: one switch per BUILT game version besides the primary (core/gameVersions.js `switchable`). Off by default
+  // everywhere: production stays as it is until the owner turns a version on; the dev site is turned on by hand.
+  ...GAME_VERSIONS.filter((v) => v.switchable).map((v) => ({
+    key: `versions.${v.id}`,
+    section: 'features',
+    label: v.name,
+    help: `On: ${v.name} characters, guilds, leaderboards and tiers are shown, read at sign-in and crawled (inside its share of the request budget). Off: none of it is shown, read or crawled; its addresses answer Not found. Nothing stored is deleted (it ages out as usual).`,
+    type: 'boolean',
+    default: false,
+  })),
+  {
+    // 0.11.1 (owner's decision): a board for ONE faction, ONE boss/instance or ONE transmog slot stays off the
+    // leaderboards INDEX until this many characters are ranked on it. The board still exists (its own page, character
+    // pages, pins); rolled-up counts (Exalted reputations, Revered+, boss kills in total) always show.
+    key: 'boards.minIndexEntries',
+    section: 'grading',
+    label: 'Ranked characters a per-faction, per-boss or per-slot board needs before the leaderboards index lists it',
+    help: 'Boards for one faction, one instance or one transmog slot are left off the leaderboards index until this many characters are ranked on them, so the index isn’t hundreds of near-empty boards. They still exist: a character’s page shows them and their own address works. Totals (Exalted reputations, boss kills) always show. 0 lists every board.',
+    type: 'integer',
+    min: 0,
+    max: 100_000,
+    default: 25,
+  },
+  {
+    // 0.11.1 (owner's decision 8): members of the current Mythic+ leaderboards are real, recently active players: a
+    // few are added per day on versions that have them (gameVersions.js `seeding.mythicLeaderboards`). 0 = off.
+    key: 'seeding.mythicPlusPerDay',
+    section: 'crawler',
+    label: 'New characters a day from the current Mythic+ leaderboards',
+    help: 'On game versions with Mythic+ (World of Warcraft), at most this many untracked level 10+ characters a day are taken from the current Mythic+ leaderboards, one connected realm at a time, and fetched at the lowest priority inside that version’s budget share. 0 turns it off. Each new character is about 9 requests once, then 1 to 9 a day.',
+    type: 'integer',
+    min: 0,
+    max: 5000,
+    default: 100,
+  },
+  {
+    // 0.11.1 (owner's decision 8): on a version without roster expansion, the roster of a guild SOMEONE OPENED seeds
+    // its untracked members, capped per day across the version. 0 = off (the roster is still read for the page).
+    key: 'seeding.openedGuildsPerDay',
+    section: 'crawler',
+    label: 'New characters a day from the rosters of guilds people open',
+    help: 'On game versions other than WoW Forever, opening a guild’s page reads its roster; at most this many of its untracked level 10+ members a day (across all guilds) are then fetched at the lowest priority. 0 turns it off. “Fetch all members” on a guild page is separate.',
+    type: 'integer',
+    min: 0,
+    max: 5000,
+    default: 200,
+  },
   {
     key: 'maintenance.banner',
     section: 'release',

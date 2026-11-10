@@ -1,11 +1,10 @@
-import { scopeSql } from '../core/config.js';
+import { findGuild, guildKey, pathSlug } from '../characters/find.js';
 import express from 'express';
 import { getSetting } from '../admin/settings.js';
 import { HttpError, route } from '../core/errors.js';
 import { isConfigured } from '../credentials/store.js';
 import { waitFor } from '../crawler/queue.js';
 import { getSource } from '../sources/registry.js';
-import { parseGuildSlug } from '../stats/slug.js';
 import { countActivity } from '../activity/count.js';
 import { FetchAllError, fetchStatus, readRoster, rosterFailed, startFetch } from './fetchAll.js';
 import { switchOn } from '../features/registry.js';
@@ -37,15 +36,16 @@ export function createGuildFetchRouter({ db, limits, networkOf }) {
   const r = express.Router();
 
   async function guildOf(raw) {
-    const slug = parseGuildSlug(raw);
-    if (!slug) throw new HttpError(400, 'That isn’t a guild address.', 'invalid');
-    const g = await db.one(`SELECT id, slug FROM guilds WHERE slug = $1 AND ${scopeSql()} ORDER BY updated_at DESC LIMIT 1`, [slug]);
-    if (!g) throw new HttpError(404, 'Everstats doesn’t know this guild yet. Open its page first.', 'no_guild');
-    return g;
+    const key = guildKey(raw);
+    if (!key) throw new HttpError(400, 'That isn’t a guild address.', 'invalid');
+    const row = await findGuild(db, key, { cols: 'id, slug, realm_slug, game_version, region' });
+    if (!row) throw new HttpError(404, 'Everstats doesn’t know this guild yet. Open its page first.', 'no_guild');
+    // 0.11.1: `slug` is the guild's crawl key in its version ("guild", or "realm/guild"), and its scope goes with it.
+    return { id: row.id, slug: pathSlug(row), scope: { version: row.game_version, region: row.region } };
   }
 
   const view = async (g) => ({
-    ...(await fetchStatus(db, { slug: g.slug, guildId: g.id })),
+    ...(await fetchStatus(db, { slug: g.slug, guildId: g.id, scope: g.scope })),
     configured: await isConfigured(db, getSource('blizzard').credential),
     concurrent: await getSetting(db, 'guilds.fetchConcurrent'),
     cooldownHours: await getSetting(db, 'guilds.fetchCooldownHours'),
@@ -65,12 +65,12 @@ export function createGuildFetchRouter({ db, limits, networkOf }) {
     const g = await guildOf(req.params.slug);
     if (!(await switchOn(db, 'guild-fetch'))) throw new HttpError(503, GUILD_FETCH_OFF, 'feature_off');
     if (!(await isConfigured(db, getSource('blizzard').credential))) throw new HttpError(503, 'Look-ups aren’t switched on yet.', 'not_configured');
-    const before = await fetchStatus(db, { slug: g.slug, guildId: g.id });
+    const before = await fetchStatus(db, { slug: g.slug, guildId: g.id, scope: g.scope });
     // Already reading, queued or running: show that one, ask Blizzard nothing.
     if (['roster', 'queued', 'running'].includes(before.state)) return res.json(await view(g));
     const net = networkOf(req);
     if (!limits.lookups.take(net)) return tooMany(res, limits.lookups, net, 'Too many look-ups from your network. Wait a little and try again.');
-    const { row, itemId } = await readRoster(db, { slug: g.slug, guildId: g.id }).catch(fail);
+    const { row, itemId } = await readRoster(db, { slug: g.slug, guildId: g.id, scope: g.scope }).catch(fail);
     if (itemId !== null) {
       countActivity(db, 'guild.lookup');
       const done = await waitFor(db, itemId, { timeoutMs: ROSTER_WAIT_MS });
@@ -82,14 +82,14 @@ export function createGuildFetchRouter({ db, limits, networkOf }) {
 
   r.post('/guilds/:slug/fetch-all/start', route(async (req, res) => {
     const g = await guildOf(req.params.slug);
-    const before = await fetchStatus(db, { slug: g.slug, guildId: g.id });
+    const before = await fetchStatus(db, { slug: g.slug, guildId: g.id, scope: g.scope });
     if (before.state === 'queued' || before.state === 'running') return res.json(await view(g)); // pressing again shows it
     if (!(await switchOn(db, 'guild-fetch'))) throw new HttpError(503, GUILD_FETCH_OFF, 'feature_off');
     const net = networkOf(req);
     const account = req.session?.stage === 'full' ? String(req.session.accountId) : null;
     if (!limits.guildFetchesByNetwork.check(net).ok) return tooMany(res, limits.guildFetchesByNetwork, net, 'Too many guild fetches from your network. Wait a little and try again.');
     if (account && !limits.guildFetchesByAccount.check(account).ok) return tooMany(res, limits.guildFetchesByAccount, account, 'You’ve started a lot of guild fetches. Wait a little and try again.');
-    const row = await startFetch(db, { slug: g.slug }).catch(fail);
+    const row = await startFetch(db, { slug: g.slug, scope: g.scope }).catch(fail);
     if (!row) throw new HttpError(409, 'That roster count is out of date. Read it again first.', 'stale');
     limits.guildFetchesByNetwork.take(net);
     if (account) limits.guildFetchesByAccount.take(account);
