@@ -1,3 +1,4 @@
+import { getSetting } from '../admin/settings.js';
 import { config } from '../core/config.js';
 import { blizzardContext, enabledVersions, versionById } from '../core/gameVersions.js';
 import { SourceError } from '../sources/blizzard.js';
@@ -75,7 +76,7 @@ async function importVersion({ db, accountId, providerId, userToken, fetch, scop
   // read NOW, with this same token, because it answers only to the owner's token and the token is never kept.
   try {
     const { queueCollections } = await import('../collections/fetch.js');
-    for (const c of list) if (Number.isInteger(c.level) && c.level >= MIN_TRACKED_LEVEL) await queueCollections(db, c, PRIORITY.auto, scope);
+    for (const c of await collectionsAtSignIn(db, list, scope)) await queueCollections(db, c, PRIORITY.auto, scope);
     const { importGold, protectedPath } = await import('../collections/gold.js');
     const source = await openSource(db, 'blizzard', { fetch, maxAttempts: 1, perSecond: 20, region: scope.region });
     result.gold = await importGold({
@@ -99,6 +100,20 @@ async function importVersion({ db, accountId, providerId, userToken, fetch, scop
     console.error(`[badges] after sign-in: ${err.code ?? err.name}`);
   }
   return result;
+}
+
+/**
+ * 0.11.1 (owner's decision): whose collections a sign-in fetches. On a version the registry marks `signInAll` (WoW
+ * Forever, unchanged since 0.9.0) every level 10+ character; on any other, the account's N highest-level ones (admin
+ * setting `collections.signInCharacters`, default 3; 0 = none). Equal levels: Blizzard's lower character id first, so
+ * the same characters are chosen at every sign-in. Everyone else gets collections on demand (a look-up, the tab).
+ */
+export async function collectionsAtSignIn(db, list, scope) {
+  const eligible = list.filter((c) => Number.isInteger(c.level) && c.level >= MIN_TRACKED_LEVEL);
+  if (versionById(scope.version)?.collections?.signInAll) return eligible;
+  const n = Number(await getSetting(db, 'collections.signInCharacters'));
+  if (!(n > 0)) return [];
+  return [...eligible].sort((a, b) => b.level - a.level || a.id - b.id).slice(0, n);
 }
 
 // The registry's short name: "no Forever characters on this Battle.net account", word for word as before 0.10.0.

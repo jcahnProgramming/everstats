@@ -51,7 +51,9 @@
  *                 (tiers/groups.js seedVersionGroups); the owner changes any of them later in Discovery.
  *   seasons       season boards (stats/seasons.js): Mythic+ (current season's rating and best run) and the PvP brackets
  *                 asked for, each keyed by Blizzard's season id.
- *   collections   backfill (the daily first-fetch batch; false = on demand only), accountWide (pages say so), decor.
+ *   collections   backfill (the daily first-fetch batch; false = on demand only), accountWide (pages say so), decor,
+ *                 signInAll (a sign-in fetches collections for EVERY level 10+ character on the account; without it only
+ *                 the admin setting `collections.signInCharacters` highest-level ones: crawler/account.js).
  *   seeding       how untracked characters are found besides lookups and sign-ins: rosters of guilds people open and
  *                 the current Mythic+ leaderboards, each capped per day by an admin setting. Never a realm-wide crawl.
  *   leaderboardCharacters  where the PROBE may pick a character besides the admin's account (discovery/probe).
@@ -66,7 +68,10 @@ export const GAME_VERSIONS = Object.freeze([
     staticPattern: '^static-\\d[A-Za-z0-9._]*-forever-{region}$', staticPlain: null,
     realms: false, realmCategory: { source: 'ruleset', label: 'ruleset', plural: 'rulesets' },
     nativeIds: true, enabled: true, primary: true,
-    collections: { backfill: true, accountWide: false, decor: false },
+    // signInAll: Forever's sign-in keeps fetching every character's collections, as it has since 0.9.0. Capping it would
+    // change what Forever players see today (an alt's counts, boards and "shared across this account" right after a
+    // sign-in would wait for the daily first-fetch batch instead), so the 0.11.1 cap leaves Forever alone.
+    collections: { backfill: true, accountWide: false, decor: false, signInAll: true },
   },
   {
     id: 'retail', name: 'World of Warcraft', short: 'Retail', regions: ['us', 'eu', 'kr', 'tw'],

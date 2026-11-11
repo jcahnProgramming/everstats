@@ -347,7 +347,11 @@ function categorySummary(cat, tier) {
   else if (tier === undefined) head = 'No graded stats yet';
   else head = cat.graded ? 'No letter' : 'Not graded';
   const ranked = cat.statistics.filter((s) => s.rank !== null).sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
-  const best = ranked[0] ? `Best: #${formatNumber(ranked[0].rank)} ${ranked[0].name}` : `No ${cat.label} statistics above zero yet`;
+  // 0.11.1: collections not fetched yet: those statistics are unknown, never "none above zero".
+  const waiting = cat.statistics.filter((s) => s.waiting).length;
+  const best = ranked[0] ? `Best: #${formatNumber(ranked[0].rank)} ${ranked[0].name}`
+    : waiting === cat.statistics.length && waiting > 0 ? 'Loads when the Collections tab is opened'
+    : `No ${cat.label} statistics above zero yet`;
   return `${head} · ${cat.statistics.length} statistic${cat.statistics.length === 1 ? '' : 's'} · ${best}`;
 }
 
@@ -399,6 +403,14 @@ function Statistics({ stats, character: c, count, tiers }) {
         {stats.ranked && <span className="t2 small"><b className="strong-text">{formatNumber(stats.population)}</b> tracked on {rulesetName}</span>}
       </div>
       <p className="t2 small">Blizzard lists only what a character has done, so anything missing here is a zero, and a zero isn't ranked. “#1 of 3 with any” means three tracked characters have done it at all. Open a category to see every statistic in it.</p>
+      {/* 0.11.1: a sign-in fetches collections for an account's highest-level characters only; everyone else's load on
+          demand. Until then the numbers that come from collections are unknown, and the page says so: never zeros. */}
+      {stats.collectionsWaiting && stats.categories.some((cat) => cat.statistics.some((s) => s.waiting)) && (
+        <div className="note small" role="note">
+          <Icon name="clock" />
+          <span>This character’s collections haven’t been loaded yet, so the numbers that come from them (mounts, pets, reputations, professions and the like) show “not loaded”, not zero. They load when someone opens its <Link to={`/c/${encodeURIComponent(c.slug)}/collections`}>Collections tab</Link>.</span>
+        </div>
+      )}
       <div className="stack gap-8">
         {stats.categories.map((cat) => {
           const isOpen = open.has(cat.key);
@@ -431,8 +443,9 @@ function Statistics({ stats, character: c, count, tiers }) {
                           </button>
                         )}
                       </span>
-                      <span className="v">{s.text && <span className="named muted">{s.text} · </span>}{formatNumber(s.value)}</span>
-                      {!stats.ranked ? <span className="rankpill pending">hidden: not ranked</span>
+                      <span className="v">{s.waiting ? <span className="muted" title="Loads when the Collections tab is opened">not loaded</span> : <>{s.text && <span className="named muted">{s.text} · </span>}{formatNumber(s.value)}</>}</span>
+                      {s.waiting ? <span className="rankpill pending">not loaded</span>
+                        : !stats.ranked ? <span className="rankpill pending">hidden: not ranked</span>
                         : <RankPill rank={s.rank} of={s.withAny} to={`/leaderboards/${c.ruleset.id}/${s.id}`} />}
                       <Fresh at={c.statsFetchedAt} />
                     </div>

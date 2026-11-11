@@ -44,6 +44,7 @@ const UNITS = {
   'discovery.requestsPerSecond': 'req / s',
   'discovery.maxCharacters': 'characters',
   'collections.backfillPerDay': 'characters a day',
+  'collections.signInCharacters': 'characters',
   'dashboard.maxPinnedGuilds': 'guilds',
   'guilds.fetchConcurrent': 'at once',
   'guilds.fetchCooldownHours': 'hours',

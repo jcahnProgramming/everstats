@@ -2,6 +2,7 @@ import { PRIMARY_SCOPE } from '../core/config.js';
 import { versionById } from '../core/gameVersions.js';
 import { pathSlug } from '../core/scope.js';
 import { seasonOfKey } from '../stats/seasons.js';
+import { fromCollectionsFetch } from '../stats/feeds.js';
 import { boardCounts, characterRanks, everyoneTied } from '../stats/boards.js';
 import { categoryKey, loadCatalog } from '../stats/catalog.js';
 import { inlineBadges } from '../badges/store.js';
@@ -120,9 +121,14 @@ export async function characterStatistics(db, row) {
   const ranked = row.ruleset_id !== null && !row.hidden;
   const mineById = row.ruleset_id !== null ? await characterRanks(db, row.id, row.ruleset_id) : new Map();
   const counts = ranked ? await boardCounts(db, row.ruleset_id) : null;
+  // 0.11.1: collections never fetched (a sign-in fetches only the account's highest-level characters; the rest load on
+  // a look-up or when the Collections tab is opened). Its collection-fed statistics are UNKNOWN, not zero: sent as
+  // `waiting` with a null value, and the page says when they load.
+  const collectionsWaiting = !row.collections_fetched_at;
   return {
     population: counts?.population ?? null,
     ranked,
+    collectionsWaiting,
     seasons: seasonCards(statistics, mineById, counts, ranked),
     categories: categories.map((c) => ({
       label: c.label,
@@ -138,10 +144,12 @@ export async function characterStatistics(db, row) {
         const bc = counts?.byStat.get(id) ?? { nonzero: 0, min: null, max: null };
         // Zero is never ranked (0.4.1): "#2 of 116" for none at all read like an achievement.
         const rank = ranked && value > 0 ? mine.rank : null;
+        const waiting = collectionsWaiting && !mine && fromCollectionsFetch(s.derived);
         return {
           id,
           name: s.name,
-          value,
+          value: waiting ? null : value,
+          waiting,
           text: mine?.text ?? null,
           named: s.named,
           grading: s.grading,

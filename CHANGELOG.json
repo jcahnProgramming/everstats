@@ -14,7 +14,8 @@
           "World of Warcraft guild pages, found by realm and name. A guild shows its own faction, and each member keeps theirs.",
           "Collections for World of Warcraft characters, including housing decor. They belong to the whole Battle.net account there, so the pages say plainly that alts share those numbers.",
           "Search finds characters and guilds in both games, and every result says which game and realm it is.",
-          "Signed in, your home page lists your World of Warcraft characters and guilds next to your WoW Forever ones, grouped by game."
+          "Signed in, your home page lists your World of Warcraft characters and guilds next to your WoW Forever ones, grouped by game.",
+          "Signing in with Battle.net loads World of Warcraft collections for your three highest-level characters straight away. Your other characters load theirs when someone looks them up or opens their Collections tab; until then their page says the collection numbers aren’t loaded yet, instead of showing zeros."
         ],
         "Improved": [
           "Fewer, more meaningful leaderboards: numbers that say nothing about a character (an item’s sell price or durability, colour values, caps that are the same for everyone) no longer get a board, and each faction has one reputation board instead of several.",

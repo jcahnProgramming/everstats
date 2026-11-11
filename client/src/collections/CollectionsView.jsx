@@ -103,7 +103,7 @@ export function CollectionsView({ character: c, screen = '' }) {
       {data.accountWide && (
         <div className="note small" role="note">
           <Icon name="info" />
-          <span>Account-wide on {data.versionName ?? 'this game version'}: collections belong to the whole Battle.net account (the Warband), so this player’s alts share these numbers, and characters with the same number share a rank on a board.{data.onDemand ? ' Everstats fetches them when someone looks the character up, signs in with it or opens this tab, then weekly.' : ''}</span>
+          <span>Account-wide on {data.versionName ?? 'this game version'}: collections belong to the whole Battle.net account (the Warband), so this player’s alts share these numbers, and characters with the same number share a rank on a board.{data.onDemand ? ' Everstats fetches them when someone looks the character up or opens this tab (and at sign-in for an account’s highest-level characters), then weekly.' : ''}</span>
         </div>
       )}
       <RefreshLine data={data} slug={c.slug} onQueued={load} />

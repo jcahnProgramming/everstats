@@ -27,6 +27,7 @@ const CHARS = {
 };
 const GUILD = { id: 9100, name: 'Fixture Alliance', slug: 'fixture-alliance', realm: 'area-52' };
 let leaderboardHits = 0;
+let accountDoc = null; // what /profile/user/wow answers (the sign-in test sets it)
 
 function profileDoc(name, c) {
   return {
@@ -68,6 +69,7 @@ async function fakeFetch(url) {
     return json(404, {});
   }
   if (ns !== 'profile-us') return json(404, {});
+  if (u.pathname === '/profile/user/wow') return accountDoc ? json(200, accountDoc) : json(404, {});
   if (u.pathname === `/data/wow/guild/${GUILD.realm}/${GUILD.slug}`) {
     return json(200, { id: GUILD.id, name: GUILD.name, slug: GUILD.slug, faction: { type: 'HORDE', name: 'Horde' }, realm: { id: 3676, slug: GUILD.realm, name: 'Area 52' }, member_count: 3, created_timestamp: 1700000000000, achievement_points: 4000 });
   }
@@ -349,6 +351,63 @@ test('collections on demand: no backfill and nothing at fetch time; a look-up qu
   const mounts = idx.json.categories.find((c) => c.label === 'Collections').boards.find((b) => b.name === 'Mounts collected');
   const mb = await api(`/leaderboards/${idx.json.ruleset.id}/${mounts.id}`);
   assert.deepEqual([mb.json.scope.accountWide, Boolean(mb.json.collection?.how), mb.json.statistic.everstatsMade], [true, true, true]);
+});
+
+test('sign-in: an account with 60 Retail characters queues collections for exactly N of them (the highest levels); the rest say "not loaded", never zero', async () => {
+  const { importAccountCharacters, collectionsAtSignIn } = await import('../crawler/account.js');
+  const { getSetting, setSetting } = await import('../admin/settings.js');
+  assert.equal(await getSetting(t.db, 'collections.signInCharacters'), 3);
+  // 60 characters, levels 20–79, in an order that isn't by level.
+  const name = (i) => `alt${String.fromCharCode(97 + Math.floor(i / 26))}${String.fromCharCode(97 + (i % 26))}`;
+  const alts = Array.from({ length: 60 }, (_, i) => ({ id: 6000 + i, name: name(i), level: 20 + ((i * 7) % 60) }));
+  accountDoc = { wow_accounts: [{ id: 1, characters: alts.map((a) => ({
+    id: a.id, name: a.name[0].toUpperCase() + a.name.slice(1), level: a.level, realm: { id: 3676, slug: 'area-52', name: 'Area 52' },
+    playable_class: { name: 'Warrior' }, playable_race: { name: 'Fixture Race' }, faction: { type: 'HORDE', name: 'Horde' },
+    character: href(`/profile/wow/character/area-52/${a.name}`, 'profile-us'),
+  })) }] };
+  const queuedKeys = async () => (await t.db.query("SELECT key FROM crawl_queue WHERE kind = 'collections' AND game_version = 'retail' AND key LIKE 'area-52/alt%' ORDER BY key")).map((r) => r.key);
+  const clear = () => t.db.query("DELETE FROM crawl_queue WHERE key LIKE 'area-52/alt%' AND state <> 'running'");
+  const signIn = async () => {
+    const accountId = Number((await t.db.one('INSERT INTO accounts DEFAULT VALUES RETURNING id')).id);
+    const out = await importAccountCharacters({ db: t.db, accountId, providerId: 'battlenet', userToken: 'user-token-fixture', fetch: fakeFetch });
+    const keys = await queuedKeys();
+    await clear();
+    return { out, keys };
+  };
+  try {
+    const first = await signIn();
+    assert.equal(first.out.characters, 60);
+    assert.equal(first.out.queued, 60, 'every character is still fetched; only collections are capped');
+    const top = [...alts].sort((a, b) => b.level - a.level).slice(0, 3).map((a) => `area-52/${a.name}`).sort();
+    assert.equal(first.keys.length, 3);
+    assert.deepEqual(first.keys, top);
+
+    await setSetting(t.db, 'collections.signInCharacters', 5);
+    assert.equal((await signIn()).keys.length, 5);
+    await setSetting(t.db, 'collections.signInCharacters', 0);
+    assert.equal((await signIn()).keys.length, 0, '0 = none at sign-in');
+    // WoW Forever is not capped: a sign-in there fetches every level 10+ character's collections, as before.
+    const list = alts.map((a) => ({ ...a, slug: a.name }));
+    assert.equal((await collectionsAtSignIn(t.db, list, { version: 'forever', region: 'us' })).length, 60);
+  } finally {
+    accountDoc = null;
+    await setSetting(t.db, 'collections.signInCharacters', 3);
+    await clear();
+  }
+
+  // A character whose collections were never fetched: its collection-fed statistics are "waiting" with no value (the
+  // page says they load with the Collections tab); one whose collections were fetched shows numbers.
+  const flat = (r) => r.json.statistics.categories.flatMap((c) => c.statistics);
+  const cold = await api('/characters/area-52/rookie');
+  assert.equal(cold.json.status, 'ok');
+  assert.equal(cold.json.statistics.collectionsWaiting, true);
+  const coldMounts = flat(cold).find((s) => s.name === 'Mounts collected');
+  assert.deepEqual([coldMounts.waiting, coldMounts.value, coldMounts.rank], [true, null, null]);
+  const kills = flat(cold).find((s) => s.name === 'Creatures killed');
+  assert.deepEqual([kills.waiting, kills.value], [false, 5], 'Blizzard’s own statistics are never "waiting"');
+  const warm = await api('/characters/moon-guard/keyrunner');
+  assert.equal(warm.json.statistics.collectionsWaiting, false);
+  assert.deepEqual([flat(warm).find((s) => s.name === 'Mounts collected').waiting, flat(warm).find((s) => s.name === 'Mounts collected').value], [false, 1]);
 });
 
 test('a guild: its own faction, each member’s own (never inferred), found by realm and name; opened rosters seed inside a daily cap', async () => {

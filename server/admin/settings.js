@@ -225,6 +225,19 @@ export const SETTINGS = [
     default: 1000,
   },
   {
+    // 0.11.1 (owner's decision): a sign-in fetches collections only for the account's highest-level characters on a
+    // game version (about 15 requests and 4.5 MB each on World of Warcraft; an account can hold 60). Every other
+    // character gets them on demand: a look-up or its Collections tab. Not WoW Forever (gameVersions.js `signInAll`).
+    key: 'collections.signInCharacters',
+    section: 'crawler',
+    label: 'Characters whose collections are fetched at sign-in, per game version',
+    help: 'At a Battle.net sign-in (or “Refresh my characters”), collections are fetched for this many of the account’s highest-level characters on each game version. Every other character gets its collections when someone looks it up or opens its Collections tab. 0 fetches none at sign-in. WoW Forever is not capped: a sign-in there fetches every level 10+ character’s collections, as before.',
+    type: 'integer',
+    min: 0,
+    max: 200,
+    default: 3,
+  },
+  {
     // 0.9.1: "Your guilds" on the home page (guilds/follow.js).
     key: 'dashboard.maxPinnedGuilds',
     section: 'crawler',

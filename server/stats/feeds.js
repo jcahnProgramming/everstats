@@ -173,6 +173,20 @@ export function numericFields(feedId, json) {
 const GRANULAR = [/^feed:reputations:/, /^instance:/, /^slot:/];
 export const indexThresholdApplies = (derivedKey) => GRANULAR.some((re) => re.test(String(derivedKey ?? '')));
 
+/**
+ * 0.11.1: does an Everstats-made statistic get its value from the COLLECTIONS fetch (collections/fetch.js) rather than
+ * the character fetch? The fixed counts and families (mounts, achcat:…, slot:…, instance:…, pvp:…) and the feeds that
+ * fetch asks for; not the season boards or the profile / character stats feeds. A character whose collections were
+ * never fetched has no value for these: pages say so, never a zero (characters/view.js).
+ */
+const CHARACTER_FETCH_FEEDS = new Set(['profile', 'statistics', 'equipment', 'mythic-keystone-profile']);
+export function fromCollectionsFetch(derivedKey) {
+  const k = String(derivedKey ?? '');
+  if (!k || k.startsWith('season:')) return false;
+  const feed = feedOfKey(k);
+  return feed ? !CHARACTER_FETCH_FEEDS.has(feed.feedId) : true;
+}
+
 /** Does a derived statistic key come from a feed? → { feedId, path } or null. */
 export function feedOfKey(key) {
   const k = String(key ?? '');

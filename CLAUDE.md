@@ -391,6 +391,10 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   6. **Collections on demand** (`collections.backfill: false`): fetched on a look-up, a sign-in or opening the tab, weekly
      after; no backfill. Pages and boards say "Account-wide on Retail". No Retail collection catalogs are built yet, so
      its collection screens are collected-only (no totals, no "missing"). **Never fetch commodities** (19.9 MB a request).
+     **Sign-in is capped** (`crawler/account.js collectionsAtSignIn`): only the account's N highest-level characters per version
+     (`collections.signInCharacters`, default 3, 0 = none) get collections at sign-in; the rest on demand. Forever is NOT capped
+     (registry `collections.signInAll`: capping would change what its players see). A character with no collections fetch
+     shows its collection-fed statistics as "not loaded" (`waiting`, value null; `stats/feeds.js fromCollectionsFetch`), never 0.
   7. **Decor** is a collection kind (`/collections/decor`): counts `decor-kinds` and `decor-total`.
   8. **Finding characters** (`crawler/seeding.js`): look-ups, sign-ins, rosters of guilds people open
      (`seeding.openedGuildsPerDay`, 200) and the current Mythic+ leaderboards one connected realm a step
