@@ -1,6 +1,9 @@
 import { PRIORITY, enqueue } from '../crawler/queue.js';
 import { RetryableError, MIN_TRACKED_LEVEL, crawlKey, itemScope, parseCrawlKey } from '../crawler/fetch.js';
-import { updateGains } from '../crawler/store.js';
+import { markGuildsDirty, updateGains } from '../crawler/store.js';
+import { changedIds, valuesOf } from '../stats/stamp.js';
+import { noteValuesChanged } from '../stats/distribution.js';
+import { noteForGrading } from '../tiers/store.js';
 import { catalogTotals, recordStaticNamespace } from './catalog.js';
 import { staticNamespaceIn } from './parse.js';
 import { KINDS } from './registry.js';
@@ -66,7 +69,7 @@ export async function fetchCollections({ db, client }, item) {
   const { scope, ctx } = itemScope(item);
   const ref = parseCrawlKey(scope.version, item.key);
   const ch = await db.one(
-    `SELECT id, slug, realm_slug, class, level, owner_account_id, profile_state FROM characters
+    `SELECT id, slug, realm_slug, class, level, owner_account_id, profile_state, guild_id FROM characters
       WHERE game_version = $1 AND region = $2 AND coalesce(realm_slug, '') = coalesce($3, '') AND slug = $4`,
     [scope.version, scope.region, ref.realmSlug, ref.slug],
   );
@@ -81,7 +84,9 @@ export async function fetchCollections({ db, client }, item) {
   let bytes = 0;
   let returned = 0;
   let ns = null;
+  let changed = new Set();
   await db.tx(async (q) => {
+    const before = await valuesOf(q, ch.id);
     for (const [i, k] of kinds.entries()) {
       const r = answers[i];
       bytes += r.bytes ?? 0;
@@ -100,9 +105,16 @@ export async function fetchCollections({ db, client }, item) {
     }
     await q.query('UPDATE characters SET collections_fetched_at = now(), collections_first_at = coalesce(collections_first_at, now()) WHERE id = $1', [ch.id]);
     await deriveCounts(q, ch.id);
-    await updateGains(q, ch.id);
+    changed = changedIds(before, await valuesOf(q, ch.id));
+    // Always worked out again here: a first collections fetch decides whether a count can have a gain at all.
+    const gains = await updateGains(q, ch.id);
+    // 0.11.1: a count that moved is a value that moved: the guild's totals and the boards follow it. (Until now the
+    // guild only caught up because every daily check marked it, changed or not.)
+    if (changed.size || gains.changed) await markGuildsDirty(q, [ch.guild_id]);
+    if (changed.size) await noteValuesChanged(q);
     if (ch.owner_account_id) await detectSharing(q, ch.owner_account_id);
   });
+  await noteForGrading(db, ch.id, { changed }).catch((err) => console.error(`[tiers] character grading failed: ${err.code ?? err.name}`));
   if (ns) await recordStaticNamespace(db, ns, scope);
   // 0.9.2: once the appearance catalog is complete, any collected appearance it doesn't list is looked up on its own.
   if ((await catalogTotals(db)).appearance > 0) {

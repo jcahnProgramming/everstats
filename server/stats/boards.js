@@ -1,6 +1,7 @@
 import { pageLimit } from '../core/db.js';
 import { periodStart } from './periods.js';
 import { countById, isDerivedId } from '../collections/registry.js';
+import { activeBuild, boardCountsFrom, characterRanksFrom, populationFrom, ranksForFrom, ranksOnManyFrom, statCountsFrom } from './distribution.js';
 
 // 0.9.1: board populations a collection count can ask for (registry COUNTS `population`), as fixed SQL, never input.
 const POPULATIONS = { hunters: " AND class = 'Hunter'" };
@@ -23,6 +24,12 @@ const POPULATIONS = { hunters: " AND class = 'Hunter'" };
  * Every list is cursor-paginated (value, character id) through the partial indexes character_statistics_board and
  * stat_gains_board. Nothing is cached: a rank and its "of N" are always counted at the same moment (0.4.0 found a
  * cached population disagreeing with a live rank: "#2 of 1").
+ *
+ * 0.11.1: with the "Precomputed ranks" switch on, the OVERALL period's ranks, counts and populations are read from the
+ * worker's last distribution build (stats/distribution.js): one index probe a rank instead of a walk of the board, and
+ * a rank and its "of N" still come from one moment (the same build). They are then "as of" that build (ranksAsOf),
+ * a few minutes old at most. Weekly and rolling boards, and everything while the switch is off or nothing is built,
+ * are counted directly as before: the functions in `direct` below, which the old-versus-new test compares against.
  */
 const SOURCES = {
   overall: { table: 'character_statistics', col: 'value', where: '' },
@@ -37,7 +44,7 @@ const startOf = (period, now) => (period === 'overall' ? null : periodStart(peri
 const params = (period, now, ...rest) => (period === 'overall' ? rest : [...rest, startOf(period, now)]);
 
 /** Tracked characters on a ruleset (overall), or with a baseline in the current period. */
-export async function populationOf(db, rulesetId, period = 'overall', { now = Date.now, derived = false, population = null } = {}) {
+async function populationOfDirect(db, rulesetId, period = 'overall', { now = Date.now, derived = false, population = null } = {}) {
   if (period === 'overall') {
     // 0.9.0: a collection count's board counts only characters whose collections Everstats has fetched (the rest aren't
     // "at zero", they're unknown).
@@ -48,7 +55,7 @@ export async function populationOf(db, rulesetId, period = 'overall', { now = Da
 }
 
 /** Every board of one ruleset and period: { population, byStat: Map(statId → { nonzero, max, min }) } above zero. */
-export async function boardCounts(db, rulesetId, period = 'overall', { now = Date.now } = {}) {
+async function boardCountsDirect(db, rulesetId, period = 'overall', { now = Date.now } = {}) {
   const s = SOURCES[period];
   const rows = await db.query(
     `SELECT statistic_id, count(*)::int AS nonzero, max(${s.col}) AS max, min(${s.col}) AS min
@@ -56,18 +63,18 @@ export async function boardCounts(db, rulesetId, period = 'overall', { now = Dat
       GROUP BY statistic_id LIMIT 20000`,
     period === 'overall' ? [rulesetId] : [rulesetId, startOf(period, now)],
   );
-  return { population: await populationOf(db, rulesetId, period, { now }), byStat: new Map(rows.map((r) => [r.statistic_id, { nonzero: r.nonzero, max: r.max, min: r.min }])) };
+  return { population: await populationOfDirect(db, rulesetId, period, { now }), byStat: new Map(rows.map((r) => [r.statistic_id, { nonzero: r.nonzero, max: r.max, min: r.min }])) };
 }
 
 /** One board: { population, nonzero, max, min }. An index range, not the whole ruleset. */
-export async function statCounts(db, { statisticId, rulesetId, period = 'overall', now = Date.now }) {
+async function statCountsDirect(db, { statisticId, rulesetId, period = 'overall', now = Date.now }) {
   const s = SOURCES[period];
   const row = await db.one(
     `SELECT count(*)::int AS nonzero, max(${s.col}) AS max, min(${s.col}) AS min FROM ${s.table}
       WHERE statistic_id = $1 AND ruleset_id = $2 AND NOT hidden AND ${s.col} > 0 ${s.where}`,
     params(period, now, statisticId, rulesetId),
   );
-  return { population: await populationOf(db, rulesetId, period, { now, derived: isDerivedId(statisticId), population: countById.get(Number(statisticId))?.population ?? null }), nonzero: row.nonzero, max: row.max, min: row.min };
+  return { population: await populationOfDirect(db, rulesetId, period, { now, derived: isDerivedId(statisticId), population: countById.get(Number(statisticId))?.population ?? null }), nonzero: row.nonzero, max: row.max, min: row.min };
 }
 
 /** "Everyone's tied": two or more characters have any, and all of them have the same value. Zeros don't count. */
@@ -114,7 +121,7 @@ export async function boardPage(db, { statisticId, rulesetId, period = 'overall'
 }
 
 /** Map(value → rank) on one board: 1 + the visible characters strictly above each value. */
-export async function ranksFor(db, { statisticId, rulesetId, period = 'overall', values, now = Date.now }) {
+async function ranksForDirect(db, { statisticId, rulesetId, period = 'overall', values, now = Date.now }) {
   const out = new Map();
   if (!values.length) return out;
   const s = SOURCES[period];
@@ -133,7 +140,7 @@ export async function ranksFor(db, { statisticId, rulesetId, period = 'overall',
  * A character's overall rank on every board of its ruleset, for the character page: Map(statId → { value, text,
  * updatedAt, rank }) for the statistics it has. A statistic it doesn't have (zero) ranks nonzero + 1, from boardCounts.
  */
-export async function characterRanks(db, characterId, rulesetId) {
+async function characterRanksDirect(db, characterId, rulesetId) {
   const rows = await db.query(
     `SELECT cs.statistic_id, cs.value, cs.text, cs.blizzard_updated_at, cs.fetched_at,
             CASE WHEN cs.value > 0 THEN (SELECT count(*)::int FROM character_statistics o
@@ -148,12 +155,89 @@ export async function characterRanks(db, characterId, rulesetId) {
  * A character's rank on one board, for pins and "your characters on this board":
  *   { value, rank (null at zero: not ranked), withAny (characters above zero), population (tracked) }
  */
-export async function rankOn(db, { characterId, statisticId, rulesetId, period = 'overall', now = Date.now }) {
+async function rankOnDirect(db, { characterId, statisticId, rulesetId, period = 'overall', now = Date.now }) {
   const s = SOURCES[period];
   const base = params(period, now, statisticId, characterId);
   const row = await db.one(`SELECT ${s.col} AS value FROM ${s.table} WHERE statistic_id = $1 AND character_id = $2 ${s.where}`, base);
   const value = row?.value ?? 0;
-  const counts = await statCounts(db, { statisticId, rulesetId, period, now });
-  const rank = value > 0 ? (await ranksFor(db, { statisticId, rulesetId, period, values: [value], now })).get(value) : null;
+  const counts = await statCountsDirect(db, { statisticId, rulesetId, period, now });
+  const rank = value > 0 ? (await ranksForDirect(db, { statisticId, rulesetId, period, values: [value], now })).get(value) : null;
   return { value, rank, withAny: counts.nonzero, population: counts.population };
+}
+
+/** The direct counts (no build): what every function below falls back to, and what the old-versus-new test checks. */
+export const direct = Object.freeze({
+  populationOf: populationOfDirect, boardCounts: boardCountsDirect, statCounts: statCountsDirect, ranksFor: ranksForDirect,
+  characterRanks: characterRanksDirect, rankOn: rankOnDirect,
+});
+
+/** The build to read an OVERALL board from, or null: count directly. `build` may be handed in (one page, one build). */
+const buildFor = async (db, period, build) => (period !== 'overall' ? null : build !== undefined ? build : activeBuild(db));
+
+/** When the overall ranks on a page were counted: the build's time, or null when they were counted just now. */
+export async function ranksAsOf(db) {
+  return (await activeBuild(db))?.builtAt ?? null;
+}
+
+/** Tracked characters on a ruleset (overall), or with a baseline in the current period. */
+export async function populationOf(db, rulesetId, period = 'overall', opts = {}) {
+  const b = await buildFor(db, period, opts.build);
+  const known = b ? populationFrom(b, rulesetId, opts) : undefined;
+  return known !== undefined ? known : populationOfDirect(db, rulesetId, period, opts);
+}
+
+/** Every board of one ruleset and period: { population, byStat: Map(statId → { nonzero, max, min }) } above zero. */
+export async function boardCounts(db, rulesetId, period = 'overall', opts = {}) {
+  const b = await buildFor(db, period, opts.build);
+  return b ? boardCountsFrom(db, b, rulesetId) : boardCountsDirect(db, rulesetId, period, opts);
+}
+
+/** One board: { population, nonzero, max, min }. */
+export async function statCounts(db, args) {
+  const b = await buildFor(db, args.period ?? 'overall', args.build);
+  if (!b) return statCountsDirect(db, args);
+  const c = await statCountsFrom(db, b, args);
+  const population = await populationOf(db, args.rulesetId, 'overall', { build: b, derived: isDerivedId(args.statisticId), population: countById.get(Number(args.statisticId))?.population ?? null });
+  return { population, ...c };
+}
+
+/** Map(value → rank) on one board: 1 + the visible characters strictly above each value. */
+export async function ranksFor(db, args) {
+  const b = await buildFor(db, args.period ?? 'overall', args.build);
+  return b ? ranksForFrom(db, b, args) : ranksForDirect(db, args);
+}
+
+/** A character's overall rank on every board of its ruleset: Map(statId → { value, text, updatedAt, fetchedAt, rank }). */
+export async function characterRanks(db, characterId, rulesetId, { build } = {}) {
+  const b = await buildFor(db, 'overall', build);
+  if (!b) return characterRanksDirect(db, characterId, rulesetId);
+  const rows = await characterRanksFrom(db, b, characterId, rulesetId);
+  return new Map(rows.map((r) => [r.statistic_id, { value: r.value, text: r.text, updatedAt: r.blizzard_updated_at, fetchedAt: r.fetched_at, rank: r.rank }]));
+}
+
+/** A character's rank on one board: { value, rank (null at zero), withAny, population }. */
+export async function rankOn(db, args) {
+  const b = await buildFor(db, args.period ?? 'overall', args.build);
+  if (!b) return rankOnDirect(db, args);
+  const row = await db.one('SELECT value FROM character_statistics WHERE statistic_id = $1 AND character_id = $2', [args.statisticId, args.characterId]);
+  const value = row?.value ?? 0;
+  const counts = await statCounts(db, { ...args, build: b });
+  const rank = value > 0 ? (await ranksForFrom(db, b, { ...args, values: [value] })).get(value) : null;
+  return { value, rank, withAny: counts.nonzero, population: counts.population };
+}
+
+/**
+ * One character's overall rank on MANY boards (pins, the Collections tab): Map(statisticId → { value, rank, withAny }).
+ * From the build it is one query; without one it is rankOn per board, as it always was.
+ */
+export async function ranksOnMany(db, { characterId, rulesetId, statisticIds, build }) {
+  const ids = [...new Set(statisticIds.map(Number))];
+  const b = await buildFor(db, 'overall', build);
+  if (b) return ranksOnManyFrom(db, b, { characterId, rulesetId, statisticIds: ids });
+  const out = new Map();
+  for (const id of ids) {
+    const r = await rankOnDirect(db, { characterId, statisticId: id, rulesetId });
+    out.set(id, { value: r.value, rank: r.rank, withAny: r.withAny });
+  }
+  return out;
 }

@@ -21,6 +21,31 @@ test('the database publishes no port', () => {
   assert.doesNotMatch(db, /ports:/);
 });
 
+test('0.11.1: production’s Postgres settings are set on purpose, with room in /dev/shm and a clean stop; dev’s stay small', () => {
+  const db = compose.slice(compose.indexOf('  everstats-db:'), compose.indexOf('  everstats:\n'));
+  const setting = (block, name) => new RegExp(`- -c\\n\\s+- ${name}=([^\\n]+)`).exec(block)?.[1] ?? null;
+  assert.equal(setting(db, 'shared_buffers'), '8GB');
+  assert.equal(setting(db, 'work_mem'), '32MB');
+  assert.equal(setting(db, 'random_page_cost'), '1.1');
+  assert.equal(setting(db, 'jit'), 'off');
+  assert.equal(setting(db, 'idle_in_transaction_session_timeout'), '60s');
+  assert.equal(setting(db, 'shared_preload_libraries'), 'pg_stat_statements');
+  // Parallel queries allocate in /dev/shm: Docker's 64 MB default fails a parallel hash at this work_mem.
+  assert.match(db, /\n {4}shm_size: 1gb\n/);
+  assert.match(db, /\n {4}stop_grace_period: 120s\n/);
+  // No statement_timeout server-wide (backups, gradings and migrations are long on purpose): it is set per pool.
+  assert.equal(setting(db, 'statement_timeout'), null);
+  // Nothing caps the production database's memory under its shared_buffers.
+  assert.doesNotMatch(db, /mem_limit|memory:/);
+  const devDb = devCompose.slice(devCompose.indexOf('  everstats-dev-db:'), devCompose.indexOf('  everstats-dev:\n'));
+  assert.equal(setting(devDb, 'shared_buffers'), '64MB');
+  assert.equal(setting(devDb, 'work_mem'), '4MB');
+  assert.equal(setting(devDb, 'max_parallel_workers_per_gather'), '0');
+  assert.equal(setting(devDb, 'jit'), 'off');
+  assert.match(devDb, /\n {4}shm_size: 128mb\n/);
+  assert.match(devDb, /mem_limit: 768m/);
+});
+
 test('database and backup folders are required, never created by Docker; database folders never under /mnt/user', () => {
   assert.equal((compose.match(/create_host_path: false/g) ?? []).length, 3);
   assert.match(compose, /BACKUP_DIR:\?/);

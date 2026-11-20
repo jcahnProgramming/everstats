@@ -6,12 +6,15 @@ import { storeFeedValues } from '../stats/feedStore.js';
 import { getSetting } from '../admin/settings.js';
 import { EQUIPMENT_VERSION, parseAttributes, parseEquipment, parseGuildProfile, parseMedia, parseProfile, parseRoster, parseStatistics } from './parse.js';
 import { queueItemMedia } from './items.js';
-import { gradeCharacter } from '../tiers/store.js';
+import { noteForGrading } from '../tiers/store.js';
+import { changedIds, valuesOf } from '../stats/stamp.js';
+import { noteValuesChanged } from '../stats/distribution.js';
 import { evaluateQuietly } from '../badges/rules.js';
 import { currentGuildMaster, syncGuildMaster } from '../guilds/manage.js';
 import { PRIORITY, enqueueMany } from './queue.js';
 import {
-  markProfileMissing, storeDetails, storeGuildProfile, storeMedia, storeProfile, storeRoster, takeSnapshot, updateGains, upsertKnown, upsertRealmCategory, upsertRuleset,
+  markGuildsDirty, markProfileMissing, storeDetails, storeGuildProfile, storeMedia, storeProfile, storeRoster, takeSnapshot, updateGains, upsertKnown, upsertRealmCategory,
+  upsertRuleset,
 } from './store.js';
 
 /**
@@ -153,16 +156,18 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
   if (unchanged) {
     let media = null;
     if (existing.media_state !== 'ok') media = mediaResult(await ask('character-media', `${base}/character-media`));
-    await db.tx(async (q) => {
-      await storeProfile(q, p, store);
+    const done = await db.tx(async (q) => {
+      const prof = await storeProfile(q, p, store);
+      const before = await valuesOf(q, id);
       if (media) await storeMedia(q, id, media);
       await storeFeedValues(q, id, 'profile', pj); // 0.10.0 rule A7: every number a feed returns is a board
-      await takeSnapshot(q, id, { now });
-      await updateGains(q, id, { now });
+      const changed = await afterValues(q, id, prof, before, { now });
       await queueItemMedia(q, id, priority); // an icon past its 30-day TTL is fetched again
+      return { prof, changed };
     });
-    // Its values didn't change: its tier only needs grading if it has none yet (the full grading keeps the rest).
-    if (!(await db.one('SELECT 1 AS x FROM character_tiers WHERE character_id = $1', [id]))) await gradeQuietly(db, id);
+    // 0.11.1: graded only when a counted value moved (the profile's own numbers can), its standing changed, or it has
+    // no tier yet; the full grading keeps the rest.
+    await gradeAfter(db, id, done, priority);
     await maybeRoster({ db }, p, scope);
     await badgesForOwner(db, id);
     // 0.9.0: a character that hasn't logged in still gets its weekly collections refresh.
@@ -180,8 +185,9 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
   const statsJson = okOr(stats, 'achievement statistics');
   const attrsJson = optional(attrs);
   const equipJson = optional(equip);
-  await db.tx(async (q) => {
-    await storeProfile(q, p, store);
+  const done = await db.tx(async (q) => {
+    const prof = await storeProfile(q, p, store);
+    const before = await valuesOf(q, id);
     await storeDetails(q, id, {
       stats: statsJson ? parseStatistics(statsJson) : null,
       attributes: attrsJson ? parseAttributes(attrsJson) : null,
@@ -193,13 +199,14 @@ export async function fetchCharacter({ db, client, now = Date.now }, item) {
     await storeFeedValues(q, id, 'profile', pj);
     await storeFeedValues(q, id, 'statistics', attrsJson);
     await storeFeedValues(q, id, 'equipment', equipJson);
-    await takeSnapshot(q, id, { now });
-    await updateGains(q, id, { now });
+    const changed = await afterValues(q, id, prof, before, { now });
     // Icons go in their own work item at this priority: the character is ready without waiting for them.
     await queueItemMedia(q, id, priority);
+    return { prof, changed };
   });
-  // 0.6.0: its tier from its new values, before the item finishes, so a lookup's page shows it.
-  await gradeQuietly(db, id);
+  // 0.6.0: its tier from its new values. 0.11.1: only when a counted value moved (or its standing did, or it has no
+  // tier yet); a person waiting on the page gets it before the item finishes, everyone else from the worker's batch.
+  await gradeAfter(db, id, done, priority);
   // 0.9.0: collections refresh weekly, as part of the full fetch (collections/fetch.js).
   try {
     const { maybeQueueCollections } = await import('../collections/fetch.js');
@@ -218,10 +225,28 @@ async function badgesForOwner(db, characterId) {
   if (row?.owner_account_id) await evaluateQuietly(db, row.owner_account_id);
 }
 
-/** A tier that couldn't be graded never fails the fetch: the next full grading includes the character anyway. */
-async function gradeQuietly(db, characterId) {
+/**
+ * After a fetch's values are written (0.11.1): which statistics actually moved, today's snapshot, the gains (worked out
+ * again only when something moved), and the two notes that set later work in motion ONLY when something changed: the
+ * guild's totals, and the next distribution build. → the changed statistic ids
+ */
+async function afterValues(q, id, prof, before, { now }) {
+  const changed = changedIds(before, await valuesOf(q, id));
+  await takeSnapshot(q, id, { now });
+  const gains = await updateGains(q, id, { now, changed: changed.size > 0 || prof.rulesetChanged });
+  if (changed.size > 0 || gains.changed) await markGuildsDirty(q, [prof.guildId]);
+  if (changed.size > 0) await noteValuesChanged(q);
+  return changed;
+}
+
+/**
+ * Grades now for a person waiting on a look-up; otherwise leaves a note for the worker's batch (tiers/store.js). A tier
+ * that couldn't be graded never fails the fetch: the next full grading includes the character anyway.
+ */
+async function gradeAfter(db, id, { prof, changed }, priority) {
+  const force = prof.isNew || prof.rulesetChanged || prof.returned || prof.levelCrossed;
   try {
-    await gradeCharacter(db, characterId);
+    await noteForGrading(db, id, { changed, force, inline: priority === PRIORITY.lookup });
   } catch (err) {
     console.error(`[tiers] character grading failed: ${err.code ?? err.name}`);
   }

@@ -33,16 +33,18 @@ export async function pinsOf(db, accountId) {
  * window (no character returned it lately) is { name: null }: shown as unavailable, never given an invented name.
  */
 export async function pinCards(db, ids, character) {
-  const { rankOn } = await import('./boards.js');
+  const { ranksOnMany } = await import('./boards.js');
   const { utcDay } = await import('./periods.js');
   const { statistics } = await loadCatalog(db);
   const weekAgo = utcDay(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const out = [];
+  // 0.11.1: every pin's rank in one go (one query from the distribution build; a count per pin without one).
+  const ranks = character.hidden ? new Map() : await ranksOnMany(db, { characterId: character.id, rulesetId: character.ruleset_id, statisticIds: ids.filter((id) => statistics.get(id)) });
   for (const id of ids) {
     const s = statistics.get(id);
     if (!s) continue;
     const cs = await db.one('SELECT value, text FROM character_statistics WHERE character_id = $1 AND statistic_id = $2', [character.id, id]);
-    const rk = character.hidden ? null : await rankOn(db, { characterId: character.id, statisticId: id, rulesetId: character.ruleset_id });
+    const rk = ranks.get(Number(id)) ?? null;
     const then = rk?.rank
       ? await db.one('SELECT rank, day FROM pin_rank_history WHERE character_id = $1 AND statistic_id = $2 AND day <= $3 ORDER BY day DESC LIMIT 1', [character.id, id, weekAgo])
       : null;

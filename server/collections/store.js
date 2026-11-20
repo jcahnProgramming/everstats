@@ -1,3 +1,4 @@
+import { WRITE_IF_CHANGED } from '../stats/stamp.js';
 import { PRIMARY_VERSION, versionById } from '../core/gameVersions.js';
 import { COLLECTIONS_CATEGORY, COUNTS, DERIVED_BASE, DERIVED_DYNAMIC, DERIVED_MAX, FAMILIES, KINDS, kindById } from './registry.js';
 import { catalogMap } from './catalog.js';
@@ -102,7 +103,8 @@ async function writeValue(q, ch, characterId, statisticId, value, fetchedAt) {
     await q.query(
       `INSERT INTO character_statistics (character_id, statistic_id, ruleset_id, hidden, value, text, blizzard_updated_at, fetched_at)
        VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6)
-       ON CONFLICT (character_id, statistic_id) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, hidden = EXCLUDED.hidden, value = EXCLUDED.value, fetched_at = EXCLUDED.fetched_at`,
+       ON CONFLICT (character_id, statistic_id) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, hidden = EXCLUDED.hidden, value = EXCLUDED.value, fetched_at = EXCLUDED.fetched_at
+       ${WRITE_IF_CHANGED}`,
       [characterId, statisticId, ch.ruleset_id, ch.hidden, value, fetchedAt],
     );
   } else {
@@ -151,7 +153,8 @@ export async function deriveCounts(q, characterId) {
       await q.query(
         `INSERT INTO character_statistics (character_id, statistic_id, ruleset_id, hidden, value, text, blizzard_updated_at, fetched_at)
          VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6)
-         ON CONFLICT (character_id, statistic_id) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, hidden = EXCLUDED.hidden, value = EXCLUDED.value, fetched_at = EXCLUDED.fetched_at`,
+         ON CONFLICT (character_id, statistic_id) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, hidden = EXCLUDED.hidden, value = EXCLUDED.value, fetched_at = EXCLUDED.fetched_at
+         ${WRITE_IF_CHANGED}`,
         [characterId, countId, ch.ruleset_id, ch.hidden, value, row.fetchedAt],
       );
     } else {

@@ -43,11 +43,11 @@ test('the real CHANGELOG.json passes', () => {
 const RELEASE = resolve(import.meta.dirname, '..', '..', 'scripts', 'release.js');
 const entry = (version, kind, extra = {}) => ({ version, date: '2026-11-09', title: `Build ${version}`, ...(kind ? { kind } : {}), sections: { Fixed: [`Line of ${version}.`] }, ...extra });
 
-function checkDoc(releases, target) {
+function checkDoc(releases, target, now = '2026-11-09T23:00:00Z') {
   const file = join(dir, `doc-${Math.random().toString(36).slice(2)}.json`);
   writeFileSync(file, JSON.stringify({ releases }));
   try {
-    execFileSync(process.execPath, [SCRIPT], { env: { ...process.env, CHANGELOG_FILE: file, CHANGELOG_NOW: '2026-11-09T23:00:00Z', CHANGELOG_TARGET: target ?? '' }, stdio: 'pipe' });
+    execFileSync(process.execPath, [SCRIPT], { env: { ...process.env, CHANGELOG_FILE: file, CHANGELOG_NOW: now, CHANGELOG_TARGET: target ?? '' }, stdio: 'pipe' });
     return 'ok';
   } catch (err) {
     return String(err.stderr);
@@ -105,8 +105,10 @@ test('the release script rolls the dev builds into the next minor and prints the
   assert.match(out, /rolling up 0\.10\.3–0\.10\.5/);
   assert.match(out, /git merge --ff-only dev/);
   assert.doesNotMatch(out, /&&/); // PowerShell 5.1 has no &&
-  // The result is what production's build accepts.
-  assert.equal(checkDoc(doc.releases, 'production'), 'ok');
+  // The result is what production's build accepts. Checked against the real clock: the script dates the release with
+  // the real today, so the fixtures' frozen clock (2026-11-09) called it "in the future" from 2026-11-11 on, and this
+  // test failed on every later day (found 2026-11-20).
+  assert.equal(checkDoc(doc.releases, 'production', new Date().toISOString()), 'ok');
 });
 
 test('the release script refuses when there is nothing to release, and changes nothing', () => {

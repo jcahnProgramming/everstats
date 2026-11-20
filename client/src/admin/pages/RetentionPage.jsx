@@ -136,6 +136,11 @@ function Status({ d }) {
       <p className="rule-s">
         Blizzard lets us keep its data for <b>{r.windowDays} days</b> at most, so Everstats deletes anything older than <b>{r.keepDays} days</b>, sweeping every hour.
       </p>
+      <p className="t2 small">
+        A statistic value that didn’t change is stamped again at most once a week, so its stamp can be up to 7 days older than its character’s last fetch.
+        In normal running every tracked character is fetched in full at least weekly and nothing live comes near the limit. If fetching stopped altogether,
+        the first statistic values would be deleted after <b>{r.keepDays - 7} days</b> rather than {r.keepDays}: earlier than Blizzard requires, never later.
+      </p>
       <div className="bigstatus">
         {s.state === 'outside'
           ? <Chip kind="err">Outside the window · {duration(s.overByMs)} over</Chip>

@@ -1,5 +1,6 @@
 import { config } from '../core/config.js';
 import { BACKUP_HOUR_UTC, isDue, listBackups, recordedBackup } from '../core/backup.js';
+import { createHeavy } from './heavy.js';
 
 /**
  * The worker's job registry. Each background job declares itself here; the loop (worker/loop.js) runs whatever is
@@ -12,6 +13,9 @@ import { BACKUP_HOUR_UTC, isDue, listBackups, recordedBackup } from '../core/bac
  *
  * The crawler itself (crawler/service.js) runs continuously beside the loop, not as a job: the jobs below only queue
  * work for it (the daily refresh) or use its client (rulesets). 0.6.0: 'tiers' runs the full tier grading.
+ *
+ * 0.11.1: the jobs that aggregate over the big tables (tiers, grade-queue, guild-totals, guild-badges, boards,
+ * pin-ranks) take a turn through `heavy` (worker/heavy.js): at most `db.heavyConcurrent` of them at once.
  */
 
 /**
@@ -143,7 +147,8 @@ export function rulesetsJob({ crawler }) {
  * can show rank movement since last week. Runs in the background (bounded batches); one row per character, statistic
  * and day.
  */
-export function pinRanksJob() {
+export const PIN_RANKS_FACT = 'pin_ranks_recorded_at';
+export function pinRanksJob({ heavy = (fn) => fn() } = {}) {
   let running = null;
   return {
     id: 'pin-ranks',
@@ -151,8 +156,16 @@ export function pinRanksJob() {
     everyMs: 30 * 60 * 1000,
     async run({ db, now = Date.now }) {
       if (running) return { summary: 'Recording ranks' };
-      running = recordPinRanks(db, now).finally(() => { running = null; });
-      return { summary: 'Started' };
+      // 0.11.1: once a UTC day. It stores one row per character, statistic and day, yet ran every 30 minutes and
+      // recounted every pinned rank each time; all but the day's first pass wrote nothing.
+      const { utcDay } = await import('../stats/periods.js');
+      const done = (await db.one('SELECT at FROM pipeline_facts WHERE key = $1', [PIN_RANKS_FACT]))?.at ?? null;
+      if (done && utcDay(done) === utcDay(now())) return { summary: `Recorded for ${utcDay(now())}`, lastWorkAt: done };
+      running = heavy(() => recordPinRanks(db, now))
+        .then(() => db.query('INSERT INTO pipeline_facts (key, at) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET at = EXCLUDED.at', [PIN_RANKS_FACT, new Date(now())]))
+        .catch((err) => console.error(`[pin-ranks] failed: ${err.code ?? err.name}`))
+        .finally(() => { running = null; });
+      return { summary: 'Started', worked: true };
     },
     inFlight: () => running,
   };
@@ -221,7 +234,7 @@ export function retentionJob({ dir = config.backupDir } = {}) {
  * members changed since their last build, whose week rolled over, or whose totals are older than 6 hours. Runs in the
  * background; computed from stored values only (no Blizzard request).
  */
-export function guildTotalsJob() {
+export function guildTotalsJob({ heavy = (fn) => fn() } = {}) {
   let running = null;
   let last = null;
   return {
@@ -231,7 +244,7 @@ export function guildTotalsJob() {
     async run({ db, now = Date.now }) {
       if (running) return { summary: 'Rebuilding guild totals' };
       const { rebuildDueGuilds } = await import('../stats/guildTotals.js');
-      running = rebuildDueGuilds(db, { now }).then((n) => {
+      running = heavy(() => rebuildDueGuilds(db, { now })).then((n) => {
         last = n;
       }).catch((err) => console.error(`[guild-totals] failed: ${err.code ?? err.name}`)).finally(() => { running = null; });
       return { summary: last === null ? 'Started' : `Last pass rebuilt ${last} guild(s)` };
@@ -270,7 +283,7 @@ export function guildFetchJob() {
  * drained, a ruleset crossed the minimum, or the last one is 6 hours old. Runs in the background; reads stored values
  * only (no Blizzard request).
  */
-export function tiersJob() {
+export function tiersJob({ heavy = (fn) => fn() } = {}) {
   let running = null;
   let last = null;
   return {
@@ -284,7 +297,7 @@ export function tiersJob() {
       const { ensureGroupsMigrated } = await import('../tiers/groups.js');
       await ensureGroupsMigrated(db);
       const { runDueTierWork } = await import('../tiers/store.js');
-      running = runDueTierWork(db, { now }).then((summary) => {
+      running = heavy(() => runDueTierWork(db, { now })).then((summary) => {
         if (summary) last = summary;
       }).catch((err) => console.error(`[tiers] failed: ${err.code ?? err.name}`)).finally(() => { running = null; });
       return { summary: last ?? 'Waiting for the first grading' };
@@ -340,7 +353,7 @@ export function badgesJob() {
  * 6-hourly rebuild) or whose Guild Master changed since the last pass; after each full tier grading every guild (Strong
  * Roster); and every 6 hours every guild as a safety net. Stored data only (no Blizzard request). In the background.
  */
-export function guildBadgesJob() {
+export function guildBadgesJob({ heavy = (fn) => fn() } = {}) {
   let running = null;
   let last = null;
   let passAt = Date.now() - 10 * 60 * 1000; // catch up on the minutes around a restart
@@ -353,9 +366,15 @@ export function guildBadgesJob() {
     async run({ db, now = Date.now }) {
       if (running) return { summary: 'Checking guild badges' };
       const rules = await import('../guildBadges/rules.js');
-      running = (async () => {
+      running = heavy(async () => {
         const filled = await rules.backfillGuildsOnce(db);
         if (filled) last = `Back-filled ${filled.guilds} guild(s)`;
+        // 0.11.1: with precomputed ranks on, placements come from the top of every guild board (stats/guildTop.js),
+        // built for everyone at once, at most every five minutes. While totals have changed since it was built and it
+        // is too soon to build it again, this pass waits: nothing below moves, so the same guilds are picked up next time.
+        const { ensureGuildTop } = await import('../stats/guildTop.js');
+        const top = await ensureGuildTop(db, { now });
+        if (top.on && !top.ready) return;
         const started = now();
         const graded = await db.one("SELECT max(finished_at) AS t FROM tier_runs WHERE status = 'done'");
         const t = graded?.t ? new Date(graded.t).getTime() : 0;
@@ -377,7 +396,7 @@ export function guildBadgesJob() {
           last = `${full ? 'Full pass' : 'Changed guilds'}: ${r.guilds} guild(s)`;
         }
         passAt = started;
-      })().catch((err) => console.error(`[guild-badges] job failed: ${err.code ?? err.name}`)).finally(() => { running = null; });
+      }).catch((err) => console.error(`[guild-badges] job failed: ${err.code ?? err.name}`)).finally(() => { running = null; });
       return { summary: last ?? 'Started' };
     },
     inFlight: () => running,
@@ -419,4 +438,62 @@ export function collectionsBackfillJob() {
   };
 }
 
-export const createJobs = ({ crawler }) => Object.freeze([backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob(), retentionJob(), guildTotalsJob(), guildFetchJob(), tiersJob(), badgesJob(), guildBadgesJob(), catalogsJob(), collectionsBackfillJob()]);
+/**
+ * 0.11.1: the board distributions (stats/distribution.js): every tick, build when "Precomputed ranks" is on, the
+ * interval (boards.refreshMinutes) has passed and a value changed since the last build. One pass over the values, in
+ * the background, into the copy that is not in use.
+ */
+export function boardsJob({ heavy = (fn) => fn() } = {}) {
+  let running = null;
+  let last = null;
+  return {
+    id: 'boards',
+    label: 'Board ranks: distribution build',
+    everyMs: 30 * 1000,
+    async run({ db, now = Date.now }) {
+      if (running) return { summary: 'Building' };
+      const { runDistributionJob } = await import('../stats/distribution.js');
+      running = heavy(() => runDistributionJob(db, { now })).then((r) => {
+        last = r;
+      }).catch((err) => {
+        console.error(`[boards] build failed: ${err.code ?? err.name}`);
+        last = { summary: `Build failed (${err.code ?? err.name})` };
+      }).finally(() => { running = null; });
+      return { summary: last?.summary ?? 'Started', ...(last?.lastWorkAt ? { lastWorkAt: last.lastWorkAt } : {}), worked: Boolean(last?.worked) };
+    },
+    inFlight: () => running,
+  };
+}
+
+/**
+ * 0.11.1: the grade queue (tiers/store.js gradeQueued): every tick, grades the characters whose counted values changed
+ * since their last grading, in a batch, never while a full grading runs. Before, each one was graded inside its fetch.
+ */
+export function gradeQueueJob({ heavy = (fn) => fn() } = {}) {
+  let running = null;
+  let last = null;
+  return {
+    id: 'grade-queue',
+    label: 'Letter tiers: characters whose values changed',
+    everyMs: 30 * 1000,
+    async run({ db, now = Date.now }) {
+      if (running) return { summary: 'Grading' };
+      const { gradeQueued } = await import('../tiers/store.js');
+      running = heavy(() => gradeQueued(db, { now })).then((r) => {
+        last = r;
+      }).catch((err) => console.error(`[grade-queue] failed: ${err.code ?? err.name}`)).finally(() => { running = null; });
+      if (!last) return { summary: 'Started' };
+      return { summary: last.waiting ? `Waiting: ${last.waiting}` : `Last pass graded ${last.graded}; ${last.left} waiting`, worked: last.graded > 0 };
+    },
+    inFlight: () => running,
+  };
+}
+
+export function createJobs({ crawler, db = null }) {
+  // One line for the heavy aggregates (worker/heavy.js). Without a database handle (tests of a single job) each runs at once.
+  const heavy = db ? createHeavy({ limitOf: async () => (await import('../admin/settings.js')).getSetting(db, 'db.heavyConcurrent') }) : (fn) => fn();
+  return Object.freeze([
+    backupJob(), discoveryJob(), refreshJob(), rulesetsJob({ crawler }), pinRanksJob({ heavy }), retentionJob(), guildTotalsJob({ heavy }), guildFetchJob(),
+    tiersJob({ heavy }), gradeQueueJob({ heavy }), boardsJob({ heavy }), badgesJob(), guildBadgesJob({ heavy }), catalogsJob(), collectionsBackfillJob(),
+  ]);
+}
