@@ -25,14 +25,17 @@ if (process.env.NODE_ENV === 'production' && !config.backupDir) {
   process.exit(1);
 }
 
-const db = createDb({ max: 4 });
+// 0.11.1: 6 connections (was 4): the crawler's four slots write in short transactions, and at most `db.heavyConcurrent`
+// (default 2) background aggregates run beside them (worker/heavy.js). Named, so pg_stat_activity tells the worker
+// from the web app.
+const db = createDb({ max: 6, applicationName: 'everstats-worker' });
 await prepareDatabase(db, { processName: 'worker' });
 
 // One row per worker in worker_status. Stable across restarts of the same container (its hostname).
 const workerId = process.env.WORKER_ID || `worker-${hostname()}`;
 // The crawler runs continuously beside the job loop; it owns the one Blizzard request budget (crawler/service.js).
 const crawler = createCrawler({ db });
-const JOBS = createJobs({ crawler });
+const JOBS = createJobs({ crawler, db });
 const loop = createLoop({ db, jobs: JOBS, workerId, version: APP_VERSION });
 
 if (config.backupDir) {

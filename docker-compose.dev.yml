@@ -57,13 +57,16 @@ services:
     image: postgres:17-bookworm
     container_name: everstats-dev-db
     restart: unless-stopped
+    # Small: dev runs no parallel queries (max_parallel_workers_per_gather=0 below), which is what /dev/shm is for.
     shm_size: 128mb
+    stop_grace_period: 60s
     environment:
       POSTGRES_USER: everstats_dev
       POSTGRES_DB: everstats_dev
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in dev's .env (see docker-compose.dev.yml)}"
-    # Small on purpose (production runs the image's defaults): dev's database is tiny, and it must not compete with
-    # production's for the host's memory or cores.
+    # Small on purpose: dev's database is tiny, and it must not compete with production's for the host's memory or
+    # cores. 0.11.1: production has its own, larger settings (docker-compose.yml); dev shares only the ones that cost
+    # nothing (costs for NVMe, no JIT, the idle-in-transaction limit, I/O timing, pg_stat_statements).
     command:
       - postgres
       - -c
@@ -80,6 +83,16 @@ services:
       - max_parallel_workers_per_gather=0
       - -c
       - max_parallel_maintenance_workers=1
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - jit=off
+      - -c
+      - idle_in_transaction_session_timeout=60s
+      - -c
+      - track_io_timing=on
+      - -c
+      - shared_preload_libraries=pg_stat_statements
     volumes:
       - type: bind
         source: "${DEV_PG_DATA_DIR:?Set DEV_PG_DATA_DIR to dev's own database folder (see docker-compose.dev.yml)}"

@@ -247,6 +247,28 @@ export const SETTINGS = [
     default: 2,
   },
   {
+    // 0.11.1: the board distributions (stats/distribution.js), built by the worker while "Precomputed ranks" is on.
+    key: 'boards.refreshMinutes',
+    section: 'crawler',
+    label: 'Minutes between rebuilds of the board ranks',
+    help: 'With Precomputed ranks on (Features), overall ranks, “of N” and percentiles are read from a table the worker rebuilds this often, and only when a value changed since the last build. Pages say “Ranks as of” that time. Lower is fresher; one rebuild reads every statistic value once (about 8 seconds of one core on 26 million values).',
+    type: 'integer',
+    min: 1,
+    max: 60,
+    default: 5,
+  },
+  {
+    // 0.11.1: worker/heavy.js.
+    key: 'db.heavyConcurrent',
+    section: 'crawler',
+    label: 'Heavy background jobs that may use the database at once',
+    help: 'Full tier gradings, the grade queue, guild totals, guild badges, the board ranks rebuild and the daily pin ranks take turns: at most this many run at the same time, so they can never hold every connection the crawler writes through. The rest wait in line.',
+    type: 'integer',
+    min: 1,
+    max: 4,
+    default: 2,
+  },
+  {
     key: 'guilds.fetchCooldownHours',
     section: 'crawler',
     label: 'Hours before a guild can be fetched whole again',
@@ -331,6 +353,15 @@ export const SETTINGS = [
     help: 'On: gold is read at a Battle.net sign-in for the owner, and owners can show it publicly. Off: no gold is read, gold boards and the owner’s gold say gold is switched off for now; nothing stored is deleted.',
     type: 'boolean',
     default: true,
+  },
+  {
+    // 0.11.1: deploys OFF (the owner's decision): the release is proved identical with it off, then it is turned on.
+    key: 'features.precomputedRanks',
+    section: 'features',
+    label: 'Precomputed ranks',
+    help: 'On: overall ranks, “of N” and percentiles come from a table the worker rebuilds every few minutes (Settings → Minutes between rebuilds), and pages say “Ranks as of” that time. Off: every rank is counted at the moment it is asked for, as before 0.11.1.',
+    type: 'boolean',
+    default: false,
   },
   {
     key: 'features.guildFetch',

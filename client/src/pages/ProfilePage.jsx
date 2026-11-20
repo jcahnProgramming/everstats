@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
-import { EmptyState, Provenance } from '../components/EmptyState.jsx';
+import { EmptyState, Provenance, RanksAsOf } from '../components/EmptyState.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
 import { RenderFrame } from '../components/Stats.jsx';
 import { TierBadge, TierBrief } from '../components/Tier.jsx';
@@ -184,7 +184,7 @@ function PinsSection({ section }) {
           </Link>
         ))}
       </div>
-      <Provenance source="Blizzard Entertainment’s game data API" fetchedAt={section.fetchedAt} />
+      <Provenance source="Blizzard Entertainment’s game data API" fetchedAt={section.fetchedAt}><RanksAsOf at={section.ranksAsOf} /></Provenance>
     </section>
   );
 }

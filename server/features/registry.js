@@ -87,6 +87,13 @@ export const FEATURES = Object.freeze([
     whenOff: 'Paused: they wait and resume. Lookups, sign-ins and their auto-fetch still run, because a person is waiting on them.',
   },
   {
+    // 0.11.1 (stats/distribution.js, stats/guildTop.js). Admin and background only: with it off every page shows the
+    // same ranks, counted at that moment; with it on they are a few minutes old at most and say so.
+    id: 'precomputed-ranks', name: 'Precomputed ranks', store: { setting: 'features.precomputedRanks' }, playerVisible: false, settings: ['boards.refreshMinutes'],
+    does: 'The worker keeps a table of every board’s distribution, rebuilt every few minutes when a value changed. Overall ranks, “of N”, tier percentiles for one character and the guild badges’ board placements are read from it (one index probe a rank), and pages say “Ranks as of” the build’s time.',
+    whenOff: 'Every rank is counted at the moment it is asked for by walking the board, as before 0.11.1: always exact to the second, and much heavier on the database. Weekly and “Last N days” boards are counted that way either way.',
+  },
+  {
     id: 'discord', name: 'Discord sign-in', store: { setting: 'features.discordSignIn' }, playerVisible: true,
     does: 'Signing in and linking with Discord.',
     whenOff: 'The Discord button shows “Switched off for now”; people sign in with Battle.net or a passkey. Nobody is signed out and no link is removed.',
@@ -122,7 +129,7 @@ export const FEATURES = Object.freeze([
 export const FEATURE_GROUPS = Object.freeze([
   { id: 'visitors', label: 'Visitor-facing', features: ['renders', 'share-cards', 'collections', 'gold'] },
   { id: 'community', label: 'Accounts and community', features: ['beta', 'discord', 'feedback', 'reports', 'moderators'] },
-  { id: 'data', label: 'Data and crawling', features: ['crawl', 'roster-seed', 'collections-backfill', 'guild-fetch'] },
+  { id: 'data', label: 'Data and crawling', features: ['crawl', 'roster-seed', 'collections-backfill', 'guild-fetch', 'precomputed-ranks'] },
   { id: 'versions', label: 'Game versions', features: GAME_VERSIONS.map((v) => `version-${v.id}`) },
   { id: 'dev', label: 'Dev site', features: ['dev-gate'] },
 ]);

@@ -7,7 +7,7 @@ import { api } from '../api.js';
 import { authError } from '../authMessages.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Button, Modal } from '../components/Controls.jsx';
-import { EmptyState, Fresh } from '../components/EmptyState.jsx';
+import { EmptyState, Fresh, RanksAsOf } from '../components/EmptyState.jsx';
 import { Sortable } from '../components/Sortable.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
 import { useToasts } from '../components/Toasts.jsx';
@@ -204,7 +204,7 @@ function Featured({ data, onPick, onReordered }) {
           )} />
       )}
       {data.pins.length === 0 && <EmptyState kind="nodata" compact title="No pinned statistics"><span>Pin statistics from any character page, or with “Choose pins”.</span></EmptyState>}
-      <span className="muted xsmall">{data.pinsAreDefault ? 'These are the default pins. ' : ''}Rank movement compares with a week ago; it shows “—” until a week of history exists.</span>
+      <span className="muted xsmall">{data.pinsAreDefault ? 'These are the default pins. ' : ''}Rank movement compares with a week ago; it shows “—” until a week of history exists. <RanksAsOf at={data.pinsRanksAsOf} /></span>
     </section>
   );
 }

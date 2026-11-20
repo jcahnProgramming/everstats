@@ -6,7 +6,7 @@ import { parseSlug } from '../../../server/stats/slug.js';
 import { api } from '../api.js';
 import { viaSearchOnce } from '../activity.js';
 import { Icon } from '../chrome/Icon.jsx';
-import { EmptyState, Fresh, Provenance } from '../components/EmptyState.jsx';
+import { EmptyState, Fresh, Provenance, RanksAsOf } from '../components/EmptyState.jsx';
 import { CharacterLoading, CharacterNotFound, ServiceUnavailable } from '../components/States.jsx';
 import { RankPill, RenderFrame } from '../components/Stats.jsx';
 import { GearSheet } from '../components/GearSheet.jsx';
@@ -26,16 +26,18 @@ import { useFeature } from '../features.js';
 /**
  * The character page (design/v1/pages/character): the gilt character sheet, then every statistic.
  *
- * GET /api/characters/:slug refreshes the character from Blizzard straight away (unless it was fetched in the last
- * ten minutes) and answers one of: ok · not_found (with what an account list told us, if anything) · hidden (by its
- * owner; the owner still sees it) · unavailable (Blizzard didn't answer, or keys aren't set).
+ * GET /api/characters/:slug answers at once from what Everstats has stored (0.11.1: a view no longer fetches the
+ * character from Blizzard; it asks for a one-request check at most once an hour, and a character never fetched before
+ * is still looked up on the spot). It answers one of: ok · not_found (with what an account list told us, if anything)
+ * · hidden (by its owner; the owner still sees it) · unavailable (Blizzard didn't answer, or keys aren't set).
+ * The Refresh button is the full fetch: POST /api/characters/:slug/refresh, waited for, then the page loads again.
  *
  * Different from the mockup, on purpose:
  *   - 0.6.0: the overall tier (or Unranked, with the reason in words) and "Why this tier" (components/TierBreakdown.jsx):
  *     every letter comes with what fed it. Statistics sections are full width and start collapsed (the mockup's
  *     multi-column cards left gaps); each collapsed header still says the category's letter, size and best rank.
  *   - 0.8.0: the gold Share button (design/v3-share-cards share-button.md) opens the card maker; a hidden character
- *     has none. No Progress chart yet; the Refresh button is the page reload (a lookup refreshes).
+ *     has none. No Progress chart yet.
  *   - Gear slots are split in two columns as Blizzard lists them (no fixed slot list: whatever the API returns).
  */
 export function CharacterPage({ tab = 'stats' }) {
@@ -138,6 +140,19 @@ function CharacterSheet({ data, onReload, tab = 'stats', screen = '' }) {
   const c = data.character;
   const collectionsOn = useFeature('collections'); // 0.10.3: switched off, Refresh doesn't ask for collections
   const stats = data.statistics;
+  // 0.11.1: Refresh asks Blizzard for the whole character (a POST), waits for the answer, then loads the page again.
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    if (collectionsOn) api(`/api/characters/${encodeURIComponent(c.slug)}/collections/refresh`, { method: 'POST' }).catch(() => {});
+    try {
+      await api(`/api/characters/${encodeURIComponent(c.slug)}/refresh`, { method: 'POST' });
+    } catch {
+      // Too many look-ups, or Blizzard didn't answer: the page loads again with what Everstats has.
+    }
+    onReload();
+  };
   const line = [c.level !== null ? `Level ${c.level}` : null, c.race, c.class].filter(Boolean).join(' · ');
   const statCount = stats.categories.reduce((n, cat) => n + cat.statistics.length, 0);
   return (
@@ -165,7 +180,7 @@ function CharacterSheet({ data, onReload, tab = 'stats', screen = '' }) {
               <span className="t2">Last seen in game: <b className="strong-text">{c.lastLoginAt ? timeAgo(c.lastLoginAt) : 'not reported'}</b></span>
               <Fresh at={c.fetchedAt} prefix="Data as of " />
               {/* 0.9.0: a manual Refresh also refreshes collections (at lookup priority, same per-network limit). */}
-              <button type="button" className="btn ghost sm" onClick={() => { if (collectionsOn) api(`/api/characters/${encodeURIComponent(c.slug)}/collections/refresh`, { method: 'POST' }).catch(() => {}); onReload(); }}><Icon name="refresh" size="sm" />Refresh</button>
+              <button type="button" className="btn ghost sm" onClick={refresh} disabled={refreshing} aria-busy={refreshing}><Icon name="refresh" size="sm" />{refreshing ? 'Asking Blizzard…' : 'Refresh'}</button>
               {!c.hidden && <ShareButton to={`/c/${encodeURIComponent(c.slug)}/share`} />}
             </div>
           </div>
@@ -186,6 +201,7 @@ function CharacterSheet({ data, onReload, tab = 'stats', screen = '' }) {
         </div>}
         {tab === 'stats' && <Provenance source="Blizzard Entertainment’s game data API: profile, equipment, statistics" fetchedAt={c.fetchedAt}>
           <span className="muted">Render: {c.media.state === 'paused' ? 'paused on Everstats' : c.media.state === 'hidden' ? 'hidden by its owner' : c.media.state === 'ok' ? <>fetched {timeAgo(c.media.fetchedAt)} (renders lag the profile by hours)</> : 'not ready yet at Blizzard'}</span>
+          <RanksAsOf at={stats.ranksAsOf} />
         </Provenance>}
       </section>
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
-import { EmptyState, Provenance } from '../components/EmptyState.jsx';
+import { EmptyState, Provenance, RanksAsOf } from '../components/EmptyState.jsx';
 import { GLYPHS } from '../collections/glyphs.js';
 import { Segmented } from '../components/Controls.jsx';
 import { ServiceUnavailable } from '../components/States.jsx';
@@ -159,6 +159,7 @@ export function StatLeaderboardPage() {
             {data.data?.newest ? (
               <Provenance source={data.collection ? 'Counted by Everstats from Blizzard’s character collections, refreshed weekly (and at sign-in, or when the Collections tab is opened)' : 'Blizzard achievement statistics, refreshed daily for every tracked character'} fetchedAt={data.data.newest}>
                 <span className="muted">Oldest on this board: {timeAgo(data.data.oldest)}</span>
+                <RanksAsOf at={data.ranksAsOf} />
               </Provenance>
             ) : null}
           </div>

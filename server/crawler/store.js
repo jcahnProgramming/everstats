@@ -5,6 +5,8 @@ import { EQUIPMENT_VERSION } from './parse.js';
 import { DERIVED_BASE } from '../collections/registry.js';
 import { PRIMARY_SCOPE } from '../core/config.js';
 import { localId, localIds } from '../core/localIds.js';
+import { WRITE_IF_CHANGED_BLIZZARD } from '../stats/stamp.js';
+import { noteValuesChanged } from '../stats/distribution.js';
 
 /**
  * Writing what the crawler fetched. Parsed values only (crawler/parse.js): never a raw body.
@@ -71,7 +73,12 @@ export async function upsertGuild(q, g, rulesetId, { scope = null, realmSlug = n
   return id;
 }
 
-/** A guild's totals need rebuilding (a member changed, joined or left): the worker's guild-totals job picks it up. */
+/**
+ * A guild's totals need rebuilding (a member's values or gains changed, it joined, left, came back or went missing): the
+ * worker's guild-totals job picks it up. 0.11.1: NOT on a check that found nothing changed. Until then every profile
+ * store marked the guild, so a guild was rebuilt whole, and its badge placements recounted, every minute any member
+ * was being checked.
+ */
 export async function markGuildsDirty(q, ids) {
   const list = [...new Set(ids.filter((x) => x !== null && x !== undefined))];
   if (!list.length) return;
@@ -157,7 +164,7 @@ export async function upsertKnown(q, c, { source, ownerAccountId = null, scope =
 export async function storeProfile(q, p, { source, scope = null, rulesetId = undefined }) {
   const s = scopeOf(scope);
   const id = await localId(q, { kind: 'character', version: s.version, region: s.region, blizzardId: p.id });
-  const previous = await q.one('SELECT id, ruleset_id, guild_id, hidden, login_at_full, last_fetched_at, media_state FROM characters WHERE id = $1 FOR UPDATE', [id]);
+  const previous = await q.one('SELECT id, ruleset_id, guild_id, hidden, login_at_full, last_fetched_at, media_state, level, missing_since, profile_state FROM characters WHERE id = $1 FOR UPDATE', [id]);
   const category = rulesetId !== undefined ? rulesetId : await upsertRuleset(q, p.ruleset, { scope: s });
   const guildId = await upsertGuild(q, p.guild, category ?? null, { scope: s, realmSlug: p.guild?.realm?.slug ?? null });
   const realmSlug = p.realm?.slug ?? null;
@@ -179,9 +186,20 @@ export async function storeProfile(q, p, { source, scope = null, rulesetId = und
   if (previous && category && previous.ruleset_id !== null && previous.ruleset_id !== category) {
     await q.query('UPDATE character_statistics SET ruleset_id = $2 WHERE character_id = $1', [id, category]);
   }
-  // 0.5.0: its guild's totals (and its old guild's, after a move) are rebuilt from the new values by the worker.
-  await markGuildsDirty(q, [guildId, previous?.guild_id]);
-  return { id, previous, guildId };
+  // What changed about WHO this character is, apart from its values (the caller compares those): new to Everstats,
+  // moved guild or realm category, back after being missing or unserved, or crossed the tier level either way.
+  const same = (a, b) => (a === null || a === undefined ? b === null || b === undefined : b !== null && b !== undefined && Number(a) === Number(b));
+  const isNew = !previous;
+  const guildChanged = !isNew && !same(previous.guild_id, guildId);
+  const rulesetChanged = !isNew && category !== null && category !== undefined && !same(previous.ruleset_id, category);
+  const returned = !isNew && (previous.missing_since !== null || previous.profile_state !== 'ok');
+  const levelCrossed = !isNew && ((previous.level ?? 0) >= 10) !== ((p.level ?? 0) >= 10);
+  // 0.5.0: its guild's totals (and its old guild's, after a move) are rebuilt by the worker. 0.11.1: only when its
+  // membership or standing changed here; a change of VALUES marks the guild where the values are written
+  // (crawler/fetch.js), and a check that changed nothing marks nothing.
+  if (isNew || guildChanged || rulesetChanged || returned) await markGuildsDirty(q, [guildId, previous?.guild_id]);
+  if (rulesetChanged || returned) await noteValuesChanged(q);
+  return { id, previous, guildId, isNew, guildChanged, rulesetChanged, returned, levelCrossed };
 }
 
 /** The 404 case: a character whose profile Blizzard doesn't serve (yet). `ref` is { slug, realmSlug? }. */
@@ -202,6 +220,7 @@ export async function markProfileMissing(q, ref, { scope = null } = {}) {
   if (!row) return;
   await markGuildsDirty(q, [row.guild_id]);
   if (row.stats_fetched_at) {
+    await noteValuesChanged(q);
     await q.query('DELETE FROM character_statistics WHERE character_id = $1', [row.id]);
     await q.query('DELETE FROM stat_gains WHERE character_id = $1', [row.id]);
     // 0.6.0: and off the tier boards (its tier was graded from those values).
@@ -233,7 +252,9 @@ export async function storeDetails(q, characterId, { stats, attributes, equipmen
        SELECT $1, v.id, $2, $3, v.value, v.text, v.updated, now()
          FROM unnest($4::bigint[], $5::float8[], $6::text[], $7::timestamptz[]) AS v(id, value, text, updated)
        ON CONFLICT (character_id, statistic_id) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, value = EXCLUDED.value,
-         text = EXCLUDED.text, blizzard_updated_at = EXCLUDED.blizzard_updated_at, fetched_at = EXCLUDED.fetched_at`,
+         text = EXCLUDED.text, blizzard_updated_at = EXCLUDED.blizzard_updated_at, fetched_at = EXCLUDED.fetched_at
+       -- 0.11.1 (stats/stamp.js): only a row that changed, or whose stamp is a week old, is written.
+       ${WRITE_IF_CHANGED_BLIZZARD}`,
       [characterId, ch.ruleset_id, ch.hidden, list.map((s) => s.id), list.map((s) => s.value), list.map((s) => s.text), list.map((s) => s.updatedAt)],
     );
   }
@@ -289,8 +310,14 @@ export async function takeSnapshot(q, characterId, { now = Date.now } = {}) {
  * Rebuilds the character's gains this week and over the rolling window: current value minus the baseline, > 0 only.
  * The rolling baseline is the character's OLDEST snapshot still inside the keep window (it moves forward a day each
  * day as the sweep deletes older ones; this runs on every daily check).
+ *
+ * 0.11.1: nothing is written that didn't change. `changed` says whether any of the character's values moved in this
+ * fetch (default true: a caller that doesn't know). A period's gains are worked out again only when a value changed or
+ * that period's baseline moved, and then only the rows that differ are written: until now every check deleted and
+ * re-inserted every gain of the character for both periods (65 million inserts on a 20-million-row table).
+ * → { changed }: whether any gain row was written or removed (the character's guild totals then need rebuilding).
  */
-export async function updateGains(q, characterId, { now = Date.now } = {}) {
+export async function updateGains(q, characterId, { now = Date.now, changed = true } = {}) {
   const ch = await q.one('SELECT ruleset_id, hidden, collections_first_at FROM characters WHERE id = $1', [characterId]);
   if (!ch || ch.ruleset_id === null) return;
   const { cutoff } = await retentionPolicy(q, now());
@@ -298,26 +325,36 @@ export async function updateGains(q, characterId, { now = Date.now } = {}) {
     'SELECT taken_at, stat_ids, stat_values FROM character_snapshots WHERE character_id = $1 AND taken_at >= $2 ORDER BY taken_at LIMIT 1',
     [characterId, cutoff],
   );
+  // The rolling baseline is rewritten only when it MOVED (a different snapshot is now the oldest kept, or the
+  // character's realm category or hidden flag differs from the copy on it).
+  let rollingMoved = false;
   if (oldest) {
-    await q.query(
-      `INSERT INTO period_baselines (period, period_start, character_id, ruleset_id, hidden, taken_at, stat_ids, stat_values)
-       VALUES ('rolling', $1, $2, $3, $4, $5, $6::int[], $7::float8[])
-       ON CONFLICT (period, period_start, character_id) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, hidden = EXCLUDED.hidden,
-         taken_at = EXCLUDED.taken_at, stat_ids = EXCLUDED.stat_ids, stat_values = EXCLUDED.stat_values`,
-      [ROLLING_START, characterId, ch.ruleset_id, ch.hidden, oldest.taken_at, oldest.stat_ids, oldest.stat_values],
-    );
+    const had = await q.one("SELECT taken_at, ruleset_id, hidden FROM period_baselines WHERE period = 'rolling' AND period_start = $1 AND character_id = $2", [ROLLING_START, characterId]);
+    rollingMoved = !had || new Date(had.taken_at).getTime() !== new Date(oldest.taken_at).getTime() || had.ruleset_id !== ch.ruleset_id || had.hidden !== ch.hidden;
+    if (rollingMoved) {
+      await q.query(
+        `INSERT INTO period_baselines (period, period_start, character_id, ruleset_id, hidden, taken_at, stat_ids, stat_values)
+         VALUES ('rolling', $1, $2, $3, $4, $5, $6::int[], $7::float8[])
+         ON CONFLICT (period, period_start, character_id) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, hidden = EXCLUDED.hidden,
+           taken_at = EXCLUDED.taken_at, stat_ids = EXCLUDED.stat_ids, stat_values = EXCLUDED.stat_values`,
+        [ROLLING_START, characterId, ch.ruleset_id, ch.hidden, oldest.taken_at, oldest.stat_ids, oldest.stat_values],
+      );
+    }
   }
+  let wrote = 0;
   for (const period of ['week', 'rolling']) {
+    if (!changed && !(period === 'rolling' && rollingMoved)) continue;
     const start = periodStart(period, now());
     const base = await q.one('SELECT taken_at FROM period_baselines WHERE period = $1 AND period_start = $2 AND character_id = $3', [period, start, characterId]);
     if (!base) continue;
     // 0.9.0: a collection count only has a gain once its baseline was taken AFTER collections were first fetched;
     // otherwise a character's first collections fetch would read as "412 appearances gained this week".
     const derivedOk = Boolean(ch.collections_first_at && new Date(ch.collections_first_at) <= new Date(base.taken_at));
-    await q.query('DELETE FROM stat_gains WHERE period = $1 AND period_start = $2 AND character_id = $3', [period, start, characterId]);
-    await q.query(
-      `INSERT INTO stat_gains (period, period_start, statistic_id, ruleset_id, character_id, hidden, gain)
-       SELECT $1, $2, cs.statistic_id, $4, $3, $5, cs.value - coalesce(b.value, 0)
+    // One statement: the gains as they should be now (fresh), the rows that are no longer gains removed, and only the
+    // rows that are new or differ written.
+    const r = await q.one(
+      `WITH fresh AS (
+       SELECT cs.statistic_id, cs.value - coalesce(b.value, 0) AS gain
          FROM character_statistics cs
          LEFT JOIN (SELECT unnest(stat_ids) AS id, unnest(stat_values) AS value FROM period_baselines
                      WHERE period = $1 AND period_start = $2 AND character_id = $3) b ON b.id = cs.statistic_id
@@ -326,15 +363,28 @@ export async function updateGains(q, characterId, { now = Date.now } = {}) {
           -- first brings a feed value in never reads as "gained 12,000 health this week". Other derived counts: as 0.9.0.
           AND (cs.statistic_id < $6
                OR (b.id IS NOT NULL AND EXISTS (SELECT 1 FROM statistics f WHERE f.id = cs.statistic_id AND f.derived LIKE 'feed:%'))
-               OR ($7::boolean AND NOT EXISTS (SELECT 1 FROM statistics f WHERE f.id = cs.statistic_id AND f.derived LIKE 'feed:%')))`,
+               OR ($7::boolean AND NOT EXISTS (SELECT 1 FROM statistics f WHERE f.id = cs.statistic_id AND f.derived LIKE 'feed:%')))),
+       gone AS (
+         DELETE FROM stat_gains g WHERE g.period = $1 AND g.period_start = $2 AND g.character_id = $3
+            AND NOT EXISTS (SELECT 1 FROM fresh f WHERE f.statistic_id = g.statistic_id) RETURNING 1),
+       put AS (
+         INSERT INTO stat_gains (period, period_start, statistic_id, ruleset_id, character_id, hidden, gain)
+         SELECT $1, $2, f.statistic_id, $4, $3, $5, f.gain FROM fresh f
+         ON CONFLICT (period, period_start, statistic_id, character_id) DO UPDATE SET gain = EXCLUDED.gain, ruleset_id = EXCLUDED.ruleset_id, hidden = EXCLUDED.hidden
+          WHERE (stat_gains.gain, stat_gains.ruleset_id, stat_gains.hidden) IS DISTINCT FROM (EXCLUDED.gain, EXCLUDED.ruleset_id, EXCLUDED.hidden)
+         RETURNING 1)
+       SELECT (SELECT count(*) FROM gone)::int + (SELECT count(*) FROM put)::int AS n`,
       [period, start, characterId, ch.ruleset_id, ch.hidden, DERIVED_BASE, derivedOk],
     );
+    wrote += r?.n ?? 0;
   }
+  return { changed: wrote > 0 };
 }
 
 /** Hides or shows a character everywhere it is ranked. */
 export async function setHidden(q, characterId, hidden) {
   const ch = await q.one('UPDATE characters SET hidden = $2 WHERE id = $1 RETURNING guild_id', [characterId, hidden]);
+  await noteValuesChanged(q); // 0.11.1: it joins or leaves every board at the next distribution build
   await q.query('UPDATE character_statistics SET hidden = $2 WHERE character_id = $1', [characterId, hidden]);
   await q.query('UPDATE stat_gains SET hidden = $2 WHERE character_id = $1', [characterId, hidden]);
   await q.query('UPDATE period_baselines SET hidden = $2 WHERE character_id = $1', [characterId, hidden]);

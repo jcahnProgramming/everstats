@@ -1,5 +1,6 @@
 import { PRIMARY_SCOPE } from '../core/config.js';
 import { boardCounts, characterRanks, everyoneTied } from '../stats/boards.js';
+import { activeBuild } from '../stats/distribution.js';
 import { categoryKey, loadCatalog } from '../stats/catalog.js';
 import { inlineBadges } from '../badges/store.js';
 import { gearItemIds } from '../crawler/items.js';
@@ -99,11 +100,15 @@ export async function characterView(db, row, { mine = false } = {}) {
 export async function characterStatistics(db, row) {
   const { statistics, categories } = await loadCatalog(db);
   const ranked = row.ruleset_id !== null && !row.hidden;
-  const mineById = row.ruleset_id !== null ? await characterRanks(db, row.id, row.ruleset_id) : new Map();
-  const counts = ranked ? await boardCounts(db, row.ruleset_id) : null;
+  // 0.11.1: one distribution build for the whole page (null: every rank is counted now), so each rank and its
+  // "of N" come from the same moment.
+  const build = await activeBuild(db);
+  const mineById = row.ruleset_id !== null ? await characterRanks(db, row.id, row.ruleset_id, { build }) : new Map();
+  const counts = ranked ? await boardCounts(db, row.ruleset_id, 'overall', { build }) : null;
   return {
     population: counts?.population ?? null,
     ranked,
+    ranksAsOf: ranked ? build?.builtAt ?? null : null,
     categories: categories.map((c) => ({
       label: c.label,
       key: categoryKey(c.label),
@@ -148,8 +153,9 @@ export async function featuredExtras(db, row, accountId) {
   const badge = (await inlineBadges(db, [accountId])).get(Number(accountId)) ?? null;
   if (row.ruleset_id === null || row.ruleset_id === undefined || row.hidden) return { badge, placements: [] };
   const { statistics } = await loadCatalog(db);
-  const mine = await characterRanks(db, row.id, row.ruleset_id);
-  const counts = await boardCounts(db, row.ruleset_id);
+  const build = await activeBuild(db);
+  const mine = await characterRanks(db, row.id, row.ruleset_id, { build });
+  const counts = await boardCounts(db, row.ruleset_id, 'overall', { build });
   const placements = [];
   for (const [id, m] of mine) {
     const s = statistics.get(id);

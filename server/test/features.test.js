@@ -287,6 +287,18 @@ const CHECKS = {
     const { getSetting } = await import('../admin/settings.js');
     assert.equal(await getSetting(t.db, 'moderation.moderators'), false);
   },
+  async 'precomputed-ranks'() {
+    // Off (how 0.11.1 deploys): every rank is counted at that moment, the page names no "as of" time, and the worker's
+    // build job does nothing.
+    const body = (await t.client({ ip: '203.0.113.57' }).get(`/api/characters/${CHAR.slug}`)).json;
+    assert.equal(body.status, 'ok');
+    assert.equal(body.statistics.ranksAsOf, null);
+    const { runDistributionJob, activeBuild, clearBuildMemo } = await import('../stats/distribution.js');
+    clearBuildMemo();
+    assert.equal(await activeBuild(t.db), null);
+    assert.equal((await runDistributionJob(t.db)).worked, false);
+    assert.equal(await t.db.one('SELECT 1 AS x FROM board_state'), null);
+  },
   async 'dev-gate'() {
     // Exists on the dev site only (featuresHere): never reached in a local test.
   },
@@ -298,7 +310,7 @@ test('every feature in the registry: turned off on its own, the public site keep
     if (f.store.version) continue; // read-only here: the next test
     assert.ok(CHECKS[f.id], `features.test.js has no fallback check for the feature '${f.id}': add one`);
     const wasOn = (await features()).find((x) => x.id === f.id).on;
-    assert.equal(wasOn, f.id !== 'moderators', `${f.id} starts in its default state`);
+    assert.equal(wasOn, !['moderators', 'precomputed-ranks'].includes(f.id), `${f.id} starts in its default state`);
     if (wasOn) await flip(f.id, false);
     const s = (await t.client({ ip: '203.0.113.58' }).get('/api/session')).json;
     if (f.playerVisible) assert.equal(s.features[f.id], false, `${f.id} off in /api/session`);

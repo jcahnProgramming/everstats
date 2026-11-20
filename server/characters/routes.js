@@ -6,7 +6,7 @@ import { HttpError, route } from '../core/errors.js';
 import { isConfigured } from '../credentials/store.js';
 import { PRIORITY, enqueue, waitFor } from '../crawler/queue.js';
 import { getSource } from '../sources/registry.js';
-import { BOARD_PERIODS, boardCounts, boardPage, everyoneTied, populationOf, rankOn, statCounts } from '../stats/boards.js';
+import { BOARD_PERIODS, boardCounts, boardPage, everyoneTied, populationOf, rankOn, ranksAsOf, statCounts } from '../stats/boards.js';
 import { categoryKey, loadCatalog } from '../stats/catalog.js';
 import { nextPeriodStart, periodOpen, periodStart, rollingOpen } from '../stats/periods.js';
 import { retentionPolicy } from '../retention/policy.js';
@@ -29,12 +29,24 @@ import { PROVIDERS } from '../auth/providers.js';
 /**
  * The public, read-mostly API: character lookups, leaderboards, the statistics catalog, coverage and the beta.
  *
- * A lookup refreshes the character from Blizzard straight away (queued at priority 1, ahead of all background work)
- * unless it was fully fetched in the last LOOKUP_FRESH_MS: a page reload is not a reason to ask Blizzard again. Only a
- * lookup that really asks Blizzard counts against the per-network lookup limit.
+ * 0.11.1, THE PAGE-VIEW RULE (owner's decision, 2026-11-20). Until now opening a character page fetched the character
+ * in full from Blizzard whenever its last fetch was ten minutes old: five requests, a tier grading, its guild rebuilt
+ * and re-ranked, for every view. Production served 5,700 such views a day against 6 searches, around the clock: mostly
+ * automated, and a third of all the grading the worker did.
+ *   - A character Everstats HAS is served at once from what is stored. The page never waits on Blizzard.
+ *   - A view asks for at most a one-request CHECK, and only when the character wasn't checked in the last
+ *     VIEW_CHECK_MS. The check becomes a full fetch only if the character logged in since (crawler/fetch.js). It is
+ *     queued below people who are waiting (PRIORITY.auto) and the page doesn't wait for it.
+ *   - A full fetch on demand is POST /characters/:slug/refresh: the page's Refresh button. A POST needs this site's
+ *     Origin (core/sameOrigin.js), which a crawler following links never sends.
+ *   - A character Everstats has NOT fetched yet is still looked up in full on first view, and waited for: there is
+ *     nothing to show otherwise.
+ * Every one of these that asks Blizzard counts against the per-network lookup limit, and none depends on who or what
+ * the visitor is.
  */
 export const LOOKUP_FRESH_MS = 10 * 60 * 1000;
 export const LOOKUP_WAIT_MS = 20_000;
+export const VIEW_CHECK_MS = 60 * 60 * 1000;
 
 const intParam = (v) => {
   const n = Number.parseInt(v, 10);
@@ -193,7 +205,7 @@ export function createPublicRouter({ db, limits, networkOf }) {
     if (featured && a.profile_show_pins) {
       const { ids } = await pinsOf(db, a.id);
       const cards = await pinCards(db, ids, featured);
-      if (cards.length) sections.push({ id: 'pins', character: { name: featured.name, surname: featured.surname, slug: featured.slug, ruleset: featured.ruleset_name, rulesetId: featured.ruleset_id }, cards, fetchedAt: featured.last_fetched_at });
+      if (cards.length) sections.push({ id: 'pins', character: { name: featured.name, surname: featured.surname, slug: featured.slug, ruleset: featured.ruleset_name, rulesetId: featured.ruleset_id }, cards, fetchedAt: featured.last_fetched_at, ranksAsOf: await ranksAsOf(db) });
     }
     // 0.10.4: the featured card's third column: the owner's pinned badge and the character's best placements.
     if (featured) sections.push({ id: 'featured', character: { ...view(featured), tierBrief: await tierBrief(db, featured), ...(await featuredExtras(db, featured, a.id)) } });
@@ -232,12 +244,22 @@ export function createPublicRouter({ db, limits, networkOf }) {
     if (row?.hidden && !mine()) return res.json({ status: 'hidden', slug: parsed.slug });
 
     let notice = null;
-    const fresh = row?.profile_state === 'ok' && row.last_fetched_at && Date.now() - new Date(row.last_fetched_at).getTime() < LOOKUP_FRESH_MS;
+    // 0.11.1: a character Everstats already has (fetched, not missing) is served from what is stored.
+    const stored = row?.profile_state === 'ok' && row.stats_fetched_at && !row.missing_since;
+    const fresh = stored || (row?.profile_state === 'ok' && row.last_fetched_at && Date.now() - new Date(row.last_fetched_at).getTime() < LOOKUP_FRESH_MS);
     // 0.7.1 Activity: a search (the search box or the home form says via=search) counts every time; a page opened any
     // other way counts only when it asks Blizzard (below). Not counted from a network the limiter is refusing.
     const fromSearch = req.query.via === 'search';
     if (fromSearch && !looksAutomated(limits, networkOf(req))) countActivity(db, 'character.search');
-    if (!fresh) {
+    if (stored) {
+      // At most a one-request check an hour, not waited for. Over the look-up limit, or with Blizzard's keys unset, the
+      // view simply asks for nothing: the daily refresh still reaches the character.
+      const checkedAt = row.last_checked_at ? new Date(row.last_checked_at).getTime() : 0;
+      if (Date.now() - checkedAt >= VIEW_CHECK_MS && (await blizzardReady()) && limits.lookups.take(networkOf(req))) {
+        if (!fromSearch) countActivity(db, 'character.lookup');
+        await enqueue(db, { key: parsed.slug, priority: PRIORITY.auto, mode: 'check', accountId: viewer });
+      }
+    } else if (!fresh) {
       if (!(await blizzardReady())) {
         if (row?.profile_state !== 'ok') return res.json({ status: 'unavailable', reason: 'not_configured', slug: parsed.slug });
         notice = 'not_configured';
@@ -280,6 +302,27 @@ export function createPublicRouter({ db, limits, networkOf }) {
     });
   }));
 
+  // ---- 0.11.1: the Refresh button. A full fetch from Blizzard now, waited for like a first look-up; nothing is asked
+  // when the character was fully fetched in the last LOOKUP_FRESH_MS. → { refresh: 'fresh' | 'done' | 'slow' | 'unavailable' }
+  r.post('/characters/:slug/refresh', route(async (req, res) => {
+    const parsed = parseSlug(req.params.slug);
+    if (!parsed) throw new HttpError(400, 'That isn’t a character name and surname.', 'invalid');
+    const viewer = viewerOf(req);
+    const row = await db.one(`SELECT id, hidden, owner_account_id, last_fetched_at, profile_state FROM characters WHERE slug = $1 AND ${scopeSql()}`, [parsed.slug]);
+    if (!row || (row.hidden && !(viewer && row.owner_account_id === viewer))) throw new HttpError(404, 'Everstats doesn’t track that character.', 'not_found');
+    if (row.profile_state === 'ok' && row.last_fetched_at && Date.now() - new Date(row.last_fetched_at).getTime() < LOOKUP_FRESH_MS) return res.json({ refresh: 'fresh' });
+    if (!(await blizzardReady())) return res.json({ refresh: 'unavailable' });
+    if (!limits.lookups.take(networkOf(req))) {
+      const { retryAfterMs } = limits.lookups.check(networkOf(req));
+      res.set('Retry-After', String(Math.ceil(retryAfterMs / 1000)));
+      return res.status(429).json({ error: 'Too many look-ups from your network. Wait a little and try again.', code: 'rate_limited', retryAfterMs });
+    }
+    countActivity(db, 'character.lookup');
+    const item = await enqueue(db, { key: parsed.slug, priority: PRIORITY.lookup, mode: 'full', accountId: viewer });
+    const done = await waitFor(db, item.id, { timeoutMs: LOOKUP_WAIT_MS });
+    res.json({ refresh: !done ? 'slow' : done.state === 'failed' ? 'unavailable' : 'done' });
+  }));
+
   // ---- Leaderboards index: every category's boards on one ruleset, each with its top three.
   r.get('/leaderboards', route(async (req, res) => {
     const rulesets = await rulesetList(db);
@@ -306,6 +349,8 @@ export function createPublicRouter({ db, limits, networkOf }) {
       rulesets,
       ruleset,
       population: counts.population,
+      // 0.11.1: when the counts were made (null: just now).
+      ranksAsOf: await ranksAsOf(db),
       periods: await periodsInfo(db),
       categories: categories.map((c) => ({
         label: c.label, key: categoryKey(c.label), farmable: c.farmable, graded: c.graded, tierCounted: c.tierCounted ?? 0, inOverall: Boolean(c.inOverall),
@@ -370,6 +415,9 @@ export function createPublicRouter({ db, limits, networkOf }) {
       ...head,
       collecting: false,
       population: counts.population,
+      // 0.11.1: the overall board's ranks and counts come from the last distribution build (null: counted just now,
+      // which the weekly and rolling boards always are).
+      ranksAsOf: period === 'overall' ? await ranksAsOf(db) : null,
       nonzero: bc.nonzero,
       tied,
       tiedValue: tied ? bc.max : null,

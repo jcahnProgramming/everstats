@@ -17,10 +17,16 @@ if (!existsSync(config.clientDist)) {
   console.warn(`[web] No built client at ${config.clientDist}: run \`npm run build\` (or use Vite in dev).`);
 }
 
-const db = createDb();
+// 0.11.1: two pools, both named (pg_stat_activity tells them from the worker). `db`: sign-in, accounts, settings, the
+// admin (some admin work is long on purpose: a tier preview, a release snapshot). `pageDb`: the public read pages, each
+// statement cancelled after PAGE_STATEMENT_TIMEOUT_MS, so page loads can neither pile up heavy queries nor be starved by
+// anything else.
+const PAGE_STATEMENT_TIMEOUT_MS = 20_000;
+const db = createDb({ max: 6, applicationName: 'everstats-web' });
+const pageDb = createDb({ max: 8, applicationName: 'everstats-web-pages', statementTimeoutMs: PAGE_STATEMENT_TIMEOUT_MS });
 await prepareDatabase(db, { processName: 'web' });
 
-const app = createApp({ db });
+const app = createApp({ db, pageDb });
 const httpServer = app.listen(config.port, config.listenHost, () => {
   console.log(`[web] Everstats ${APP_VERSION} listening on ${config.listenHost}:${config.port} for ${config.publicOrigin}`);
   console.log(`[web] Rate limits per network: ${describeTrust()}`);
@@ -47,7 +53,7 @@ function shutdown() {
   // 0.8.0: the share-card renderer's Chromium goes with the process.
   app.locals.cardRenderer?.close?.();
   httpServer.close(() => {
-    db.close().finally(() => process.exit(0));
+    Promise.allSettled([db.close(), pageDb.close()]).finally(() => process.exit(0));
   });
   setTimeout(() => process.exit(0), 5000).unref();
 }
