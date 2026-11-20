@@ -32,6 +32,27 @@ export const BLIZZARD = Object.freeze([
     table: 'release_snapshot_data', holds: 'Release tools snapshots: counts, hashes and a sample character derived from Blizzard data', fetched: 'taken_at',
     sweep: async (q, cutoff) => n(await q.query('DELETE FROM release_snapshot_data WHERE taken_at < $1 RETURNING 1', [cutoff])),
   },
+  // 0.11.1: the precomputed board distributions (stats/distribution.js) and the top of the guild boards
+  // (stats/guildTop.js). Each is rebuilt whole from current values every few minutes while "Precomputed ranks" is on,
+  // so nothing in them is older than the last build; switched off, or with the worker stopped, they age out here.
+  ...['a', 'b'].flatMap((g) => [
+    {
+      table: `board_values_${g}`, holds: `Board distributions (copy ${g.toUpperCase()}): per board and distinct value, how many characters hold it and how many are above (derived from statistic values)`, fetched: 'built_at',
+      sweep: async (q, cutoff) => n(await q.query(`DELETE FROM board_values_${g} WHERE built_at < $1 RETURNING 1`, [cutoff])),
+    },
+    {
+      table: `board_counts_${g}`, holds: `Board counts (copy ${g.toUpperCase()}): per board, how many have any, the highest and the lowest value (derived)`, fetched: 'built_at',
+      sweep: async (q, cutoff) => n(await q.query(`DELETE FROM board_counts_${g} WHERE built_at < $1 RETURNING 1`, [cutoff])),
+    },
+  ]),
+  {
+    table: 'board_state', holds: 'Which board distribution copy is current, when it was built, and each realm category’s populations (derived counts)', fetched: 'built_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM board_state WHERE built_at < $1 RETURNING 1', [cutoff])),
+  },
+  {
+    table: 'guild_board_top', holds: 'The ten best guilds on each guild board and how many are ranked (derived from guild totals)', fetched: 'built_at',
+    sweep: async (q, cutoff) => n(await q.query('DELETE FROM guild_board_top WHERE built_at < $1 RETURNING 1', [cutoff])),
+  },
   {
     table: 'character_snapshots', holds: 'Daily copies of each character’s statistic values', fetched: 'taken_at',
     sweep: async (q, cutoff) => n(await q.query('DELETE FROM character_snapshots WHERE taken_at < $1 RETURNING 1', [cutoff])),
@@ -135,8 +156,9 @@ export const BLIZZARD = Object.freeze([
     sweep: async (q, cutoff) => n(await q.query("DELETE FROM guild_fetches WHERE requested_at < $1 AND state NOT IN ('queued', 'running') RETURNING 1", [cutoff])),
   },
   {
-    // 0.5.0. Derived from members' values; rebuilt at least every 6 hours (stats/guildTotals.js), so a row this old
-    // belongs to a guild nobody rebuilds any more.
+    // 0.5.0. Derived from members' values; rebuilt at least daily (stats/guildTotals.js; every 6 hours before 0.11.1),
+    // and a row that didn't change is stamped again once its stamp is a week old, so a row this old belongs to a guild
+    // nobody rebuilds any more.
     table: 'guild_totals', holds: 'Guild totals and averages per statistic (derived from members’ values and gains)', fetched: 'computed_at',
     sweep: async (q, cutoff) => n(await q.query('DELETE FROM guild_totals WHERE computed_at < $1 RETURNING 1', [cutoff])),
   },
@@ -176,6 +198,8 @@ export const BLIZZARD = Object.freeze([
       );
       if (gone.length) {
         const ids = gone.map((r) => r.id);
+        // 0.11.1: their values leave every board at the next distribution build.
+        await q.query("INSERT INTO pipeline_facts (key, at) VALUES ('values_changed_at', now()) ON CONFLICT (key) DO UPDATE SET at = now()");
         // Their guilds' totals lose them: rebuilt by the worker (0.5.0).
         await q.query('UPDATE guilds SET totals_dirty_at = now() WHERE id IN (SELECT guild_id FROM characters WHERE id = ANY($1::bigint[]) AND guild_id IS NOT NULL)', [ids]);
         for (const t of ['character_collections', 'character_gold', 'character_statistics', 'character_snapshots', 'period_baselines', 'stat_gains', 'pin_rank_history', 'character_category_tiers', 'character_tiers']) {
@@ -323,6 +347,7 @@ export const OURS = Object.freeze({
   reserved_names: 'Reserved usernames',
   retention_sweeps: 'What each retention sweep deleted (counts, times)',
   tier_runs: 'Full tier gradings and requests for one: times, reasons, letter counts (0.6.0)',
+  grading_queue: 'Characters waiting for the worker’s batch tier grading: a work order of ids and times (0.11.1; a row goes when its character is graded)',
   // 0.7.0: badges. Definitions are ours (names and art from our design; a partner mark is the admin's upload). An award
   // keeps at most the Blizzard ID of the character that earned it, never a Blizzard value (name, level, class, faction).
   badge_definitions: 'Badge definitions: our names, descriptions, art keys and admin-uploaded partner marks (0.7.0)',
@@ -381,6 +406,8 @@ export const OLDEST = [
   ['guild_roster', 'SELECT min(fetched_at) AS t FROM guild_roster'],
   ['guild_slugs', 'SELECT min(seen_at) AS t FROM guild_slugs'],
   ['guild_totals', 'SELECT min(computed_at) AS t FROM guild_totals'],
+  ['board distributions', 'SELECT min(built_at) AS t FROM board_state'],
+  ['guild_board_top', 'SELECT min(built_at) AS t FROM guild_board_top'],
   ['guild_populations', 'SELECT min(computed_at) AS t FROM guild_populations'],
   ['character_tiers', 'SELECT min(computed_at) AS t FROM character_tiers'],
   ['character_category_tiers', 'SELECT min(computed_at) AS t FROM character_category_tiers'],

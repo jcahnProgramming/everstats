@@ -397,3 +397,123 @@ test('admin crawler status: queue depth by priority, request counts, characters 
   assert.ok(s.queue[1]);
   assert.ok(Array.isArray(s.hours));
 });
+
+// ---------------------------------------------------------------- 0.11.1: the database-load hotfix
+const rowsOf = async (id) => new Map((await t.db.query('SELECT statistic_id, value, fetched_at FROM character_statistics WHERE character_id = $1', [id])).map((r) => [Number(r.statistic_id), { value: r.value, at: new Date(r.fetched_at).getTime() }]));
+const guildDirty = async (id) => new Date((await t.db.one('SELECT totals_dirty_at FROM guilds WHERE blizzard_id = $1', [id])).totals_dirty_at).getTime();
+const settle = async (key) => {
+  for (let i = 0; i < 200; i++) {
+    const busy = await t.db.one("SELECT 1 AS x FROM crawl_queue WHERE key = $1 AND state IN ('queued', 'running')", [key]);
+    if (!busy) return;
+    await new Promise((res) => setTimeout(res, 25));
+  }
+  throw new Error(`the crawl item for ${key} never finished`);
+};
+
+test('0.11.1: a fetch that changed nothing writes no statistic row, leaves the guild alone; a changed value writes that row only', async () => {
+  const { fetchCharacter } = await import('../crawler/fetch.js');
+  const ctx = { db: t.db, client: crawler.client };
+  addCharacter('quiet-fixture', { id: 301, stats: STATS(1, 2, 300), guild: { id: 3001, name: 'Quiet Guild', slug: 'quiet-guild' } });
+  assert.equal(await fetchCharacter(ctx, { key: 'quiet-fixture', priority: PRIORITY.daily, mode: 'full' }), 'fetched');
+  const first = await rowsOf(301);
+  assert.ok(first.size >= 4, 'statistics and feed values were stored');
+  const dirty0 = await guildDirty(3001);
+  const gains0 = (await t.db.one('SELECT count(*)::int AS n, coalesce(sum(xmin::text::bigint), 0)::text AS x FROM stat_gains WHERE character_id = 301'));
+  await new Promise((res) => setTimeout(res, 15));
+
+  // It logged in again (so the check becomes a full fetch) but no value moved.
+  world.characters.get('quiet-fixture').login += 60_000;
+  assert.equal(await fetchCharacter(ctx, { key: 'quiet-fixture', priority: PRIORITY.daily, mode: 'check' }), 'fetched');
+  const second = await rowsOf(301);
+  assert.deepEqual([...second], [...first], 'not one row was rewritten (same values, same stamps)');
+  assert.equal(await guildDirty(3001), dirty0, 'the guild was not marked for a rebuild');
+  assert.deepEqual(await t.db.one('SELECT count(*)::int AS n, coalesce(sum(xmin::text::bigint), 0)::text AS x FROM stat_gains WHERE character_id = 301'), gains0, 'no gain row was rewritten');
+
+  // And a plain unchanged check (one request) marks nothing either.
+  assert.equal(await fetchCharacter(ctx, { key: 'quiet-fixture', priority: PRIORITY.daily, mode: 'check' }), 'unchanged');
+  assert.equal(await guildDirty(3001), dirty0);
+
+  // One value moves: that row is written, the others are not, and the guild and the boards are told.
+  await t.db.query("DELETE FROM pipeline_facts WHERE key = 'values_changed_at'");
+  world.characters.get('quiet-fixture').login += 60_000;
+  world.characters.get('quiet-fixture').stats = STATS(1, 2, 301);
+  await new Promise((res) => setTimeout(res, 15));
+  assert.equal(await fetchCharacter(ctx, { key: 'quiet-fixture', priority: PRIORITY.daily, mode: 'check' }), 'fetched');
+  const third = await rowsOf(301);
+  const moved = [...third].filter(([id, r]) => r.at !== first.get(id)?.at).map(([id]) => id).sort((a, b) => a - b);
+  assert.deepEqual(moved, [107, 1336], 'only the two statistics whose value changed were written');
+  assert.equal(third.get(107).value, 301);
+  assert.ok(await guildDirty(3001) > dirty0, 'its guild is marked: a member’s value changed');
+  assert.ok(await t.db.one("SELECT 1 AS x FROM pipeline_facts WHERE key = 'values_changed_at'"), 'the next distribution build is due');
+
+  // The retention stamp: a row nobody rewrote for more than a week is stamped again by the next full fetch, changed or not.
+  await t.db.query("UPDATE character_statistics SET fetched_at = now() - interval '8 days' WHERE character_id = 301");
+  world.characters.get('quiet-fixture').login += 60_000;
+  assert.equal(await fetchCharacter(ctx, { key: 'quiet-fixture', priority: PRIORITY.daily, mode: 'check' }), 'fetched');
+  const fourth = await rowsOf(301);
+  assert.ok([...fourth.values()].every((r) => Date.now() - r.at < 60_000), 'every row carries a fresh stamp again');
+});
+
+test('0.11.1: a page view serves what is stored and asks for a one-request check at most hourly; Refresh is the full fetch', async () => {
+  const c = t.client({ ip: '198.51.100.77' });
+  const lastItem = async () => t.db.one("SELECT id, mode, priority, state FROM crawl_queue WHERE kind = 'character' AND key = 'quiet-fixture' ORDER BY id DESC LIMIT 1");
+  // Only this character's own requests (its guild's roster is fetched in its own item).
+  const own = (mark) => countSince(mark, /\/profile\/wow\/character\/quiet-fixture/);
+  // Checked and fetched two hours ago: a view answers at once and queues a CHECK below people who are waiting.
+  await settle('quiet-fixture');
+  await t.db.query("UPDATE characters SET last_checked_at = now() - interval '2 hours', last_fetched_at = now() - interval '2 hours' WHERE id = 301");
+  const before = (await lastItem())?.id ?? 0;
+  let mark = calls.length;
+  const res = await c.get('/api/characters/quiet-fixture');
+  assert.equal(res.json.status, 'ok');
+  assert.equal(res.json.notice ?? null, null);
+  const item = await lastItem();
+  assert.ok(item.id > before, 'a crawl item was queued');
+  assert.deepEqual([item.mode, item.priority], ['check', PRIORITY.auto]);
+  await settle('quiet-fixture');
+  assert.equal(own(mark), 1, 'the check was one request (the character had not logged in since)');
+  // Viewed again: it was checked a moment ago, so nothing is asked.
+  mark = calls.length;
+  await c.get('/api/characters/quiet-fixture');
+  await c.get('/api/characters/quiet-fixture');
+  assert.equal((await lastItem()).id, item.id, 'no new crawl item');
+  assert.equal(own(mark), 0);
+
+  // Refresh (a POST): the full fetch, waited for. Five requests; pressed again at once, nothing.
+  mark = calls.length;
+  const done = await c.post('/api/characters/quiet-fixture/refresh', {});
+  assert.deepEqual(done.json, { refresh: 'done' });
+  assert.equal(own(mark), 5);
+  assert.deepEqual([(await lastItem()).mode, (await lastItem()).priority], ['full', PRIORITY.lookup]);
+  mark = calls.length;
+  assert.deepEqual((await c.post('/api/characters/quiet-fixture/refresh', {})).json, { refresh: 'fresh' });
+  assert.equal(own(mark), 0);
+  // A POST without this site's Origin is refused before it reaches the route (a crawler following links sends none).
+  assert.equal((await t.client({ ip: '198.51.100.78', origin: null }).post('/api/characters/quiet-fixture/refresh', {})).status, 403);
+  assert.equal((await c.post('/api/characters/nobody-here/refresh', {})).status, 404);
+});
+
+test('0.11.1: a character is noted for grading, graded by the batch, never beside a full grading; failures back off', async () => {
+  const { noteForGrading, gradeQueued, failBackoffMs, failureWait, dueReason } = await import('../tiers/store.js');
+  await t.db.query('DELETE FROM grading_queue');
+  // Nothing counted moved and it has no tier row yet (the ruleset isn't graded): noted, not graded inline.
+  assert.equal(await noteForGrading(t.db, 301, { changed: new Set() }), 'queued');
+  assert.equal((await t.db.one('SELECT count(*)::int AS n FROM grading_queue')).n, 1);
+  // A full grading is running: the batch waits and the note stays.
+  const run = await t.db.one("INSERT INTO tier_runs (status, reasons, started_at) VALUES ('running', '{test}', now()) RETURNING id");
+  assert.deepEqual(await gradeQueued(t.db), { graded: 0, left: null, waiting: 'a full grading is running' });
+  await t.db.query("UPDATE tier_runs SET status = 'done', finished_at = now() WHERE id = $1", [run.id]);
+  const r = await gradeQueued(t.db);
+  assert.deepEqual([r.graded, r.left], [1, 0]);
+
+  // Back-off: 1 minute after the first failure, doubling, an hour at most; no grading starts while it waits.
+  assert.deepEqual([0, 1, 2, 3, 7, 30].map(failBackoffMs), [0, 60_000, 120_000, 240_000, 3_600_000, 3_600_000]);
+  await t.db.query("INSERT INTO tier_runs (status, reasons, started_at, finished_at, problem) VALUES ('failed', '{scheduled}', now(), now(), '23505'), ('failed', '{scheduled}', now(), now(), '23505')");
+  const w = await failureWait(t.db);
+  assert.equal(w.failures, 2);
+  assert.ok(w.waitMs > 100_000 && w.waitMs <= 120_000);
+  assert.equal(w.problem, '23505');
+  assert.equal(await dueReason(t.db), null, 'nothing is due while the back-off runs, whatever asked');
+  assert.ok(await dueReason(t.db, { now: () => Date.now() + 121_000 }), 'and it is due again once the wait is over');
+  await t.db.query("DELETE FROM tier_runs WHERE problem = '23505' OR '{test}' = reasons");
+});

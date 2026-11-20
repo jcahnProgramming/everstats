@@ -4,6 +4,7 @@ import { loadCatalog, loadCatalogFresh } from '../stats/catalog.js';
 import { isGraded, letterForScore } from '../stats/tiers.js';
 import { gradingPlan, whatCounts } from './counting.js';
 import { distributionOf, gradeRuleset, percentileOf, scoreCharacter } from './engine.js';
+import { activeBuild, percentileRowsFrom } from '../stats/distribution.js';
 
 /**
  * Tiers in the database (0.6.0). The maths is tiers/engine.js; what counts is tiers/counting.js (the owner's
@@ -22,11 +23,28 @@ import { distributionOf, gradeRuleset, percentileOf, scoreCharacter } from './en
  *
  * Tier-eligible (ELIGIBLE): level 10+, statistics fetched, not hidden, not missing, profile ok: the same characters
  * the boards rank (character boards exclude hidden and missing ones the same way).
+ *
+ * 0.11.1: CHARACTER grading left the fetch. It ran after every full fetch, walking every counted board (2.9 s each on
+ * production, 31 % of the database's load), and it raced the full grading: both inserted the same character's rows and
+ * one of them failed with a unique violation (49 failed gradings in eight days, each one starting over 15 s later).
+ *   - A fetch only NOTES the character (grading_queue) when a counted value moved, its standing changed (new, back
+ *     from missing, crossed level 10, moved realm category) or it has no tier yet: noteForGrading.
+ *   - The worker's 'grade-queue' job grades the noted characters in batches, never while a full grading is running.
+ *     A person waiting on a look-up is still graded at once.
+ *   - With the "Precomputed ranks" switch on, a character's percentiles are read from the last distribution build
+ *     (stats/distribution.js: a few minutes old at most) instead of being counted live. The maths is the same; the
+ *     FULL grading always reads the raw values and stays exact.
+ *   - Every tier row is written as an upsert, so two writers can no longer collide.
+ *   - A full grading that fails waits before it is tried again: 1 minute, doubling to an hour (FAIL_BACKOFF_*).
  */
 export const TIER_DEBOUNCE_MS = 30_000;
 export const FULL_EVERY_MS = 6 * 60 * 60 * 1000;
 export const AFTER_REFRESH_MIN_MS = 60 * 60 * 1000;
 export const STALE_RUN_MS = 30 * 60 * 1000;
+export const FAIL_BACKOFF_MS = 60 * 1000;
+export const FAIL_BACKOFF_MAX_MS = 60 * 60 * 1000;
+/** How long after `failures` failed gradings in a row the next one may start. */
+export const failBackoffMs = (failures) => (failures <= 0 ? 0 : Math.min(FAIL_BACKOFF_MAX_MS, FAIL_BACKOFF_MS * 2 ** Math.min(failures - 1, 20)));
 const MAX_CHARACTERS = 2_000_000;
 const WRITE_BATCH = 2000;
 
@@ -125,7 +143,11 @@ async function writeRuleset(q, rulesetId, result, { plan, settings, at }) {
       `INSERT INTO character_tiers (character_id, ruleset_id, score, letter, reason, lettered, needed, total, stat_ids, stat_pcts, graded_by, computed_at)
        SELECT v.id, $1, v.score, v.letter, v.reason, v.lettered, v.needed, v.total, $10::bigint[], v.pcts::real[], 'full', $11
          FROM unnest($2::bigint[], $3::float8[], $4::text[], $5::text[], $6::smallint[], $7::smallint[], $8::smallint[], $9::text[])
-              AS v(id, score, letter, reason, lettered, needed, total, pcts)`,
+              AS v(id, score, letter, reason, lettered, needed, total, pcts)
+       -- 0.11.1: a one-character grading may have written this character since the DELETE above (this row wins)
+       ON CONFLICT (character_id) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, score = EXCLUDED.score, letter = EXCLUDED.letter,
+         reason = EXCLUDED.reason, lettered = EXCLUDED.lettered, needed = EXCLUDED.needed, total = EXCLUDED.total, stat_ids = EXCLUDED.stat_ids,
+         stat_pcts = EXCLUDED.stat_pcts, graded_by = 'full', computed_at = EXCLUDED.computed_at`,
       [rulesetId, b.map((c) => c.id), b.map((c) => c.score), b.map((c) => c.letter), b.map((c) => c.reason), b.map((c) => c.lettered),
         b.map((c) => c.needed), b.map((c) => c.total), b.map((c) => pgArray(c.statPcts)), plan.statisticIds, at],
     );
@@ -134,7 +156,9 @@ async function writeRuleset(q, rulesetId, result, { plan, settings, at }) {
       `INSERT INTO character_category_tiers (character_id, category_key, ruleset_id, score, overall_part, letter, nonzero, needed, counted, computed_at)
        SELECT v.id, v.key, $1, v.score, v.part, v.letter, v.nonzero, v.needed, v.counted, $10
          FROM unnest($2::bigint[], $3::text[], $4::float8[], $5::float8[], $6::text[], $7::smallint[], $8::smallint[], $9::smallint[])
-              AS v(id, key, score, part, letter, nonzero, needed, counted)`,
+              AS v(id, key, score, part, letter, nonzero, needed, counted)
+       ON CONFLICT (character_id, category_key) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, score = EXCLUDED.score, overall_part = EXCLUDED.overall_part,
+         letter = EXCLUDED.letter, nonzero = EXCLUDED.nonzero, needed = EXCLUDED.needed, counted = EXCLUDED.counted, computed_at = EXCLUDED.computed_at`,
       [rulesetId, rows.map((r) => r.id), rows.map((r) => r.key), rows.map((r) => r.score), rows.map((r) => r.overallPart), rows.map((r) => r.letter),
         rows.map((r) => r.nonzero), rows.map((r) => r.needed), rows.map((r) => r.counted), at],
     );
@@ -188,11 +212,16 @@ export async function gradeAll(db, { settings = null, counting = null, write = t
  * A character's live percentiles in the given statistics against everyone eligible on its ruleset now.
  * → { population, pct: Map(id → percentile), nonzero: Map(id → bool) }
  */
-export async function livePercentiles(q, { characterId, rulesetId, statisticIds }) {
-  const population = await eligibleCount(q, rulesetId);
+export async function livePercentiles(q, { characterId, rulesetId, statisticIds, build = undefined }) {
+  // 0.11.1: from the distribution build when there is one (the same counts, as of that build, with the eligible
+  // population counted in the same pass); else counted now, as before.
+  const b = build !== undefined ? build : await activeBuild(q);
+  const eligibleAtBuild = b ? b.populations?.[String(rulesetId)]?.eligible : undefined;
+  const fromBuild = b && eligibleAtBuild !== undefined;
+  const population = fromBuild ? eligibleAtBuild : await eligibleCount(q, rulesetId);
   // One pass over each statistic's non-zero values (the board's partial index): how many have any, how many are
   // strictly above this character, and how many share its value.
-  const rows = statisticIds.length ? await q.query(
+  const rows = fromBuild ? await percentileRowsFrom(q, b, { characterId, rulesetId, statisticIds }) : statisticIds.length ? await q.query(
     `SELECT s.id AS statistic_id, coalesce(m.value, 0) AS v, x.nonzero, x.above, x.equal
        FROM unnest($3::bigint[]) AS s(id)
        LEFT JOIN character_statistics m ON m.character_id = $1 AND m.statistic_id = s.id AND NOT m.hidden
@@ -222,7 +251,7 @@ export async function livePercentiles(q, { characterId, rulesetId, statisticIds 
  * cutoffs, with the character's percentiles counted live. Not eligible, or the ruleset not graded: its rows go.
  * Takes a db or a transaction. → the letter, or null.
  */
-export async function gradeCharacter(q, characterId, { now = Date.now } = {}) {
+export async function gradeCharacter(q, characterId, { now = Date.now, build = undefined } = {}) {
   const c = await q.one('SELECT id, ruleset_id FROM characters WHERE id = $1', [characterId]);
   const drop = async () => {
     await q.query('DELETE FROM character_category_tiers WHERE character_id = $1', [characterId]);
@@ -236,7 +265,7 @@ export async function gradeCharacter(q, characterId, { now = Date.now } = {}) {
   if (!tr?.graded) return drop();
   const plan = tr.plan;
   const settings = tr.settings;
-  const live = await livePercentiles(q, { characterId, rulesetId: c.ruleset_id, statisticIds: plan.statisticIds });
+  const live = await livePercentiles(q, { characterId, rulesetId: c.ruleset_id, statisticIds: plan.statisticIds, build });
   if (!isGraded(live.population, settings.minPopulation)) return drop();
   const s = scoreCharacter(plan, settings, (id) => live.pct.get(id) ?? 0, (id) => live.nonzero.get(id) ?? false);
   const cats = s.categories.map((cat) => ({ ...cat, letter: cat.eligible ? letterForScore(cat.score, tr.scopes[cat.key]?.cutoffs) : null }));
@@ -244,7 +273,9 @@ export async function gradeCharacter(q, characterId, { now = Date.now } = {}) {
   const letter = s.overallScore !== null && lettered >= s.overallNeeded ? letterForScore(s.overallScore, tr.scopes.overall?.cutoffs) : null;
   const reason = letter ? null : s.overallScore === null ? 'no_categories' : 'few_categories';
   const at = new Date(now());
-  await q.query('DELETE FROM character_category_tiers WHERE character_id = $1', [characterId]);
+  // 0.11.1: upserts, and only the categories it no longer has are removed: a full grading writing the same character at
+  // the same moment can't collide with this (it used to: unique violation 23505).
+  await q.query('DELETE FROM character_category_tiers WHERE character_id = $1 AND NOT (category_key = ANY($2::text[]))', [characterId, cats.map((x) => x.key)]);
   await q.query(
     `INSERT INTO character_tiers (character_id, ruleset_id, score, letter, reason, lettered, needed, total, stat_ids, stat_pcts, graded_by, computed_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::bigint[], $10::real[], 'character', $11)
@@ -258,12 +289,87 @@ export async function gradeCharacter(q, characterId, { now = Date.now } = {}) {
     await q.query(
       `INSERT INTO character_category_tiers (character_id, category_key, ruleset_id, score, overall_part, letter, nonzero, needed, counted, computed_at)
        SELECT $1, v.key, $2, v.score, v.part, v.letter, v.nonzero, v.needed, v.counted, $10
-         FROM unnest($3::text[], $4::float8[], $5::float8[], $6::text[], $7::smallint[], $8::smallint[], $9::smallint[]) AS v(key, score, part, letter, nonzero, needed, counted)`,
+         FROM unnest($3::text[], $4::float8[], $5::float8[], $6::text[], $7::smallint[], $8::smallint[], $9::smallint[]) AS v(key, score, part, letter, nonzero, needed, counted)
+       ON CONFLICT (character_id, category_key) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, score = EXCLUDED.score, overall_part = EXCLUDED.overall_part,
+         letter = EXCLUDED.letter, nonzero = EXCLUDED.nonzero, needed = EXCLUDED.needed, counted = EXCLUDED.counted, computed_at = EXCLUDED.computed_at`,
       [characterId, c.ruleset_id, cats.map((x) => x.key), cats.map((x) => x.score), cats.map((x) => x.overallPart), cats.map((x) => x.letter),
         cats.map((x) => x.nonzero), cats.map((x) => x.needed), cats.map((x) => x.counted), at],
     );
   }
   return letter;
+}
+
+// The statistics a realm category's last full grading counted, remembered a minute per process: a fetch asks whether
+// any value that moved is one of them.
+const COUNTED_MEMO_MS = 60_000;
+const countedMemo = new Map();
+export async function countedIdsOf(db, rulesetId) {
+  const hit = countedMemo.get(rulesetId);
+  if (hit && Date.now() - hit.at < COUNTED_MEMO_MS) return hit.ids;
+  const row = await db.one("SELECT plan->'statisticIds' AS ids FROM tier_rulesets WHERE ruleset_id = $1 AND graded", [rulesetId]);
+  const ids = new Set((Array.isArray(row?.ids) ? row.ids : []).map(Number));
+  countedMemo.set(rulesetId, { at: Date.now(), ids });
+  return ids;
+}
+export const clearCountedMemo = () => countedMemo.clear();
+
+/**
+ * After a fetch wrote a character's values: does its tier need grading again? Only when a statistic its realm category
+ * counts moved (`changed`: the ids that did), when `force` says its standing changed, or when it has no tier row yet.
+ * Then it is graded at once (`inline`: a person is waiting on the page) or noted for the worker's batch.
+ * → 'graded' | 'queued' | null (nothing to do)
+ */
+export async function noteForGrading(db, characterId, { changed = new Set(), force = false, inline = false, now = Date.now } = {}) {
+  const c = await db.one('SELECT ruleset_id FROM characters WHERE id = $1', [characterId]);
+  if (!c) return null;
+  let need = force;
+  if (!need && c.ruleset_id !== null && changed.size) {
+    const counted = await countedIdsOf(db, c.ruleset_id);
+    for (const id of changed) if (counted.has(Number(id))) { need = true; break; }
+  }
+  if (!need) need = !(await db.one('SELECT 1 AS x FROM character_tiers WHERE character_id = $1', [characterId]));
+  if (!need) return null;
+  if (inline) {
+    await gradeCharacter(db, characterId, { now });
+    await db.query('DELETE FROM grading_queue WHERE character_id = $1', [characterId]);
+    return 'graded';
+  }
+  await db.query('INSERT INTO grading_queue (character_id) VALUES ($1) ON CONFLICT (character_id) DO UPDATE SET queued_at = now()', [characterId]);
+  return 'queued';
+}
+
+/**
+ * The worker's 'grade-queue' job body: grades noted characters, oldest first, for at most `budgetMs`, `concurrency` at
+ * a time. Never while a full grading is running (it would grade them all anyway, and the two would write the same
+ * rows); a note taken before a full grading started is dropped when that grading finishes. → { graded, left }
+ */
+export async function gradeQueued(db, { now = Date.now, budgetMs = 20_000, limit = 500, concurrency = 1, log = console } = {}) {
+  if (await db.one("SELECT 1 AS x FROM tier_runs WHERE status = 'running' LIMIT 1")) return { graded: 0, left: null, waiting: 'a full grading is running' };
+  // Read before the list: a note taken again after this moment stays in the queue for the next pass.
+  const readAt = (await db.one('SELECT now() AS t')).t;
+  const rows = await db.query('SELECT character_id FROM grading_queue ORDER BY queued_at, character_id LIMIT $1', [limit]);
+  const t0 = Date.now();
+  // One build for the whole batch (null: the switch is off or nothing is built, so each is counted directly).
+  const build = await activeBuild(db);
+  let graded = 0;
+  let next = 0;
+  async function lane() {
+    while (next < rows.length && Date.now() - t0 < budgetMs) {
+      const r = rows[next];
+      next += 1;
+      try {
+        await gradeCharacter(db, r.character_id, { now, build });
+      } catch (err) {
+        log.error(`[tiers] character grading failed: ${err.code ?? err.name}`);
+      }
+      // Gone from the queue unless it was noted again meanwhile.
+      await db.query('DELETE FROM grading_queue WHERE character_id = $1 AND queued_at < $2', [r.character_id, readAt]);
+      graded += 1;
+    }
+  }
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, 4)) }, lane));
+  const left = (await db.one('SELECT count(*)::int AS n FROM grading_queue')).n;
+  return { graded, left, waiting: null };
 }
 
 /**
@@ -284,6 +390,10 @@ export async function requestTierRecompute(q, reason) {
 
 /** Why a full grading is due now, or null. */
 export async function dueReason(db, { now = Date.now } = {}) {
+  // 0.11.1: after a failed grading the next one waits (1 minute, doubling to an hour), whatever asked for it. Until
+  // now a failure left the last good grading "6 hours old", so the job started over on its next 15-second tick.
+  const wait = await failureWait(db, { now });
+  if (wait.waitMs > 0) return null;
   const pending = await db.one("SELECT id, reasons, requested_at FROM tier_runs WHERE status = 'pending' LIMIT 1");
   if (pending && now() - new Date(pending.requested_at).getTime() >= TIER_DEBOUNCE_MS) return { pendingId: pending.id, reasons: pending.reasons };
   const last = await db.one("SELECT finished_at FROM tier_runs WHERE status = 'done' ORDER BY finished_at DESC LIMIT 1");
@@ -312,6 +422,22 @@ export async function dueReason(db, { now = Date.now } = {}) {
   return null;
 }
 
+/**
+ * Failed gradings in a row since the last one that finished, and how long the next attempt still has to wait.
+ * → { failures, waitMs, nextAt, problem }
+ */
+export async function failureWait(db, { now = Date.now } = {}) {
+  const rows = await db.query("SELECT status, finished_at, problem FROM tier_runs WHERE status IN ('done', 'failed') ORDER BY id DESC LIMIT 30");
+  let failures = 0;
+  for (const r of rows) {
+    if (r.status !== 'failed') break;
+    failures += 1;
+  }
+  if (!failures) return { failures: 0, waitMs: 0, nextAt: null, problem: null };
+  const nextAt = new Date(rows[0].finished_at ?? now()).getTime() + failBackoffMs(failures);
+  return { failures, waitMs: Math.max(0, nextAt - now()), nextAt: new Date(nextAt), problem: rows[0].problem ?? null };
+}
+
 /** The worker's tiers job body: a full grading when one is due. → summary text. */
 export async function runDueTierWork(db, { now = Date.now, log = console } = {}) {
   await db.query(
@@ -319,13 +445,20 @@ export async function runDueTierWork(db, { now = Date.now, log = console } = {})
     [String(STALE_RUN_MS)],
   );
   const due = await dueReason(db, { now });
-  if (!due) return null;
+  if (!due) {
+    const wait = await failureWait(db, { now });
+    return wait.waitMs > 0 ? `Grading failed ${wait.failures} time(s) in a row (${wait.problem ?? 'error'}): next try at ${wait.nextAt.toISOString().slice(11, 16)} UTC` : null;
+  }
   const run = due.pendingId
     ? await db.one("UPDATE tier_runs SET status = 'running', started_at = now() WHERE id = $1 AND status = 'pending' RETURNING id", [due.pendingId])
     : await db.one("INSERT INTO tier_runs (status, reasons, started_at) VALUES ('running', $1::text[], now()) RETURNING id", [due.reasons]);
   if (!run) return null;
   try {
+    const startedAt = (await db.one('SELECT started_at FROM tier_runs WHERE id = $1', [run.id]))?.started_at ?? new Date(now());
     const result = await gradeAll(db, { now });
+    // Every character noted before this grading began has just been graded with everyone else.
+    await db.query('DELETE FROM grading_queue WHERE queued_at < $1', [startedAt]);
+    clearCountedMemo();
     const summary = {
       counted: result.counted,
       rulesets: result.rulesets.map((r) => ({ rulesetId: r.rulesetId, population: r.population, graded: r.graded, overall: r.distribution?.overall ?? null, ms: r.ms })),

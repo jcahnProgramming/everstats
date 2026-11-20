@@ -95,6 +95,17 @@ export function Fresh({ at = null, staleAfterMs = 36 * 60 * 60 * 1000, prefix = 
 }
 
 /**
+ * 0.11.1: when the ranks on a page were counted. With precomputed ranks on, overall ranks, "of N" and percentiles come
+ * from a table the worker rebuilds every few minutes; the page says so, with the time. Nothing is drawn when the ranks
+ * were counted at this moment (`at` null).
+ */
+export function RanksAsOf({ at = null }) {
+  if (!at) return null;
+  const time = new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return <span className="muted" title={`Ranks and “of N” are counted every few minutes. Last counted ${timeAgo(at)}.`}>Ranks as of {time}</span>;
+}
+
+/**
  * Where a section's data came from and how fresh it is. Every section keeps one (CLAUDE.md "Provenance"); until
  * lookups exist, the source is "none yet" and the time is "never fetched".
  */

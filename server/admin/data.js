@@ -93,6 +93,14 @@ export const RETENTION_KINDS = [
   { id: 'guild_slugs', table: 'guild_slugs', label: 'Guild addresses (for renames)', at: 't.seen_at', from: 'guild_slugs t JOIN guilds g ON g.id = t.guild_id', scope: 'guild' },
   { id: 'guild_totals', table: 'guild_totals', label: 'Guild totals', at: 't.computed_at', from: 'guild_totals t JOIN guilds g ON g.id = t.guild_id', scope: 'guild' },
   { id: 'guild_populations', table: 'guild_populations', label: 'Guild member counts per period', at: 't.computed_at', from: 'guild_populations t JOIN guilds g ON g.id = t.guild_id', scope: 'guild' },
+  // 0.11.1: the precomputed ranks (stats/distribution.js, stats/guildTop.js): rebuilt whole every few minutes while the
+  // switch is on, so a row is never older than the last build.
+  ...['a', 'b'].flatMap((g) => [
+    { id: `board_values_${g}`, table: `board_values_${g}`, label: `Board ranks: values (copy ${g.toUpperCase()})`, at: 't.built_at', from: `board_values_${g} t JOIN rulesets r ON r.id = t.ruleset_id`, scope: 'ruleset', note: 'Rebuilt every few minutes while Precomputed ranks is on.' },
+    { id: `board_counts_${g}`, table: `board_counts_${g}`, label: `Board ranks: counts (copy ${g.toUpperCase()})`, at: 't.built_at', from: `board_counts_${g} t JOIN rulesets r ON r.id = t.ruleset_id`, scope: 'ruleset' },
+  ]),
+  { id: 'board_state', table: 'board_state', label: 'Board ranks: which copy is current', at: 't.built_at', from: 'board_state t', scope: null },
+  { id: 'guild_board_top', table: 'guild_board_top', label: 'Guild boards: the top ten', at: 't.built_at', from: 'guild_board_top t JOIN rulesets r ON r.id = t.ruleset_id', scope: 'ruleset' },
   { id: 'realms', table: 'realms', label: 'Realms', at: 't.fetched_at', from: 'realms t', scope: 'own' },
   { id: 'rulesets', table: 'rulesets', label: 'Rulesets and realm types', at: 't.updated_at', from: 'rulesets t', scope: 'self', note: 'Kept while a character, guild or realm still names it.' },
   { id: 'statistics', table: 'statistics', label: 'Statistic names', at: 't.last_seen_at', from: 'statistics t', scope: 'version', where: "t.name IS NOT NULL AND (t.derived IS NULL OR t.derived LIKE '%:%')", note: 'Past the window the name is cleared; the id and decisions are ours and stay.' },

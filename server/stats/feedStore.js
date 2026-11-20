@@ -1,4 +1,5 @@
 import { FEED_PREFIX, feedById, numericFields } from './feeds.js';
+import { WRITE_IF_CHANGED } from './stamp.js';
 
 /**
  * Rule A7 in production (0.10.0): a feed response's numbers → the character's statistic values, one derived statistic
@@ -26,7 +27,8 @@ export async function storeFeedValues(q, characterId, feedId, json, { fetchedAt 
     await q.query(
       `INSERT INTO character_statistics (character_id, statistic_id, ruleset_id, hidden, value, text, blizzard_updated_at, fetched_at)
        VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6)
-       ON CONFLICT (character_id, statistic_id) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, hidden = EXCLUDED.hidden, value = EXCLUDED.value, fetched_at = EXCLUDED.fetched_at`,
+       ON CONFLICT (character_id, statistic_id) DO UPDATE SET ruleset_id = EXCLUDED.ruleset_id, hidden = EXCLUDED.hidden, value = EXCLUDED.value, fetched_at = EXCLUDED.fetched_at
+       ${WRITE_IF_CHANGED}`,
       [characterId, id, ch.ruleset_id, ch.hidden, f.value, fetchedAt],
     );
     keep.push(id);

@@ -55,7 +55,7 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
 | Admin settings | `server/admin/settings.js` | key, label, help, type, bounds, default |
 | Statistics / categories / leaderboards | `server/stats/catalog.js` | the `statistics` table (grows from crawls) + discovery decisions, else suggestions |
 | Account merge steps | `server/account/merge.js` | how each account-owned table moves on a merge |
-| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks`, `retention`, `guild-totals`, `guild-fetch`, `tiers`, `badges`, `guild-badges`, `catalogs` |
+| Worker jobs | `server/worker/jobs.js` | id, label, everyMs, run() (must return fast; long work runs in the background): `backup`, `discovery`, `refresh`, `rulesets`, `pin-ranks`, `retention`, `guild-totals`, `guild-fetch`, `tiers`, `grade-queue` (0.11.1), `boards` (0.11.1), `badges`, `guild-badges`, `catalogs`. The heavy ones take a turn through `worker/heavy.js` (`db.heavyConcurrent`) |
 | Guild badges | `guild_badge_definitions` (data; seeded from `server/guildBadges/catalog.js` SEED_GUILD_BADGES) | id, family, levelled + measure + thresholds, automatic rule or staff-granted, kept-while-held, status mark; new Deeds badges from the template on /admin/guild-badges |
 | Collections | `server/collections/registry.js` | KINDS (one per character endpoint: path, parse, when, empty rule) COUNTS (the counts that are statistics: id from DERIVED_BASE, name, short, kind, how "shared" is known, lazy, population) and FAMILIES (0.9.1: a board per achievement category / transmog slot / instance / PvP field) |
 | Your guilds | `server/guilds/follow.js` | the dashboard's guild cards (own guilds automatically + followed ones), `account_guilds` choices |
@@ -280,6 +280,9 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   (0.4.1: "Not ranked", and "of N" counts only those above zero: "#1 of 3 with any");
   hidden characters are on no board and in no population. Every count repeats the partial index predicate (`value > 0`,
   `NOT hidden`), or the planner can't use the index. Nothing is cached: a rank and its "of N" are counted together.
+  **0.11.1:** with "Precomputed ranks" on, the OVERALL ranks, counts and populations come from the worker's last
+  distribution build instead (see "Database load"); a rank and its "of N" then come from the same build. The direct
+  counts stay as `direct` in boards.js (the fallback, and what the old-versus-new test compares against).
   Weekly = from Tuesday 15:00 UTC (US weekly reset); "Last N days" (0.4.2, replacing monthly; N = 29 since 0.5.0) = since the oldest kept
   snapshot, N = the retention keep-days from the API, never typed in (`stats/periods.js`). Weekly is "Collecting data"
   until snapshots began before the week did; "Last N days" until N days of snapshots exist. `scripts/measure-boards.js` measures it all
@@ -291,8 +294,62 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   identity already linked to the signed-in account) reads the character list once, upserts every character owned by
   that account, queues level 10+ at priority 2, records the outcome (`account_character_checks`: ok / none / error).
   A failure there never fails the sign-in.
-- Lookups: a character fully fetched in the last 10 minutes is served without asking Blizzard; only a lookup that asks
-  Blizzard counts against the per-network limit.
+- **Lookups, the page-view rule (0.11.1, owner's decision):** a character Everstats HAS is served at once from what is
+  stored; the page never waits on Blizzard. A view asks for at most a ONE-REQUEST check, only when the character wasn't
+  checked in the last hour (`VIEW_CHECK_MS`), queued at `PRIORITY.auto` and not waited for. A full fetch on demand is
+  the Refresh button: `POST /api/characters/:slug/refresh` (a POST needs this site's Origin). A character never fetched
+  before is still looked up in full on first view and waited for. Each of these that asks Blizzard counts against the
+  per-network limit; none depends on who the visitor is. Before: every view of a character last fetched over ten
+  minutes ago ran a full fetch, a tier grading and a guild rebuild (5,700 a day on production, mostly automated).
+
+## Database load (0.11.1 hotfix: `stats/distribution.js`, `stats/stamp.js`, `stats/guildTop.js`, `worker/heavy.js`)
+
+Production's database ran at 2.7 to 7.5 cores all day (2026-11-20). Nothing was one slow query: every fetch and every
+page view recomputed whole boards from the raw rows, unchanged data was rewritten, and Postgres ran on stock settings.
+The rules that came out of it:
+
+- **Write only what changed.** A fetch reads the character's values before and after its writes (`stats/stamp.js`
+  `valuesOf` / `changedIds`). A statistic row is written only when its value (text, Blizzard date, realm category,
+  hidden) differs or its `fetched_at` is over `RESTAMP_DAYS` (7) old; gains are diff-written and only when a value
+  changed or the period's baseline moved; guild totals are diff-written. **`fetched_at` and `guild_totals.computed_at`
+  therefore UNDERSTATE freshness by up to 7 days, never overstate it** (the sweep deletes by them). If fetching
+  stopped altogether, statistic values would start being deleted after keep-days − 7 (**22 days**), not 29: earlier
+  than Blizzard requires, never later (the Data retention page says so). The sweep can't go by the character's own
+  fetch time instead: a row's source (collections, a feed) can stop being fetched while its character still is.
+- **Only a change sets later work in motion.** A guild is marked dirty when a member's values or gains changed or it
+  joined, left, came back or went missing, never on a check that changed nothing. A character is noted for grading
+  (`grading_queue`, `tiers/store.js noteForGrading`) only when a statistic its realm category COUNTS moved, its
+  standing changed (new, back from missing, crossed level 10, moved category) or it has no tier yet.
+- **Grading left the fetch.** The worker's `grade-queue` job grades noted characters in batches, never while a full
+  grading runs; a person waiting on a look-up is graded at once. Every tier row is an upsert (the per-fetch grading and
+  the full grading used to collide: 49 failed gradings with 23505). A failed full grading backs off (1 minute, doubling
+  to an hour: `failBackoffMs`) instead of starting over every 15 seconds.
+- **Precomputed ranks (Features → "Precomputed ranks", `features.precomputedRanks`, deployed OFF).** The worker's
+  `boards` job rebuilds, every `boards.refreshMinutes` (5) and only when a value changed, `board_values_{a|b}` (per
+  board and distinct value: how many hold it, how many are above), `board_counts_{a|b}` and `board_state` (the current
+  copy and each realm category's populations from the same pass). It fills the copy NOT in use and flips; the old copy
+  stays whole until the next build starts. UNLOGGED (no WAL; empty after a crash: readers fall back to direct counts).
+  A rank is one probe: 1 + (above + n) of the smallest stored value greater than the character's. **Accepted by the
+  owner (2026-11-20): overall ranks, "of N" and single-character tier percentiles are AS OF THE BUILD (pages say
+  "Ranks as of HH:MM", `ranksAsOf`); a value that FELL since the build can read one place low until the next build.**
+  Full gradings read raw values and stay exact. Weekly and rolling boards, and any filtered board, are always counted
+  directly. `guild_board_top` (the top ten of every guild board, one window pass for everyone) feeds the guild
+  badges' placements; a guild PAGE's own placements stay direct. With the switch off everything is counted directly,
+  as before 0.11.1. `server/test/distribution.test.js` compares both paths; `node server/tools/rank-parity.js` does it
+  on real data (read-only).
+- **Pools and limits.** Web: `db` (accounts, admin; no timeout, some admin work is long on purpose) and `pageDb` (the
+  public read pages; each statement cancelled after 20 s). Worker: 6 connections, at most `db.heavyConcurrent` (2)
+  heavy aggregates at once. Pools are named (`application_name`: everstats-web, everstats-web-pages, everstats-worker).
+- **Postgres settings are set on purpose** in the compose files (`command: postgres -c …`, held by
+  `compose-guard.test.js`): production shared_buffers 8 GB (a shared 60 GB host), work_mem 32 MB, random_page_cost 1.1,
+  jit off, idle-in-transaction 60 s, `shm_size: 1gb` (parallel queries allocate in /dev/shm), `stop_grace_period`.
+  The distribution build sets its own `work_mem` (256 MB) for its transaction. Dev's stay small. Changing the list
+  recreates the database container on the next deploy. `pg_stat_statements` is preloaded; the extension is created
+  once by hand (RELEASING.md).
+- **`pin-ranks` runs once a UTC day** (it stores one row per day; it ran every 30 minutes). Pins and the Collections
+  tab read all their ranks in one query (`ranksOnMany`).
+- **Not done here, planned as 0.11.2:** the board trim (equipment and other feed boards: 62 % of the statistic rows).
+  And still open: the data folder is on btrfs with copy-on-write (one extent per page on the board index).
 
 ## Game versions and regions (0.10.0: `server/core/gameVersions.js`, `core/localIds.js`, `core/versionRoutes.js`)
 
@@ -498,7 +555,8 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   listed. Hidden characters appear nowhere and count toward nothing; hiding one rebuilds its guild at once.
 - **Guild totals** (`guild_totals`, `guild_populations`): per guild, statistic and period, the total and average of its
   members' values (overall) or gains (week, rolling). Built by the worker job `guild-totals` (dirty guilds, the week
-  rolling over, or older than 6 hours), never per request, never from an extra Blizzard request.
+  rolling over, or older than a day: daily since 0.11.1, the owner's decision; every real change still marks its guild),
+  never per request, never from an extra Blizzard request.
 - **Guild boards:** total (default) or average, same periods, zero never ranked, ties share. A guild page lists a
   board under "On the guild boards" only from `guilds.minBoardGuilds` (default 3) ranked guilds (0.6.0). A guild is ranked only with
   `guilds.minMembers` (admin setting, default 5) counted members; below that it is "Not ranked yet: needs N tracked
@@ -768,6 +826,9 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   - **Turning 2FA off deletes the secret and recovery codes.** Reason: a stale secret is a liability.
   - **Finished crawl-queue items** (`crawl_queue`) are deleted an hour after they finish. Reason: they are work orders;
     what they fetched lives in the character tables, and request counts in `crawler_hours` (kept forever).
+  - **A grading-queue note** (`grading_queue`, 0.11.1) is deleted when its character is graded, or when a full grading
+    that started after it finishes. Reason: a work order of an id and a time; the grading it asked for is in the tier
+    tables and `tier_runs`.
   - **A partner badge logo is replaced or removed** when the admin saves a new one or removes it (0.10.4, `badge_logos`;
     0.7.0's marks moved there); the old image bytes are overwritten or deleted, `admin_events` and `badge_events` keep
     that it changed and the permission note, and an unsaved upload is discarded on Cancel. Reason: only the logo in use is
@@ -851,7 +912,11 @@ Never add an `if (provider === 'discord')` or a hardcoded list in a route or a p
   404s after being fetched is "missing": off every board at once, its page says "Blizzard hasn't returned this character
   since {date}", never its old values. Statistic names age out too (name NULL → "no longer available", never invented).
 - Characters are fully refetched at least every 7 days (`FULL_REFRESH_DAYS`) even when unchanged, so live data never
-  ages out; icons are refetched past 30 days on the next fetch that needs them.
+  ages out; icons are refetched past 30 days on the next fetch that needs them. That is a rule of the daily CHECK
+  (`crawler/fetch.js`: a check older than 7 days since the last full fetch becomes one), so it holds only while the
+  daily refresh keeps up; on 2026-11-20 it reached 59 % of characters a day and 6.5 % were past 6 days.
+  0.11.1: an unchanged statistic row keeps its stamp for up to 7 days (see "Database load"), so in a total stop of
+  fetching the first rows go after 22 days, not 29.
 - Logs hold no Blizzard values (ids and HTTP statuses only). Discovery exports downloaded by the owner are copies of
   Blizzard data: delete them within 30 days (the Discovery page says so).
 

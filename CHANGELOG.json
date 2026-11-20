@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.11.1",
+      "date": "2026-11-20",
+      "title": "Faster pages, and far less background work",
+      "kind": "hotfix",
+      "sections": {
+        "Improved": [
+          "Leaderboards and ranks load faster, and the site does far less background work: character pages open at once from what Everstats already has, and the Refresh button asks Blizzard for a fresh copy."
+        ]
+      }
+    },
+    {
       "version": "0.11.0",
       "date": "2026-11-10",
       "title": "Partner badge logos, tidier leaderboards and profiles",

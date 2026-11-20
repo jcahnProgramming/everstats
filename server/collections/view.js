@@ -1,4 +1,4 @@
-import { rankOn } from '../stats/boards.js';
+import { ranksAsOf, ranksOnMany } from '../stats/boards.js';
 import { catalogMap, catalogTotals } from './catalog.js';
 import { legacyAccountWide, legacyOf, legacyPointsOf } from './legacy.js';
 import { COUNTS, KINDS, SLOT_GROUPS, familyOf, kindById, slotGroup, slotLabels } from './registry.js';
@@ -48,6 +48,15 @@ export async function collectionsOverview(db, ch) {
   const ranked = ch.ruleset_id !== null && !ch.hidden;
   const values = new Map((await db.query('SELECT statistic_id, value FROM character_statistics WHERE character_id = $1 AND statistic_id = ANY($2::bigint[])', [ch.id, COUNTS.map((c) => c.id)])).map((r) => [Number(r.statistic_id), r.value]));
   const registered = new Set((await db.query('SELECT id FROM statistics WHERE id = ANY($1::bigint[]) AND name IS NOT NULL', [COUNTS.map((c) => c.id)])).map((r) => Number(r.id)));
+  // 0.11.1: the ranks of every count and family board in one go (up to 300 boards; it was four queries each).
+  const fam = await db.query(
+    `SELECT s.id, s.name, s.derived, cs.value FROM character_statistics cs JOIN statistics s ON s.id = cs.statistic_id
+      WHERE cs.character_id = $1 AND s.derived LIKE '%:%' AND s.name IS NOT NULL ORDER BY s.name LIMIT 300`,
+    [ch.id],
+  );
+  const ranks = ranked
+    ? await ranksOnMany(db, { characterId: ch.id, rulesetId: ch.ruleset_id, statisticIds: [...COUNTS.filter((c) => (values.get(c.id) ?? 0) > 0).map((c) => c.id), ...fam.map((f) => Number(f.id))] })
+    : new Map();
   const counts = [];
   for (const c of COUNTS) {
     const row = rows.get(c.kind);
@@ -59,7 +68,7 @@ export async function collectionsOverview(db, ch) {
     if (c.kind === 'heirlooms' && !(totals.heirloom > 0) && !row?.data) continue;
     const known = Boolean(row?.data) && (c.key !== 'legacy' || achCat.size > 0);
     const value = known ? values.get(c.id) ?? 0 : null;
-    const rk = ranked && known && value > 0 ? await rankOn(db, { characterId: ch.id, statisticId: c.id, rulesetId: ch.ruleset_id }) : null;
+    const rk = ranked && known && value > 0 ? ranks.get(Number(c.id)) ?? null : null;
     counts.push({
       key: c.key, id: c.id, name: c.name, short: c.short, kind: c.kind, value, total: c.catalog ? totals[c.catalog] ?? null : null,
       rank: rk?.rank ?? null, withAny: rk?.withAny ?? null, fetchedAt: row?.fetchedAt ?? null, board: registered.has(c.id),
@@ -71,18 +80,14 @@ export async function collectionsOverview(db, ch) {
     .map((k) => ({ id: k.id, label: k.label, ...sectionState(rows.get(k.id)), summary: summarise(k.id, rows.get(k.id)?.data, totals), shared: kindById.get(k.id).detect ? sharedKinds.has(k.id) : false }));
   const legacy = rows.get('achievements')?.data && achCat.size ? legacyOf(earned, achCat) : null;
   // 0.9.1: this character's boards per achievement category, transmog slot, instance and PvP field (values above zero).
-  const fam = await db.query(
-    `SELECT s.id, s.name, s.derived, cs.value FROM character_statistics cs JOIN statistics s ON s.id = cs.statistic_id
-      WHERE cs.character_id = $1 AND s.derived LIKE '%:%' AND s.name IS NOT NULL ORDER BY s.name LIMIT 300`,
-    [ch.id],
-  );
   const familyBoards = [];
   for (const f of fam) {
-    const rk = ranked ? await rankOn(db, { characterId: ch.id, statisticId: Number(f.id), rulesetId: ch.ruleset_id }) : null;
+    const rk = ranked ? ranks.get(Number(f.id)) ?? null : null;
     familyBoards.push({ id: Number(f.id), name: f.name, family: String(f.derived).split(':')[0], value: f.value, rank: rk?.rank ?? null, withAny: rk?.withAny ?? null });
   }
   return {
     fetchedAt: ch.collections_fetched_at, catalogs: totals, counts, sections, ranked, familyBoards,
+    ranksAsOf: ranked ? await ranksAsOf(db) : null,
     legacy: legacy ? { points: legacy.points, achievements: legacy.earning.length, accountWide: legacyWide } : null,
   };
 }

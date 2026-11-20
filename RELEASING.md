@@ -88,6 +88,19 @@ When dev has been good for a while (usually a couple of builds):
 12. `git push origin dev`, then wait for Deploy dev to go green
 13. `git branch -d hotfix-short-name`
 
+## Postgres settings (0.11.1)
+
+Both databases' settings are in the compose files (`command: postgres -c …`). Changing that list makes the next deploy
+recreate the database container (a restart of under a minute, inside the deploy, with a 120-second clean stop); the
+deploy's health check waits for it. Nothing in `.env` changes.
+
+`pg_stat_statements` is preloaded by those settings. Create the extension once per database, on the host:
+
+- Production: `docker exec -i everstats-db psql -U everstats -d everstats -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"`
+- Dev: `docker exec -i everstats-dev-db psql -U everstats_dev -d everstats_dev -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"`
+
+It records query shapes with their constants removed (no values), and only a database superuser can read it.
+
 ## Roll back
 
 Both deploys build the new image BEFORE anything restarts, and keep the running one as `everstats:previous` /

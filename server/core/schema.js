@@ -2067,4 +2067,84 @@ export const migrations = [
                       WHERE mark IS NOT NULL OR mark_pending IS NOT NULL`);
     },
   },
+  {
+    // 0.11.1 (hotfix): the database was busy all day recomputing whole boards for every fetch and every page view.
+    //   board_values_a/b   per board (realm category + statistic) and distinct value above zero: how many visible
+    //                      characters hold it (n) and how many are strictly above it (above). A rank with ties is one
+    //                      index probe: 1 + (above + n) of the smallest value greater than the character's.
+    //   board_counts_a/b   per board: how many have any, the highest and the lowest value.
+    //   board_state        which of the two copies is current, when it was built, and each realm category's populations
+    //                      counted in the same pass (so a rank and its "of N" never disagree).
+    //   guild_board_top    per guild board and mode: the ten best guilds and how many are ranked (the guild badges).
+    // All are rebuilt whole from current Blizzard-derived values every few minutes (stats/distribution.js), into the
+    // copy that is not in use, so nothing is ever updated in place: UNLOGGED (no WAL; empty after a crash, and every
+    // reader then falls back to counting directly until the next build).
+    //   grading_queue      characters whose tier-counted values changed, waiting for the worker's batch grading (ours:
+    //                      a work order of ids, like crawl_queue).
+    // The big tables' autovacuum is set per table: at the default 20 % a table of 26 million rows waited for 5 million
+    // dead rows, and the visibility map behind every index-only rank count was stale in between.
+    id: '032_board_distributions',
+    async up(q) {
+      for (const g of ['a', 'b']) {
+        await q.query(`
+          CREATE UNLOGGED TABLE board_values_${g} (
+            ruleset_id    integer NOT NULL,
+            statistic_id  bigint NOT NULL,
+            value         double precision NOT NULL,
+            n             integer NOT NULL,
+            above         integer NOT NULL,
+            built_at      timestamptz NOT NULL,
+            PRIMARY KEY (ruleset_id, statistic_id, value)
+          );
+          CREATE UNLOGGED TABLE board_counts_${g} (
+            ruleset_id    integer NOT NULL,
+            statistic_id  bigint NOT NULL,
+            nonzero       integer NOT NULL,
+            max           double precision NOT NULL,
+            min           double precision NOT NULL,
+            built_at      timestamptz NOT NULL,
+            PRIMARY KEY (ruleset_id, statistic_id)
+          );
+        `);
+      }
+      await q.query(`
+        CREATE UNLOGGED TABLE board_state (
+          id           smallint PRIMARY KEY CHECK (id = 1),
+          gen          text NOT NULL CHECK (gen IN ('a', 'b')),
+          started_at   timestamptz NOT NULL,
+          built_at     timestamptz NOT NULL,
+          ms           integer NOT NULL,
+          value_rows   integer NOT NULL,
+          populations  jsonb NOT NULL DEFAULT '{}'
+        );
+        CREATE UNLOGGED TABLE guild_board_top (
+          period        text NOT NULL,
+          period_start  timestamptz NOT NULL,
+          ruleset_id    integer NOT NULL,
+          statistic_id  bigint NOT NULL,
+          mode          text NOT NULL CHECK (mode IN ('total', 'average')),
+          guild_id      bigint NOT NULL,
+          rank          integer NOT NULL,
+          ranked        integer NOT NULL,
+          min_members   integer NOT NULL,
+          built_at      timestamptz NOT NULL,
+          PRIMARY KEY (period, period_start, ruleset_id, statistic_id, mode, guild_id)
+        );
+        CREATE INDEX guild_board_top_guild ON guild_board_top (guild_id, built_at);
+        CREATE INDEX guild_board_top_built ON guild_board_top (built_at);
+
+        CREATE TABLE grading_queue (
+          character_id  bigint PRIMARY KEY,
+          queued_at     timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX grading_queue_time ON grading_queue (queued_at, character_id);
+
+        ALTER TABLE character_statistics SET (autovacuum_vacuum_scale_factor = 0.02, autovacuum_analyze_scale_factor = 0.02, autovacuum_vacuum_insert_scale_factor = 0.02);
+        ALTER TABLE stat_gains SET (autovacuum_vacuum_scale_factor = 0.02, autovacuum_analyze_scale_factor = 0.02, autovacuum_vacuum_insert_scale_factor = 0.02);
+        ALTER TABLE guild_totals SET (autovacuum_vacuum_scale_factor = 0.05, autovacuum_analyze_scale_factor = 0.05);
+        ALTER TABLE character_tiers SET (autovacuum_vacuum_scale_factor = 0.05, autovacuum_analyze_scale_factor = 0.05);
+        ALTER TABLE character_category_tiers SET (autovacuum_vacuum_scale_factor = 0.05, autovacuum_analyze_scale_factor = 0.05);
+      `);
+    },
+  },
 ];

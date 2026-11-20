@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { Icon } from '../chrome/Icon.jsx';
 import { Segmented, Toggle } from '../components/Controls.jsx';
-import { Provenance } from '../components/EmptyState.jsx';
+import { Provenance, RanksAsOf } from '../components/EmptyState.jsx';
 import { useToasts } from '../components/Toasts.jsx';
 import { formatDate, formatNumber, timeAgo } from '../format.js';
 import { useSession } from '../session.jsx';
@@ -102,6 +102,7 @@ export function CollectionsView({ character: c, screen = '' }) {
         : <Screen id={current.id} label={current.label} data={data} character={c} refreshing={data.refreshing} onRetry={load} />}
       <Provenance source="Blizzard Entertainment’s game data API: character collections, achievements, reputations, professions, encounters, quests, PvP summary, and the static catalogs (every mount, pet, toy, title, achievement and appearance)" fetchedAt={data.fetchedAt}>
         <span className="muted">Collections refresh weekly, at sign-in, and when someone opens this tab on data older than a day.</span>
+        <RanksAsOf at={data.ranksAsOf} />
       </Provenance>
     </div>
   );

@@ -4,6 +4,7 @@ import { currentGuildMaster } from '../guilds/manage.js';
 import { loadCatalog } from '../stats/catalog.js';
 import { guildPeriodStart } from '../stats/guildBoards.js';
 import { OVERALL_START, TRACKED_MEMBER } from '../stats/guildTotals.js';
+import { ensureGuildTop, topPlacements } from '../stats/guildTop.js';
 import { LETTER_POINTS, STRONG_ROSTER_MIN, TOP_TEN } from './catalog.js';
 import { guildBadgeContext, hold, levelFor, loadGuildDefinitions, logGuildBadgeEvent, lose, raiseLevel } from './store.js';
 
@@ -26,7 +27,10 @@ import { guildBadgeContext, hold, levelFor, loadGuildDefinitions, logGuildBadgeE
  */
 
 /** Ranks of a guild on every board of its ruleset in one period, both modes. Only boards with ≥ minBoardGuilds ranked. */
-async function placements(db, { guildId, rulesetId, period, minMembers, minBoardGuilds }) {
+export async function placements(db, { guildId, rulesetId, period, minMembers, minBoardGuilds, top = false }) {
+  // 0.11.1: from the precomputed top of every guild board (stats/guildTop.js) when it is current. The rules below only
+  // ever ask "is it #1" and "is it in the top ten", so the top ten per board is all they need. Else counted directly.
+  if (top) return (await topPlacements(db, { guildId, rulesetId, period })).filter((r) => r.ranked >= minBoardGuilds);
   const start = guildPeriodStart(period);
   const rows = await db.query(
     `SELECT t.statistic_id,
@@ -59,7 +63,7 @@ const boardsWhere = (rows, rulesetId, period, test) => {
  * Everything the rules need about one guild, read once. Also what the guild page shows as progress (`values`).
  *   values: Map(badgeId → number | null)   null = not measured yet (totals not built)
  */
-export async function guildFacts(db, guild, { defs, ctx, classes, statIds }) {
+export async function guildFacts(db, guild, { defs, ctx, classes, statIds, top = false }) {
   const rs = guild.ruleset_id;
   const members = rs === null ? 0 : (await db.one(`SELECT count(*)::int AS n FROM characters c WHERE ${TRACKED_MEMBER}`, [guild.id, rs])).n;
   const built = Boolean(guild.totals_built_at);
@@ -83,9 +87,9 @@ export async function guildFacts(db, guild, { defs, ctx, classes, statIds }) {
     `SELECT DISTINCT c.class FROM characters c WHERE ${TRACKED_MEMBER} AND c.level >= 10 AND c.class IS NOT NULL LIMIT 100`,
     [guild.id, rs],
   )).map((r) => r.class);
-  const overall = rs === null || !built ? [] : await placements(db, { guildId: guild.id, rulesetId: rs, period: 'overall', minMembers: ctx.minMembers, minBoardGuilds: ctx.minBoardGuilds });
+  const overall = rs === null || !built ? [] : await placements(db, { guildId: guild.id, rulesetId: rs, period: 'overall', minMembers: ctx.minMembers, minBoardGuilds: ctx.minBoardGuilds, top });
   // The weekly boards say "Collecting data" until snapshots began before the week did: no Weekly Champion before then.
-  const week = rs === null || !built || !ctx.weekOpen ? [] : await placements(db, { guildId: guild.id, rulesetId: rs, period: 'week', minMembers: ctx.minMembers, minBoardGuilds: ctx.minBoardGuilds });
+  const week = rs === null || !built || !ctx.weekOpen ? [] : await placements(db, { guildId: guild.id, rulesetId: rs, period: 'week', minMembers: ctx.minMembers, minBoardGuilds: ctx.minBoardGuilds, top });
   const letters = rs === null ? [] : await db.query(
     `SELECT t.letter FROM characters c JOIN character_tiers t ON t.character_id = c.id WHERE ${TRACKED_MEMBER} AND t.letter IS NOT NULL LIMIT 5000`,
     [guild.id, rs],
@@ -144,7 +148,10 @@ export async function evaluationInputs(db) {
   const ctx = await guildBadgeContext(db);
   const classes = await classList(db, await loadPlayerDefinitions(db));
   const statIds = await statIdsByName(db);
-  return { defs, ctx, classes, statIds };
+  // 0.11.1: whether the precomputed top of the guild boards is on and current (built here when it may be). Not current
+  // and too soon to rebuild: this evaluation counts directly, which is always right, only slower.
+  const t = await ensureGuildTop(db);
+  return { defs, ctx, classes, statIds, top: Boolean(t.on && t.ready) };
 }
 
 /** Brings one guild's automatic badges up to date. → { changed: [{ badge, what }] } */

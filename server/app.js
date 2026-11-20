@@ -46,7 +46,7 @@ import { createMaintenanceRouter } from './release/maintenance.js';
  *   and keep the list for the admin page, core/network.js)
  * @param {object} [opts.renderer] the share-card renderer (cards/render.js); tests pass a fake
  */
-export function createApp({ db, now = Date.now, fetch = globalThis.fetch, trustedProxies = process.env.TRUSTED_PROXIES, onHeader = logHeaderSources(), renderer = null, environment = ENVIRONMENT } = {}) {
+export function createApp({ db, pageDb = db, now = Date.now, fetch = globalThis.fetch, trustedProxies = process.env.TRUSTED_PROXIES, onHeader = logHeaderSources(), renderer = null, environment = ENVIRONMENT } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(securityHeaders({ hsts: config.secureCookies }));
@@ -125,12 +125,15 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   // 0.10.3: the maintenance banner players see (release/maintenance.js; set from Admin → Release tools). Public.
   app.use('/api', createMaintenanceRouter({ db }));
   // Character lookups, leaderboards, the statistics catalog, coverage and the beta (characters/routes.js).
-  app.use('/api', createPublicRouter({ db, limits, networkOf }));
+  // 0.11.1: the public READ pages (characters, boards, guilds, tiers, collections, share cards, link previews) use
+  // `pageDb`: in production a pool of their own with a statement timeout (server/index.js), so a slow page can neither
+  // wait behind nor starve sign-ins, settings and the admin. Everywhere else (tests, local) it is the same pool.
+  app.use('/api', createPublicRouter({ db: pageDb, limits, networkOf }));
   // Guild pages, guild boards, the guild index and search (guilds/routes.js, 0.5.0).
-  app.use('/api', createGuildRouter({ db, limits, networkOf }));
+  app.use('/api', createGuildRouter({ db: pageDb, limits, networkOf }));
   // 0.9.0: "Fetch all members" on guild pages (guilds/fetchRoutes.js).
   app.use('/api', createGuildFetchRouter({ db, limits, networkOf }));
-  app.use('/api', createTierRouter({ db }));
+  app.use('/api', createTierRouter({ db: pageDb }));
   // Badges (0.7.0): badge pages, partner marks, and the player's badge settings and toasts.
   app.use('/api', createBadgeRouter({ db, limits, networkOf }));
   // Guild page management (0.7.0): the Guild Master's and officers' panel, "Report this link", "Your guilds".
@@ -141,9 +144,9 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   // 0.8.2: the ban notice and appeal, moderation notices (warnings), and "Report" on profiles and guild descriptions.
   app.use('/api', createModerationPlayerRouter({ db, limits, networkOf }));
   // 0.8.0: share cards (the maker's state, "Save as my default").
-  app.use('/api', createCardApiRouter({ db, limits, networkOf }));
+  app.use('/api', createCardApiRouter({ db: pageDb, limits, networkOf }));
   // 0.9.0: collections, the transmog tracker, Legacy Points and opt-in gold (collections/routes.js).
-  app.use('/api', createCollectionsRouter({ db, limits, networkOf }));
+  app.use('/api', createCollectionsRouter({ db: pageDb, limits, networkOf }));
   // 0.9.1: "Your guilds" on the home page, and "Pin to dashboard" on guild pages (guilds/follow.js).
   app.use('/api', createFollowRouter({ db, limits, networkOf }));
 
@@ -164,7 +167,7 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
   app.use('/auth', createCallbackRouter({ db, fetch }));
 
   // 0.8.0: share-card images (/card.png for the maker, /og/… for link previews).
-  app.use(createCardImageRouter({ db, limits, networkOf, fetch, renderer: cards }));
+  app.use(createCardImageRouter({ db: pageDb, limits, networkOf, fetch, renderer: cards }));
 
   // Serve the built client (production / Docker). In dev, Vite serves it instead.
   if (existsSync(config.clientDist)) {
@@ -173,7 +176,7 @@ export function createApp({ db, now = Date.now, fetch = globalThis.fetch, truste
     // so they are revalidated on every use: no-cache (an ETag answer is cheap). Hashed /assets stay immutable for a year.
     app.use(express.static(config.clientDist, { index: false, setHeaders: (res) => res.set('Cache-Control', 'no-cache') }));
     // 0.8.0: every page gets its link-preview tags (cards/meta.js); pages with a card get its image.
-    app.get('/{*splat}', spaWithPreviews(db));
+    app.get('/{*splat}', spaWithPreviews(pageDb));
   }
 
   app.use(createErrorHandler('web'));

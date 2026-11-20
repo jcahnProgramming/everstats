@@ -13,8 +13,17 @@ pg.types.setTypeParser(20, (v) => Number(v));
  *   db.one(sql, params)     → first row or null
  *   db.tx(async (q) => …)   → runs fn inside BEGIN/COMMIT on one connection; q has query/one too
  */
-export function createDb({ url = config.databaseUrl, max = 10 } = {}) {
-  const pool = new pg.Pool({ connectionString: url, max, idleTimeoutMillis: 30_000 });
+/**
+ * 0.11.1: `applicationName` shows in pg_stat_activity (which process a query came from); `statementTimeoutMs` is a
+ * server-side limit on every statement of this pool (the web app's page pool: a page that would hold a connection for
+ * longer than that is cancelled instead of piling up behind the others).
+ */
+export function createDb({ url = config.databaseUrl, max = 10, applicationName = null, statementTimeoutMs = null } = {}) {
+  const pool = new pg.Pool({
+    connectionString: url, max, idleTimeoutMillis: 30_000,
+    ...(applicationName ? { application_name: applicationName } : {}),
+    ...(statementTimeoutMs ? { statement_timeout: statementTimeoutMs } : {}),
+  });
   // An idle client losing its connection (the database restarting) must not crash the process.
   pool.on('error', (err) => console.error(`[db] idle connection error: ${err.code ?? err.name}`));
 
